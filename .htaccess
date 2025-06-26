@@ -1,41 +1,15 @@
-# Sistema de Boletos IMED - Configuração Apache
-# Arquivo: public/.htaccess
+# Sistema de Boletos IMED - Configuração Apache Melhorada
+# Arquivo: .htaccess
 
 # Habilita rewrite engine
 RewriteEngine On
 
+# Define diretório base (ajuste se necessário)
+RewriteBase /
+
 # Força HTTPS (descomente em produção)
 # RewriteCond %{HTTPS} off
 # RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
-
-# Remove .php das URLs
-RewriteCond %{REQUEST_FILENAME} !-d
-RewriteCond %{REQUEST_FILENAME} !-f
-RewriteRule ^([^\.]+)$ $1.php [NC,L]
-
-# Página inicial
-DirectoryIndex index.php
-
-# Bloqueia acesso a arquivos sensíveis
-<FilesMatch "\.(ini|log|conf|sql|bak|backup)$">
-    Order allow,deny
-    Deny from all
-</FilesMatch>
-
-# Bloqueia acesso a pastas de configuração
-RedirectMatch 404 /\..*$
-<Directory "config">
-    Order allow,deny
-    Deny from all
-</Directory>
-<Directory "src">
-    Order allow,deny
-    Deny from all
-</Directory>
-<Directory "logs">
-    Order allow,deny
-    Deny from all
-</Directory>
 
 # Headers de segurança
 <IfModule mod_headers.c>
@@ -44,19 +18,65 @@ RedirectMatch 404 /\..*$
     Header always set X-XSS-Protection "1; mode=block"
     Header always set Referrer-Policy "strict-origin-when-cross-origin"
     
+    # CORS para API
+    Header always set Access-Control-Allow-Origin "*"
+    Header always set Access-Control-Allow-Methods "GET, POST, OPTIONS"
+    Header always set Access-Control-Allow-Headers "Content-Type, Authorization"
+    
     # HSTS (descomente em produção com HTTPS)
     # Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains"
 </IfModule>
+
+# Bloqueia acesso a arquivos sensíveis
+<FilesMatch "\.(ini|log|conf|sql|bak|backup|env)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# Bloqueia acesso a pastas de configuração
+<DirectoryMatch "/(config|src|logs|vendor)/.*">
+    Order allow,deny
+    Deny from all
+</DirectoryMatch>
+
+# Permite acesso à API
+<Directory "api">
+    Order allow,deny
+    Allow from all
+    
+    # Headers específicos para API
+    <IfModule mod_headers.c>
+        Header always set Content-Type "application/json"
+    </IfModule>
+</Directory>
+
+# Regras específicas para arquivos PHP da API
+<Files "api/*.php">
+    Order allow,deny
+    Allow from all
+</Files>
+
+# Permite acesso a arquivos de debug (remover em produção)
+<FilesMatch "^(debug_|teste_|diagnostico|corrigir_banco).*\.php$">
+    Order allow,deny
+    Allow from all
+</FilesMatch>
 
 # Configurações de PHP
 <IfModule mod_php.c>
     php_flag display_errors Off
     php_flag log_errors On
     php_value error_log "/var/log/php_errors.log"
-    php_value max_execution_time 30
-    php_value memory_limit 256M
+    php_value max_execution_time 60
+    php_value memory_limit 512M
     php_value upload_max_filesize 10M
     php_value post_max_size 10M
+    php_value max_input_vars 3000
+</IfModule>
+
+# Configurações específicas para desenvolvimento
+<IfModule mod_env.c>
+    SetEnv ENVIRONMENT development
 </IfModule>
 
 # Compressão GZIP
@@ -70,6 +90,7 @@ RedirectMatch 404 /\..*$
     AddOutputFilterByType DEFLATE application/rss+xml
     AddOutputFilterByType DEFLATE application/javascript
     AddOutputFilterByType DEFLATE application/x-javascript
+    AddOutputFilterByType DEFLATE application/json
 </IfModule>
 
 # Cache de arquivos estáticos
@@ -85,19 +106,87 @@ RedirectMatch 404 /\..*$
     ExpiresByType image/icon "access plus 1 month"
     ExpiresByType text/x-icon "access plus 1 month"
     ExpiresByType application/x-icon "access plus 1 month"
+    
+    # Cache curto para arquivos PHP
+    ExpiresByType text/html "access plus 1 hour"
+    ExpiresByType application/json "access plus 5 minutes"
 </IfModule>
+
+# URLs amigáveis - rotas específicas do sistema
+RewriteRule ^login/?$ login.php [L]
+RewriteRule ^logout/?$ logout.php [L]
+RewriteRule ^dashboard/?$ dashboard.php [L]
+RewriteRule ^admin/?$ admin/dashboard.php [L]
+RewriteRule ^boleto/([0-9]+)/?$ boleto.php?id=$1 [L]
+
+# API routes
+RewriteRule ^api/atualizar-dados/?$ api/atualizar_dados.php [L]
+RewriteRule ^api/([a-zA-Z_]+)/?$ api/$1.php [L]
+
+# Remove .php das URLs para arquivos públicos
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_URI} !^/api/
+RewriteCond %{REQUEST_URI} !^/(config|src|logs|vendor)/
+RewriteRule ^([^\.]+)$ $1.php [NC,L]
+
+# Página inicial
+DirectoryIndex index.php
+
+# Tratamento de erros personalizados
+ErrorDocument 404 /404.php
+ErrorDocument 500 /500.php
+ErrorDocument 403 /403.php
+
+# Logs personalizados (descomente se necessário)
+# LogLevel warn
+# CustomLog /var/log/apache2/boletos_access.log combined
+# ErrorLog /var/log/apache2/boletos_error.log
 
 # Configurações de segurança adicionais
 ServerSignature Off
 
-# Evita acesso direto a arquivos PHP em pastas específicas
-<Files "*.php">
-    <RequireAll>
-        Require all granted
-    </RequireAll>
-</Files>
+# Evita ataques de injeção
+<IfModule mod_rewrite.c>
+    RewriteCond %{QUERY_STRING} (\<|%3C).*script.*(\>|%3E) [NC,OR]
+    RewriteCond %{QUERY_STRING} GLOBALS(=|\[|\%[0-9A-Z]{0,2}) [OR]
+    RewriteCond %{QUERY_STRING} _REQUEST(=|\[|\%[0-9A-Z]{0,2}) [OR]
+    RewriteCond %{QUERY_STRING} \.\./\.\./\.\./\.\./\.\./\.\./\.\./\.\./\.\./ [OR]
+    RewriteCond %{QUERY_STRING} ^.*(127\.0\.0\.1).* [OR]
+    RewriteCond %{QUERY_STRING} ^.*(localhost).* [OR]
+    RewriteCond %{QUERY_STRING} ^.*(\<|%3C).*script.*(\>|%3E).* [OR]
+    RewriteCond %{QUERY_STRING} ^.*(\<|%3C).*iframe.*(\>|%3E).* [OR]
+    RewriteCond %{QUERY_STRING} ^.*(\<|%3C).*object.*(\>|%3E).*
+    RewriteRule ^(.*)$ - [F,L]
+</IfModule>
 
-# Permite acesso apenas a arquivos PHP na raiz
-<LocationMatch "^/(config|src|logs|vendor)/">
-    Require all denied
-</LocationMatch>
+# Limita tamanho de requisições
+LimitRequestBody 10485760
+
+# Configurações específicas para diferentes ambientes
+<IfModule mod_setenvif.c>
+    SetEnvIf Host "localhost" development
+    SetEnvIf Host "\.local$" development
+    SetEnvIf Host "\.dev$" development
+    SetEnvIf Host "\.test$" testing
+</IfModule>
+
+# Configurações condicionais para desenvolvimento
+<If "%{ENV:development} == '1'">
+    # Em desenvolvimento, permite ver erros
+    php_flag display_errors On
+    php_value error_reporting "E_ALL"
+</If>
+
+# Otimizações adicionais
+<IfModule mod_mime.c>
+    # Força UTF-8 para arquivos de texto
+    AddDefaultCharset utf-8
+    AddCharset utf-8 .css .js .xml .json .rss .atom
+</IfModule>
+
+# Configuração para WebSockets (se necessário futuramente)
+<IfModule mod_proxy.c>
+    # ProxyPass /ws/ ws://localhost:3000/
+    # ProxyPassReverse /ws/ ws://localhost:3000/
+</IfModule>
