@@ -1,0 +1,103 @@
+# Sistema de Boletos IMED - Configuração Apache
+# Arquivo: public/.htaccess
+
+# Habilita rewrite engine
+RewriteEngine On
+
+# Força HTTPS (descomente em produção)
+# RewriteCond %{HTTPS} off
+# RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+# Remove .php das URLs
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteRule ^([^\.]+)$ $1.php [NC,L]
+
+# Página inicial
+DirectoryIndex index.php
+
+# Bloqueia acesso a arquivos sensíveis
+<FilesMatch "\.(ini|log|conf|sql|bak|backup)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# Bloqueia acesso a pastas de configuração
+RedirectMatch 404 /\..*$
+<Directory "config">
+    Order allow,deny
+    Deny from all
+</Directory>
+<Directory "src">
+    Order allow,deny
+    Deny from all
+</Directory>
+<Directory "logs">
+    Order allow,deny
+    Deny from all
+</Directory>
+
+# Headers de segurança
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options nosniff
+    Header always set X-Frame-Options DENY
+    Header always set X-XSS-Protection "1; mode=block"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    
+    # HSTS (descomente em produção com HTTPS)
+    # Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains"
+</IfModule>
+
+# Configurações de PHP
+<IfModule mod_php.c>
+    php_flag display_errors Off
+    php_flag log_errors On
+    php_value error_log "/var/log/php_errors.log"
+    php_value max_execution_time 30
+    php_value memory_limit 256M
+    php_value upload_max_filesize 10M
+    php_value post_max_size 10M
+</IfModule>
+
+# Compressão GZIP
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/plain
+    AddOutputFilterByType DEFLATE text/html
+    AddOutputFilterByType DEFLATE text/xml
+    AddOutputFilterByType DEFLATE text/css
+    AddOutputFilterByType DEFLATE application/xml
+    AddOutputFilterByType DEFLATE application/xhtml+xml
+    AddOutputFilterByType DEFLATE application/rss+xml
+    AddOutputFilterByType DEFLATE application/javascript
+    AddOutputFilterByType DEFLATE application/x-javascript
+</IfModule>
+
+# Cache de arquivos estáticos
+<IfModule mod_expires.c>
+    ExpiresActive on
+    ExpiresByType text/css "access plus 1 month"
+    ExpiresByType application/javascript "access plus 1 month"
+    ExpiresByType image/png "access plus 1 month"
+    ExpiresByType image/jpg "access plus 1 month"
+    ExpiresByType image/jpeg "access plus 1 month"
+    ExpiresByType image/gif "access plus 1 month"
+    ExpiresByType image/ico "access plus 1 month"
+    ExpiresByType image/icon "access plus 1 month"
+    ExpiresByType text/x-icon "access plus 1 month"
+    ExpiresByType application/x-icon "access plus 1 month"
+</IfModule>
+
+# Configurações de segurança adicionais
+ServerSignature Off
+
+# Evita acesso direto a arquivos PHP em pastas específicas
+<Files "*.php">
+    <RequireAll>
+        Require all granted
+    </RequireAll>
+</Files>
+
+# Permite acesso apenas a arquivos PHP na raiz
+<LocationMatch "^/(config|src|logs|vendor)/">
+    Require all denied
+</LocationMatch>
