@@ -32,11 +32,7 @@ if (!isset($_POST['test_cpf'])) {
                     <option value="tucurui.imepedu.com.br">Tucuruí</option>
                     <option value="breubranco.imepedu.com.br">Breu Branco</option>
                     <option value="moju.imepedu.com.br">Moju</option>
-                    <option value="altamira.imepedu.com.br">Altamira</option>
-                    <option value="santarem.imepedu.com.br">Santarém</option>
-                    <option value="maraba.imepedu.com.br">Marabá</option>
-                    <option value="parauapebas.imepedu.com.br">Parauapebas</option>
-                    <option value="redenção.imepedu.com.br">Redenção</option>
+                    <option value="igarape.imepedu.com.br">Igarapé-Miri</option>
                 </select>
             </label><br><br>
             <input type="submit" value="Debug CPF Específico">

@@ -452,6 +452,10 @@ if (isset($subdomain) && !empty($subdomain)) {
                                             <?= ($_POST['subdomain'] ?? $_GET['subdomain'] ?? '') == 'moju.imepedu.com.br' ? 'selected' : '' ?>>
                                         Moju
                                     </option>
+                                    <option value="igarape.imepedu.com.br"
+                                            <?= ($_POST['subdomain'] ?? $_GET['subdomain'] ?? '') == 'igarape.imepedu.com.br' ? 'selected' : '' ?>>
+                                        Igarapé-Miri
+                                    </option>
                                 </select>
                             </div>
                         </div>

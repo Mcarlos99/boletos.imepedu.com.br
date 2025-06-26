@@ -249,7 +249,7 @@ try {
                     </p>
                     
                     <!-- Estatísticas -->
-                    <div class="row justify-content-center">
+                     <!--<div class="row justify-content-center">
                         <div class="col-md-3 col-6">
                             <div class="stats-card">
                                 <i class="fas fa-file-invoice-dollar fa-2x mb-2"></i>
@@ -271,7 +271,7 @@ try {
                                 <p class="mb-0">Total Arrecadado</p>
                             </div>
                         </div>
-                    </div>
+                    </div> -->
                 </div>
             </div>
         </div>
@@ -335,6 +335,10 @@ try {
                                         <?= ($_POST['subdomain'] ?? $_GET['subdomain'] ?? '') == 'moju.imepedu.com.br' ? 'selected' : '' ?>>
                                     <i class="fas fa-building"></i> Moju
                                 </option>
+                                <option value="igarape.imepedu.com.br"
+                                        <?= ($_POST['subdomain'] ?? $_GET['subdomain'] ?? '') == 'igarape.imepedu.com.br' ? 'selected' : '' ?>>
+                                    <i class="fas fa-building"></i> Igarapé-Miri
+                                    </option>
                                 <!-- Adicione outros polos aqui -->
                             </select>
                         </div>

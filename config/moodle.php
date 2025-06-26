@@ -13,14 +13,10 @@ class MoodleConfig {
      * Substitua os tokens pelos valores reais obtidos em cada polo
      */
     private static $tokens = [
-        'tucurui.imepedu.com.br' => 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0',
-        'breubranco.imepedu.com.br' => 'b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1',
-        'moju.imepedu.com.br' => 'c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2',
-        'altamira.imepedu.com.br' => 'd4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3',
-        'santarem.imepedu.com.br' => 'e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4',
-        'maraba.imepedu.com.br' => 'f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5',
-        'parauapebas.imepedu.com.br' => 'g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z6',
-        'redenção.imepedu.com.br' => 'h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z6a7',
+        'tucurui.imepedu.com.br' => 'x',
+        'breubranco.imepedu.com.br' => '0441051a5b5bc8968f3e65ff7d45c3de',
+        'moju.imepedu.com.br' => 'x',
+        'igarape.imepedu.com.br' => '051a62d5f60167246607b195a9630d3b',
     ];
     
     /**
@@ -63,61 +59,13 @@ class MoodleConfig {
             'timezone' => 'America/Belem',
             'max_students' => 600
         ],
-        'altamira.imepedu.com.br' => [
-            'name' => 'Polo Altamira',
-            'city' => 'Altamira',
+        'igarape.imepedu.com.br' => [
+            'name' => 'Polo Igarapé-Miri',
+            'city' => 'Igarapé-Miri',
             'state' => 'PA',
-            'contact_email' => 'altamira@imepedu.com.br',
-            'phone' => '(93) 3515-3456',
-            'address' => 'Rua Transamazônica, 321 - Brasília',
-            'cep' => '68372-000',
-            'active' => true,
-            'timezone' => 'America/Belem',
-            'max_students' => 1200
-        ],
-        'santarem.imepedu.com.br' => [
-            'name' => 'Polo Santarém',
-            'city' => 'Santarém',
-            'state' => 'PA',
-            'contact_email' => 'santarem@imepedu.com.br',
-            'phone' => '(93) 3523-7890',
-            'address' => 'Av. Tapajós, 654 - Centro',
-            'cep' => '68005-000',
-            'active' => true,
-            'timezone' => 'America/Belem',
-            'max_students' => 1500
-        ],
-        'maraba.imepedu.com.br' => [
-            'name' => 'Polo Marabá',
-            'city' => 'Marabá',
-            'state' => 'PA',
-            'contact_email' => 'maraba@imepedu.com.br',
-            'phone' => '(94) 3324-1357',
-            'address' => 'Rua Tocantins, 987 - Nova Marabá',
-            'cep' => '68508-000',
-            'active' => true,
-            'timezone' => 'America/Belem',
-            'max_students' => 2000
-        ],
-        'parauapebas.imepedu.com.br' => [
-            'name' => 'Polo Parauapebas',
-            'city' => 'Parauapebas',
-            'state' => 'PA',
-            'contact_email' => 'parauapebas@imepedu.com.br',
-            'phone' => '(94) 3346-2468',
-            'address' => 'Av. Liberdade, 147 - Rio Verde',
-            'cep' => '68515-000',
-            'active' => true,
-            'timezone' => 'America/Belem',
-            'max_students' => 1800
-        ],
-        'redenção.imepedu.com.br' => [
-            'name' => 'Polo Redenção',
-            'city' => 'Redenção',
-            'state' => 'PA',
-            'contact_email' => 'redencao@imepedu.com.br',
-            'phone' => '(94) 3424-3691',
-            'address' => 'Rua da Paz, 258 - Centro',
+            'contact_email' => 'igarapemiri@imepedu.com.br',
+            'phone' => '(xx) xxxx-xxxx',
+            'address' => 'Tv. Principal, 890 - Centro, Igarapé-Miri - PA',
             'cep' => '68552-000',
             'active' => true,
             'timezone' => 'America/Belem',
