@@ -31,7 +31,7 @@ class MoodleConfig {
             'phone' => '(94) 3787-1234',
             'address' => 'Rua das Flores, 123 - Centro',
             'cep' => '68455-000',
-            'active' => true,
+            'active' => false,
             'timezone' => 'America/Belem',
             'max_students' => 1000
         ],
@@ -55,7 +55,7 @@ class MoodleConfig {
             'phone' => '(91) 3768-9012',
             'address' => 'Rua Central, 789 - Centro',
             'cep' => '68450-000',
-            'active' => true,
+            'active' => false,
             'timezone' => 'America/Belem',
             'max_students' => 600
         ],
