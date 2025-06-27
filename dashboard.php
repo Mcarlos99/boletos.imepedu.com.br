@@ -1,9 +1,7 @@
 <?php
 /**
- * Sistema de Boletos IMED - Dashboard do Aluno (Versão Corrigida)
- * Arquivo: dashboard_corrigido.php
- * 
- * Página principal onde o aluno visualiza seus boletos organizados por curso
+ * Sistema de Boletos IMED - Dashboard Corrigido (Filtro por Subdomínio)
+ * Arquivo: dashboard.php
  */
 
 session_start();
@@ -33,51 +31,24 @@ error_log("Dashboard: Subdomain da sessão: " . ($_SESSION['subdomain'] ?? 'não
 $alunoService = new AlunoService();
 $boletoService = new BoletoService();
 
-// Busca dados do aluno
-$aluno = $alunoService->buscarAlunoPorCPF($_SESSION['aluno_cpf']);
+// Busca dados do aluno ESPECÍFICO DO POLO ATUAL
+$aluno = $alunoService->buscarAlunoPorCPFESubdomain($_SESSION['aluno_cpf'], $_SESSION['subdomain']);
 if (!$aluno) {
-    error_log("Dashboard: Aluno não encontrado no banco local para CPF: " . $_SESSION['aluno_cpf']);
+    error_log("Dashboard: Aluno não encontrado no banco local para CPF: " . $_SESSION['aluno_cpf'] . " e subdomain: " . $_SESSION['subdomain']);
     session_destroy();
     header('Location: /login.php');
     exit;
 }
 
-error_log("Dashboard: Aluno encontrado - ID: {$aluno['id']}, Nome: {$aluno['nome']}");
+error_log("Dashboard: Aluno encontrado - ID: {$aluno['id']}, Nome: {$aluno['nome']}, Subdomain: {$aluno['subdomain']}");
 
-// Busca cursos do aluno
-$cursos = $alunoService->buscarCursosAluno($aluno['id']);
-error_log("Dashboard: Cursos encontrados: " . count($cursos));
+// Busca cursos do aluno APENAS DO POLO ATUAL
+$cursos = $alunoService->buscarCursosAlunoPorSubdomain($aluno['id'], $_SESSION['subdomain']);
+error_log("Dashboard: Cursos encontrados no subdomain {$_SESSION['subdomain']}: " . count($cursos));
 
 // Debug detalhado dos cursos
-if (empty($cursos)) {
-    error_log("Dashboard: PROBLEMA - Nenhum curso encontrado!");
-    
-    // Verifica se há matrículas
-    try {
-        $db = (new Database())->getConnection();
-        $stmt = $db->prepare("SELECT COUNT(*) as total FROM matriculas WHERE aluno_id = ?");
-        $stmt->execute([$aluno['id']]);
-        $totalMatriculas = $stmt->fetch()['total'];
-        error_log("Dashboard: Total de matrículas no banco: {$totalMatriculas}");
-        
-        // Busca todas as matrículas (incluindo inativas)
-        $stmt = $db->prepare("
-            SELECT m.*, c.nome as curso_nome, c.ativo as curso_ativo 
-            FROM matriculas m 
-            LEFT JOIN cursos c ON m.curso_id = c.id 
-            WHERE m.aluno_id = ?
-        ");
-        $stmt->execute([$aluno['id']]);
-        $todasMatriculas = $stmt->fetchAll();
-        
-        error_log("Dashboard: Detalhes das matrículas:");
-        foreach ($todasMatriculas as $matricula) {
-            error_log("Dashboard: - Matrícula ID: {$matricula['id']}, Status: {$matricula['status']}, Curso: " . ($matricula['curso_nome'] ?? 'CURSO NÃO ENCONTRADO') . ", Curso Ativo: " . ($matricula['curso_ativo'] ?? 'N/A'));
-        }
-        
-    } catch (Exception $e) {
-        error_log("Dashboard: Erro ao verificar matrículas: " . $e->getMessage());
-    }
+foreach ($cursos as $curso) {
+    error_log("Dashboard: Curso - ID: {$curso['id']}, Nome: {$curso['nome']}, Subdomain: {$curso['subdomain']}");
 }
 
 // Para cada curso, busca os boletos
@@ -120,6 +91,12 @@ foreach ($cursos as $curso) {
         $boleto['dias_vencimento'] = (int)$diasVencimento;
         $boleto['esta_vencido'] = ($boleto['status'] == 'pendente' && $diasVencimento < 0);
         
+        // Atualiza status se vencido
+        if ($boleto['esta_vencido'] && $boleto['status'] == 'pendente') {
+            $boletoService->atualizarStatusVencido($boleto['id']);
+            $boleto['status'] = 'vencido';
+        }
+        
         $cursoDados['boletos'][] = $boleto;
         
         // Atualiza contadores
@@ -141,9 +118,9 @@ foreach ($cursos as $curso) {
         }
     }
     
-    // Ordena boletos por vencimento (mais recentes primeiro)
+    // Ordena boletos por vencimento (mais próximos primeiro)
     usort($cursoDados['boletos'], function($a, $b) {
-        return strtotime($b['vencimento']) - strtotime($a['vencimento']);
+        return strtotime($a['vencimento']) - strtotime($b['vencimento']);
     });
     
     $dadosDashboard[] = $cursoDados;
@@ -159,7 +136,7 @@ foreach ($cursos as $curso) {
 
 $resumoGeral['valor_pago'] = $resumoGeral['valor_total'] - $resumoGeral['valor_pendente'];
 
-// Busca próximos vencimentos
+// Busca próximos vencimentos APENAS DO POLO ATUAL
 try {
     $db = (new Database())->getConnection();
     $stmt = $db->prepare("
@@ -167,12 +144,14 @@ try {
         FROM boletos b
         INNER JOIN cursos c ON b.curso_id = c.id
         WHERE b.aluno_id = ? 
+        AND c.subdomain = ?
         AND b.status IN ('pendente', 'vencido')
-        AND b.vencimento BETWEEN CURDATE() - INTERVAL 30 DAY AND CURDATE() + INTERVAL 30 DAY
-        ORDER BY b.vencimento ASC
+        ORDER BY 
+            CASE WHEN b.vencimento < CURDATE() THEN 0 ELSE 1 END,
+            b.vencimento ASC
         LIMIT 5
     ");
-    $stmt->execute([$aluno['id']]);
+    $stmt->execute([$aluno['id'], $_SESSION['subdomain']]);
     $proximosVencimentos = $stmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (Exception $e) {
     error_log("Dashboard: Erro ao buscar próximos vencimentos: " . $e->getMessage());
@@ -183,7 +162,7 @@ try {
 $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
 
 // Log final do dashboard
-error_log("Dashboard: Resumo final - Cursos: " . count($dadosDashboard) . ", Boletos totais: " . $resumoGeral['total_boletos']);
+error_log("Dashboard: Resumo final - Subdomain: {$_SESSION['subdomain']}, Cursos: " . count($dadosDashboard) . ", Boletos totais: " . $resumoGeral['total_boletos']);
 ?>
 
 <!DOCTYPE html>
@@ -191,7 +170,7 @@ error_log("Dashboard: Resumo final - Cursos: " . count($dadosDashboard) . ", Bol
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Meus Boletos - <?= htmlspecialchars($aluno['nome']) ?></title>
+    <title>Meus Boletos - <?= htmlspecialchars($aluno['nome']) ?> - <?= htmlspecialchars($configPolo['name'] ?? 'IMED') ?></title>
     
     <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -199,7 +178,7 @@ error_log("Dashboard: Resumo final - Cursos: " . count($dadosDashboard) . ", Bol
     <!-- Font Awesome -->
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     
-    <!-- Mesmo CSS do dashboard original -->
+    <!-- Custom CSS -->
     <style>
         :root {
             --primary-color: #0066cc;
@@ -322,6 +301,78 @@ error_log("Dashboard: Resumo final - Cursos: " . count($dadosDashboard) . ", Bol
             padding: 25px;
         }
         
+        .boleto-card {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-left: 4px solid;
+            transition: all 0.2s ease;
+        }
+        
+        .boleto-card.pago { border-left-color: var(--success-color); }
+        .boleto-card.pendente { border-left-color: var(--warning-color); }
+        .boleto-card.vencido { border-left-color: var(--danger-color); }
+        
+        .boleto-card:hover {
+            background: #e9ecef;
+            transform: translateX(5px);
+        }
+        
+        .boleto-numero {
+            font-family: monospace;
+            font-weight: bold;
+            color: #495057;
+        }
+        
+        .boleto-valor {
+            font-size: 1.2rem;
+            font-weight: 700;
+        }
+        
+        .boleto-status {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        
+        .status-pago {
+            background: rgba(40,167,69,0.1);
+            color: var(--success-color);
+        }
+        
+        .status-pendente {
+            background: rgba(255,193,7,0.1);
+            color: #856404;
+        }
+        
+        .status-vencido {
+            background: rgba(220,53,69,0.1);
+            color: var(--danger-color);
+        }
+        
+        .sidebar-card {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+        }
+        
+        .vencimento-card {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 10px;
+            border-left: 3px solid;
+        }
+        
+        .vencimento-card.vencido { border-left-color: var(--danger-color); }
+        .vencimento-card.hoje { border-left-color: var(--warning-color); }
+        .vencimento-card.proximo { border-left-color: var(--info-color); }
+        
         .empty-state {
             text-align: center;
             padding: 40px 20px;
@@ -334,18 +385,52 @@ error_log("Dashboard: Resumo final - Cursos: " . count($dadosDashboard) . ", Bol
             color: #dee2e6;
         }
         
-        .btn-debug {
-            background: #6f42c1;
-            color: white;
-            border: none;
-            border-radius: 8px;
+        .btn-boleto {
             padding: 8px 16px;
-            margin: 5px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.2s ease;
         }
         
-        .btn-debug:hover {
-            background: #5a2d91;
+        .btn-download {
+            background: var(--info-color);
             color: white;
+        }
+        
+        .btn-download:hover {
+            background: #138496;
+            color: white;
+            transform: translateY(-1px);
+        }
+        
+        .btn-codigo {
+            background: var(--secondary-color);
+            color: white;
+        }
+        
+        .btn-codigo:hover {
+            background: var(--primary-color);
+            color: white;
+            transform: translateY(-1px);
+        }
+
+        .fade-in {
+            animation: fadeIn 0.6s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .polo-badge {
+            background: rgba(255,255,255,0.2);
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            margin-left: 10px;
         }
     </style>
 </head>
@@ -355,6 +440,9 @@ error_log("Dashboard: Resumo final - Cursos: " . count($dadosDashboard) . ", Bol
         <div class="container">
             <a class="navbar-brand" href="/dashboard.php">
                 <i class="fas fa-graduation-cap"></i> IMED Educação
+                <span class="polo-badge">
+                    <?= str_replace('.imepedu.com.br', '', $_SESSION['subdomain']) ?>
+                </span>
             </a>
             
             <div class="navbar-nav ms-auto d-flex flex-row align-items-center">
@@ -375,7 +463,10 @@ error_log("Dashboard: Resumo final - Cursos: " . count($dadosDashboard) . ", Bol
                             <span class="dropdown-item-text">
                                 <small class="text-muted">CPF: <?= $aluno['cpf'] ?></small><br>
                                 <small class="text-muted">
-                                    Polo: <?= str_replace('.imepedu.com.br', '', $_SESSION['subdomain']) ?>
+                                    Polo: <?= htmlspecialchars($configPolo['name'] ?? str_replace('.imepedu.com.br', '', $_SESSION['subdomain'])) ?>
+                                </small><br>
+                                <small class="text-muted">
+                                    Subdomain: <?= $_SESSION['subdomain'] ?>
                                 </small>
                             </span>
                         </li>
@@ -406,40 +497,43 @@ error_log("Dashboard: Resumo final - Cursos: " . count($dadosDashboard) . ", Bol
     <div class="container main-content">
         <!-- Debug Info (oculto por padrão) -->
         <div id="debugInfo" class="debug-info" style="display: none;">
-            <h5><i class="fas fa-bug"></i> Informações de Debug</h5>
+            <h5><i class="fas fa-bug"></i> Informações de Debug - Filtro por Subdomínio</h5>
             <div class="row">
                 <div class="col-md-6">
                     <strong>Sessão:</strong><br>
                     CPF: <?= $_SESSION['aluno_cpf'] ?><br>
                     Aluno ID: <?= $_SESSION['aluno_id'] ?? 'N/A' ?><br>
-                    Subdomain: <?= $_SESSION['subdomain'] ?? 'N/A' ?><br>
+                    Subdomain da Sessão: <?= $_SESSION['subdomain'] ?? 'N/A' ?><br>
                     Login: <?= date('d/m/Y H:i:s', $_SESSION['login_time'] ?? time()) ?>
                 </div>
                 <div class="col-md-6">
-                    <strong>Banco de Dados:</strong><br>
+                    <strong>Banco de Dados (Filtrado):</strong><br>
                     Aluno encontrado: <?= $aluno ? 'Sim' : 'Não' ?><br>
                     ID do aluno: <?= $aluno['id'] ?? 'N/A' ?><br>
-                    Cursos encontrados: <?= count($cursos) ?><br>
+                    Subdomain do aluno: <?= $aluno['subdomain'] ?? 'N/A' ?><br>
+                    Cursos encontrados: <?= count($cursos) ?> (apenas do polo atual)<br>
                     Total boletos: <?= $resumoGeral['total_boletos'] ?>
                 </div>
             </div>
             
-            <?php if (empty($cursos)): ?>
+            <?php if (!empty($cursos)): ?>
             <div class="mt-3">
-                <h6 class="text-danger">⚠ Diagnóstico: Nenhum curso encontrado</h6>
+                <h6 class="text-success">✓ Cursos do polo atual (<?= $_SESSION['subdomain'] ?>):</h6>
+                <ul>
+                    <?php foreach ($cursos as $curso): ?>
+                        <li><?= htmlspecialchars($curso['nome']) ?> (ID: <?= $curso['id'] ?>, Subdomain: <?= $curso['subdomain'] ?>)</li>
+                    <?php endforeach; ?>
+                </ul>
+            </div>
+            <?php else: ?>
+            <div class="mt-3">
+                <h6 class="text-warning">⚠ Nenhum curso encontrado para o polo atual</h6>
                 <p><strong>Possíveis causas:</strong></p>
                 <ul>
-                    <li>Dados não sincronizados com o Moodle</li>
-                    <li>Matrículas com status 'inativa' no banco</li>
-                    <li>Cursos com flag 'ativo' = false</li>
-                    <li>Problema na API do Moodle</li>
+                    <li>Cursos estão em outro subdomínio</li>
+                    <li>Matrículas inativas para este polo</li>
+                    <li>Dados não sincronizados</li>
                 </ul>
-                <button class="btn-debug" onclick="forcarSincronizacao()">
-                    <i class="fas fa-sync"></i> Forçar Sincronização
-                </button>
-                <a href="/debug_completo.php" class="btn-debug" target="_blank">
-                    <i class="fas fa-external-link-alt"></i> Debug Completo
-                </a>
             </div>
             <?php endif; ?>
         </div>
@@ -458,6 +552,10 @@ error_log("Dashboard: Resumo final - Cursos: " . count($dadosDashboard) . ", Bol
                             - <?= htmlspecialchars($configPolo['name']) ?>
                         <?php endif; ?>
                     </p>
+                    <small class="text-muted">
+                        <i class="fas fa-filter"></i> 
+                        Exibindo apenas cursos e boletos do polo: <strong><?= $_SESSION['subdomain'] ?></strong>
+                    </small>
                 </div>
                 <div class="col-md-4 text-md-end">
                     <small class="text-muted">
@@ -515,12 +613,12 @@ error_log("Dashboard: Resumo final - Cursos: " . count($dadosDashboard) . ", Bol
                 <?php if (empty($dadosDashboard)): ?>
                     <div class="empty-state">
                         <i class="fas fa-exclamation-triangle"></i>
-                        <h4>Nenhum curso encontrado</h4>
-                        <p>Não foram encontrados cursos ativos para este aluno.</p>
+                        <h4>Nenhum curso encontrado neste polo</h4>
+                        <p>Não foram encontrados cursos ativos para este aluno no polo <strong><?= $_SESSION['subdomain'] ?></strong>.</p>
                         <p class="text-muted">
                             <small>
-                                Verifique se você está matriculado em algum curso no seu polo 
-                                ou tente atualizar os dados clicando no botão abaixo.
+                                O sistema agora filtra cursos por polo. Se você possui cursos em outros polos, 
+                                faça login através do polo correspondente.
                             </small>
                         </p>
                         <button class="btn btn-primary" onclick="atualizarDados()">
@@ -532,7 +630,6 @@ error_log("Dashboard: Resumo final - Cursos: " . count($dadosDashboard) . ", Bol
                     </div>
                 <?php else: ?>
                     <?php foreach ($dadosDashboard as $index => $cursoDados): ?>
-                        <!-- Conteúdo dos cursos igual ao dashboard original -->
                         <div class="curso-card fade-in" style="animation-delay: <?= $index * 0.1 ?>s">
                             <div class="curso-header">
                                 <h3 class="curso-title">
@@ -554,6 +651,14 @@ error_log("Dashboard: Resumo final - Cursos: " . count($dadosDashboard) . ", Bol
                                             <?= $cursoDados['resumo']['pendentes'] ?> pendentes
                                         </span>
                                     <?php endif; ?>
+                                    <span class="me-3">
+                                        <i class="fas fa-dollar-sign"></i> 
+                                        R$ <?= number_format($cursoDados['resumo']['valor_total'], 2, ',', '.') ?>
+                                    </span>
+                                    <span class="me-3">
+                                        <i class="fas fa-map-marker-alt"></i> 
+                                        <?= $cursoDados['curso']['subdomain'] ?>
+                                    </span>
                                 </div>
                             </div>
                             
@@ -565,8 +670,84 @@ error_log("Dashboard: Resumo final - Cursos: " . count($dadosDashboard) . ", Bol
                                         <p class="text-muted">Os boletos para este curso serão exibidos aqui quando gerados.</p>
                                     </div>
                                 <?php else: ?>
-                                    <!-- Lista de boletos igual ao dashboard original -->
-                                    <p>Boletos seriam exibidos aqui...</p>
+                                    <?php foreach ($cursoDados['boletos'] as $boleto): ?>
+                                        <div class="boleto-card <?= $boleto['status'] ?>">
+                                            <div class="row align-items-center">
+                                                <div class="col-md-3">
+                                                    <div class="boleto-numero">
+                                                        #<?= $boleto['numero_boleto'] ?>
+                                                    </div>
+                                                    <small class="text-muted">
+                                                        <?= !empty($boleto['descricao']) ? htmlspecialchars($boleto['descricao']) : 'Mensalidade' ?>
+                                                    </small>
+                                                </div>
+                                                
+                                                <div class="col-md-2">
+                                                    <div class="boleto-valor text-primary">
+                                                        R$ <?= number_format($boleto['valor'], 2, ',', '.') ?>
+                                                    </div>
+                                                </div>
+                                                
+                                                <div class="col-md-2">
+                                                    <div class="text-muted">
+                                                        <small>Vencimento</small>
+                                                    </div>
+                                                    <div class="fw-bold">
+                                                        <?= date('d/m/Y', strtotime($boleto['vencimento'])) ?>
+                                                    </div>
+                                                    <?php if ($boleto['dias_vencimento'] < 0): ?>
+                                                        <small class="text-danger">
+                                                            <?= abs($boleto['dias_vencimento']) ?> dias em atraso
+                                                        </small>
+                                                    <?php elseif ($boleto['dias_vencimento'] <= 7 && $boleto['status'] == 'pendente'): ?>
+                                                        <small class="text-warning">
+                                                            Vence em <?= $boleto['dias_vencimento'] ?> dias
+                                                        </small>
+                                                    <?php endif; ?>
+                                                </div>
+                                                
+                                                <div class="col-md-2">
+                                                    <span class="boleto-status status-<?= $boleto['status'] ?>">
+                                                        <?php
+                                                        switch($boleto['status']) {
+                                                            case 'pago':
+                                                                echo '<i class="fas fa-check"></i> Pago';
+                                                                break;
+                                                            case 'pendente':
+                                                                echo '<i class="fas fa-clock"></i> Pendente';
+                                                                break;
+                                                            case 'vencido':
+                                                                echo '<i class="fas fa-exclamation-triangle"></i> Vencido';
+                                                                break;
+                                                            default:
+                                                                echo ucfirst($boleto['status']);
+                                                        }
+                                                        ?>
+                                                    </span>
+                                                </div>
+                                                
+                                                <div class="col-md-3 text-end">
+                                                    <?php if ($boleto['status'] != 'pago'): ?>
+                                                        <a href="javascript:void(0)" 
+                                                           class="btn-boleto btn-download me-2"
+                                                           onclick="downloadBoleto(<?= $boleto['id'] ?>)">
+                                                            <i class="fas fa-download"></i> PDF
+                                                        </a>
+                                                        <a href="javascript:void(0)" 
+                                                           class="btn-boleto btn-codigo"
+                                                           onclick="mostrarCodigo(<?= $boleto['id'] ?>)">
+                                                            <i class="fas fa-barcode"></i> Código
+                                                        </a>
+                                                    <?php else: ?>
+                                                        <small class="text-success">
+                                                            <i class="fas fa-check-circle"></i>
+                                                            Pago em <?= date('d/m/Y', strtotime($boleto['data_pagamento'])) ?>
+                                                        </small>
+                                                    <?php endif; ?>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    <?php endforeach; ?>
                                 <?php endif; ?>
                             </div>
                         </div>
@@ -574,9 +755,69 @@ error_log("Dashboard: Resumo final - Cursos: " . count($dadosDashboard) . ", Bol
                 <?php endif; ?>
             </div>
             
-            <!-- Sidebar igual ao dashboard original -->
+            <!-- Sidebar -->
             <div class="col-lg-4">
-                <div class="sidebar-alerts fade-in">
+                <!-- Próximos Vencimentos -->
+                <div class="sidebar-card fade-in">
+                    <h5 class="mb-3">
+                        <i class="fas fa-calendar-exclamation text-warning"></i> 
+                        Próximos Vencimentos
+                    </h5>
+                    
+                    <?php if (empty($proximosVencimentos)): ?>
+                        <div class="text-center text-muted py-3">
+                            <i class="fas fa-check-circle fa-2x mb-2"></i>
+                            <p class="mb-0">Nenhum boleto pendente neste polo!</p>
+                        </div>
+                    <?php else: ?>
+                        <?php foreach ($proximosVencimentos as $boleto): ?>
+                            <?php
+                            $hoje = new DateTime();
+                            $vencimento = new DateTime($boleto['vencimento']);
+                            $diff = $hoje->diff($vencimento);
+                            $dias = (int)$diff->format('%r%a');
+                            
+                            if ($dias < 0) {
+                                $classe = 'vencido';
+                                $texto = abs($dias) . ' dias em atraso';
+                                $icone = 'fas fa-exclamation-triangle text-danger';
+                            } elseif ($dias == 0) {
+                                $classe = 'hoje';
+                                $texto = 'Vence hoje!';
+                                $icone = 'fas fa-exclamation-circle text-warning';
+                            } else {
+                                $classe = 'proximo';
+                                $texto = 'Vence em ' . $dias . ' dias';
+                                $icone = 'fas fa-clock text-info';
+                            }
+                            ?>
+                            <div class="vencimento-card <?= $classe ?>">
+                                <div class="d-flex justify-content-between align-items-start">
+                                    <div>
+                                        <div class="fw-bold"><?= htmlspecialchars($boleto['curso_nome']) ?></div>
+                                        <div class="text-muted small">
+                                            R$ <?= number_format($boleto['valor'], 2, ',', '.') ?>
+                                        </div>
+                                    </div>
+                                    <div class="text-end">
+                                        <div class="small">
+                                            <i class="<?= $icone ?>"></i>
+                                        </div>
+                                        <div class="small fw-bold">
+                                            <?= date('d/m', strtotime($boleto['vencimento'])) ?>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="small mt-1 <?= $dias < 0 ? 'text-danger' : ($dias == 0 ? 'text-warning' : 'text-muted') ?>">
+                                    <?= $texto ?>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </div>
+                
+                <!-- Status do Sistema -->
+                <div class="sidebar-card fade-in">
                     <h5 class="mb-3">
                         <i class="fas fa-info-circle text-info"></i> 
                         Status do Sistema
@@ -596,15 +837,193 @@ error_log("Dashboard: Resumo final - Cursos: " . count($dadosDashboard) . ", Bol
                         </small>
                     </div>
                     
-                    <?php if (empty($cursos)): ?>
-                    <div class="alert alert-warning">
-                        <h6><i class="fas fa-exclamation-triangle"></i> Atenção</h6>
-                        <p class="mb-2">Nenhum curso foi encontrado para seu usuário.</p>
-                        <button class="btn btn-sm btn-warning" onclick="atualizarDados()">
-                            Sincronizar Agora
-                        </button>
+                    <div class="mb-3">
+                        <small class="text-muted">
+                            <i class="fas fa-graduation-cap"></i> Cursos ativos neste polo: 
+                            <span class="text-primary"><?= count($cursos) ?></span>
+                        </small>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <small class="text-muted">
+                            <i class="fas fa-map-marker-alt"></i> Polo atual: 
+                            <span class="text-info"><?= htmlspecialchars($configPolo['name'] ?? $_SESSION['subdomain']) ?></span>
+                        </small>
+                    </div>
+                    
+                    <?php if ($resumoGeral['boletos_vencidos'] > 0): ?>
+                    <div class="alert alert-danger py-2">
+                        <small>
+                            <i class="fas fa-exclamation-triangle"></i>
+                            <strong>Atenção:</strong> Você possui <?= $resumoGeral['boletos_vencidos'] ?> 
+                            boleto(s) vencido(s) neste polo. Regularize sua situação o quanto antes.
+                        </small>
+                    </div>
+                    <?php elseif ($resumoGeral['boletos_pendentes'] > 0): ?>
+                    <div class="alert alert-warning py-2">
+                        <small>
+                            <i class="fas fa-info-circle"></i>
+                            Você possui <?= $resumoGeral['boletos_pendentes'] ?> boleto(s) pendente(s) neste polo.
+                        </small>
+                    </div>
+                    <?php else: ?>
+                    <div class="alert alert-success py-2">
+                        <small>
+                            <i class="fas fa-check-circle"></i>
+                            Parabéns! Todos os seus boletos deste polo estão em dia.
+                        </small>
                     </div>
                     <?php endif; ?>
+                </div>
+                
+                <!-- Ações Rápidas -->
+                <div class="sidebar-card fade-in">
+                    <h5 class="mb-3">
+                        <i class="fas fa-bolt text-primary"></i> 
+                        Ações Rápidas
+                    </h5>
+                    
+                    <div class="d-grid gap-2">
+                        <button class="btn btn-outline-primary btn-sm" onclick="atualizarDados()">
+                            <i class="fas fa-sync"></i> Sincronizar Dados
+                        </button>
+                        
+                        <?php if ($resumoGeral['boletos_pendentes'] > 0): ?>
+                        <button class="btn btn-outline-warning btn-sm" onclick="baixarTodosPendentes()">
+                            <i class="fas fa-download"></i> Baixar Todos Pendentes
+                        </button>
+                        <?php endif; ?>
+                        
+                        <a href="mailto:<?= $configPolo['contact_email'] ?? 'suporte@imepedu.com.br' ?>" 
+                           class="btn btn-outline-secondary btn-sm">
+                            <i class="fas fa-envelope"></i> Contatar Suporte
+                        </a>
+                        
+                        <button class="btn btn-outline-info btn-sm" onclick="mostrarOutrosPolos()">
+                            <i class="fas fa-building"></i> Outros Polos
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Informações do Polo -->
+                <?php if (!empty($configPolo)): ?>
+                <div class="sidebar-card fade-in">
+                    <h5 class="mb-3">
+                        <i class="fas fa-map-marker-alt text-info"></i> 
+                        Informações do Polo
+                    </h5>
+                    
+                    <div class="small text-muted">
+                        <div class="mb-2">
+                            <strong><?= htmlspecialchars($configPolo['name'] ?? '') ?></strong>
+                        </div>
+                        
+                        <?php if (!empty($configPolo['contact_email'])): ?>
+                        <div class="mb-1">
+                            <i class="fas fa-envelope"></i> 
+                            <a href="mailto:<?= htmlspecialchars($configPolo['contact_email']) ?>" 
+                               class="text-decoration-none">
+                                <?= htmlspecialchars($configPolo['contact_email']) ?>
+                            </a>
+                        </div>
+                        <?php endif; ?>
+                        
+                        <?php if (!empty($configPolo['phone'])): ?>
+                        <div class="mb-1">
+                            <i class="fas fa-phone"></i> 
+                            <?= htmlspecialchars($configPolo['phone']) ?>
+                        </div>
+                        <?php endif; ?>
+                        
+                        <?php if (!empty($configPolo['address'])): ?>
+                        <div>
+                            <i class="fas fa-map-marker-alt"></i> 
+                            <?= htmlspecialchars($configPolo['address']) ?>
+                        </div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+                <?php endif; ?>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal para Código de Barras -->
+    <div class="modal fade" id="codigoModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="fas fa-barcode"></i> Código de Barras
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body text-center">
+                    <div id="codigoConteudo">
+                        <div class="spinner-border" role="status">
+                            <span class="visually-hidden">Carregando...</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+                    <button type="button" class="btn btn-primary" onclick="copiarCodigo()">
+                        <i class="fas fa-copy"></i> Copiar Código
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal para Outros Polos -->
+    <div class="modal fade" id="outrosPolosModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="fas fa-building"></i> Acessar Outros Polos
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted">Para acessar boletos de outros polos, faça login através do polo correspondente:</p>
+                    
+                    <div class="list-group">
+                        <a href="https://tucurui.imepedu.com.br/boletos" class="list-group-item list-group-item-action">
+                            <div class="d-flex w-100 justify-content-between">
+                                <h6 class="mb-1">Polo Tucuruí</h6>
+                                <small>tucurui.imepedu.com.br</small>
+                            </div>
+                            <small>Acesse para ver boletos específicos do polo Tucuruí</small>
+                        </a>
+                        
+                        <a href="https://breubranco.imepedu.com.br/boletos" class="list-group-item list-group-item-action">
+                            <div class="d-flex w-100 justify-content-between">
+                                <h6 class="mb-1">Polo Breu Branco</h6>
+                                <small>breubranco.imepedu.com.br</small>
+                            </div>
+                            <small>Acesse para ver boletos específicos do polo Breu Branco</small>
+                        </a>
+                        
+                        <a href="https://moju.imepedu.com.br/boletos" class="list-group-item list-group-item-action">
+                            <div class="d-flex w-100 justify-content-between">
+                                <h6 class="mb-1">Polo Moju</h6>
+                                <small>moju.imepedu.com.br</small>
+                            </div>
+                            <small>Acesse para ver boletos específicos do polo Moju</small>
+                        </a>
+                        
+                        <a href="https://igarape.imepedu.com.br/boletos" class="list-group-item list-group-item-action">
+                            <div class="d-flex w-100 justify-content-between">
+                                <h6 class="mb-1">Polo Igarapé-Miri</h6>
+                                <small>igarape.imepedu.com.br</small>
+                            </div>
+                            <small>Acesse para ver boletos específicos do polo Igarapé-Miri</small>
+                        </a>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
                 </div>
             </div>
         </div>
@@ -625,10 +1044,16 @@ error_log("Dashboard: Resumo final - Cursos: " . count($dadosDashboard) . ", Bol
             }
         }
         
-        // Função para atualizar dados (melhorada)
+        // Função para mostrar modal de outros polos
+        function mostrarOutrosPolos() {
+            const modal = new bootstrap.Modal(document.getElementById('outrosPolosModal'));
+            modal.show();
+        }
+        
+        // Função para atualizar dados (melhorada com filtro por subdomain)
         function atualizarDados() {
-            if (confirm('Deseja sincronizar os dados com o sistema do Moodle? Isso pode levar alguns segundos.')) {
-                showToast('Sincronizando dados...', 'info');
+            if (confirm('Deseja sincronizar os dados com o sistema do Moodle para este polo? Isso pode levar alguns segundos.')) {
+                showToast('Sincronizando dados do polo <?= $_SESSION['subdomain'] ?>...', 'info');
                 
                 const button = event.target;
                 const originalText = button.innerHTML;
@@ -649,7 +1074,7 @@ error_log("Dashboard: Resumo final - Cursos: " . count($dadosDashboard) . ", Bol
                     console.log('Response data:', data);
                     
                     if (data.success) {
-                        showToast('Dados atualizados com sucesso! Cursos encontrados: ' + (data.data?.cursos_encontrados || 0), 'success');
+                        showToast('Dados atualizados com sucesso! Cursos encontrados para este polo: ' + (data.data?.cursos_encontrados || 0), 'success');
                         setTimeout(() => location.reload(), 2000);
                     } else {
                         showToast('Erro ao atualizar: ' + (data.message || 'Erro desconhecido'), 'error');
@@ -667,13 +1092,70 @@ error_log("Dashboard: Resumo final - Cursos: " . count($dadosDashboard) . ", Bol
             }
         }
         
-        // Função para forçar sincronização
-        function forcarSincronizacao() {
-            showToast('Iniciando sincronização forçada...', 'info');
-            atualizarDados();
+        // Função para download de boleto
+        function downloadBoleto(boletoId) {
+            showToast('Preparando download...', 'info');
+            
+            // Simula download (você deve implementar a geração real do PDF)
+            setTimeout(() => {
+                showToast('PDF do boleto será implementado em breve', 'warning');
+            }, 1000);
         }
         
-        // Sistema de toast melhorado
+        // Função para mostrar código de barras
+        function mostrarCodigo(boletoId) {
+            const modal = new bootstrap.Modal(document.getElementById('codigoModal'));
+            const conteudo = document.getElementById('codigoConteudo');
+            
+            conteudo.innerHTML = `
+                <div class="spinner-border" role="status">
+                    <span class="visually-hidden">Carregando...</span>
+                </div>
+            `;
+            
+            modal.show();
+            
+            // Simula busca do código (você deve implementar a busca real)
+            setTimeout(() => {
+                conteudo.innerHTML = `
+                    <div class="mb-3">
+                        <h6>Linha Digitável:</h6>
+                        <div class="p-3 bg-light rounded font-monospace" id="linhaDigitavel">
+                            00190.00009 00000.000000 00000.000000 0 00000000000000
+                        </div>
+                    </div>
+                    <div>
+                        <h6>Código de Barras:</h6>
+                        <div class="p-3 bg-light rounded font-monospace small" id="codigoBarras">
+                            00190000000000000000000000000000000000000000000
+                        </div>
+                    </div>
+                `;
+            }, 1000);
+        }
+        
+        // Função para copiar código
+        function copiarCodigo() {
+            const linha = document.getElementById('linhaDigitavel');
+            if (linha) {
+                navigator.clipboard.writeText(linha.textContent.trim());
+                showToast('Linha digitável copiada!', 'success');
+            }
+        }
+        
+        // Função para baixar todos os boletos pendentes
+        function baixarTodosPendentes() {
+            if (confirm('Deseja baixar todos os boletos pendentes deste polo?')) {
+                showToast('Preparando download de todos os boletos do polo <?= $_SESSION['subdomain'] ?>...', 'info');
+                
+                // Implementar download em lote
+                setTimeout(() => {
+                    showToast('Download em lote será implementado em breve', 'warning');
+                }, 1000);
+            }
+        }
+        
+        // Sistema de notificações toast
         function showToast(message, type = 'info') {
             // Remove toasts existentes
             const existingToasts = document.querySelectorAll('.toast-custom');
@@ -682,14 +1164,18 @@ error_log("Dashboard: Resumo final - Cursos: " . count($dadosDashboard) . ", Bol
             // Cria novo toast
             const toast = document.createElement('div');
             toast.className = `toast-custom alert alert-${type === 'error' ? 'danger' : type === 'success' ? 'success' : 'info'} position-fixed`;
-            toast.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
+            toast.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px; animation: slideInRight 0.3s ease;';
             
             const icon = type === 'error' ? 'fa-exclamation-triangle' : 
-                        type === 'success' ? 'fa-check-circle' : 'fa-info-circle';
+                        type === 'success' ? 'fa-check-circle' : 
+                        type === 'warning' ? 'fa-exclamation-circle' : 'fa-info-circle';
             
             toast.innerHTML = `
-                <i class="fas ${icon}"></i> ${message}
-                <button type="button" class="btn-close ms-auto" onclick="this.parentElement.remove()"></button>
+                <div class="d-flex align-items-center">
+                    <i class="fas ${icon} me-2"></i>
+                    <span>${message}</span>
+                    <button type="button" class="btn-close ms-auto" onclick="this.parentElement.parentElement.remove()"></button>
+                </div>
             `;
             
             document.body.appendChild(toast);
@@ -697,25 +1183,35 @@ error_log("Dashboard: Resumo final - Cursos: " . count($dadosDashboard) . ", Bol
             // Remove automaticamente após 5 segundos
             setTimeout(() => {
                 if (toast.parentElement) {
-                    toast.remove();
+                    toast.style.animation = 'slideOutRight 0.3s ease';
+                    setTimeout(() => toast.remove(), 300);
                 }
             }, 5000);
         }
         
-        // Log de debug no console
-        console.log('Dashboard Debug Info:', {
-            aluno_id: <?= $aluno['id'] ?? 'null' ?>,
-            cpf: '<?= $_SESSION['aluno_cpf'] ?>',
-            subdomain: '<?= $_SESSION['subdomain'] ?? '' ?>',
-            cursos_encontrados: <?= count($cursos) ?>,
-            total_boletos: <?= $resumoGeral['total_boletos'] ?>
-        });
+        // Animações CSS adicionais
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes slideInRight {
+                from { transform: translateX(100%); opacity: 0; }
+                to { transform: translateX(0); opacity: 1; }
+            }
+            
+            @keyframes slideOutRight {
+                from { transform: translateX(0); opacity: 1; }
+                to { transform: translateX(100%); opacity: 0; }
+            }
+        `;
+        document.head.appendChild(style);
         
-        // Verifica automaticamente se há problemas na inicialização
-        document.addEventListener('DOMContentLoaded', function() {
-            <?php if (empty($cursos)): ?>
-            console.warn('ATENÇÃO: Nenhum curso encontrado para este aluno!');
-            <?php endif; ?>
+        // Log de debug no console
+        console.log('Dashboard carregado com filtro por subdomínio', {
+            aluno_id: <?= $aluno['id'] ?? 'null' ?>,
+            subdomain: '<?= $_SESSION['subdomain'] ?>',
+            total_cursos: <?= count($cursos) ?>,
+            total_boletos: <?= $resumoGeral['total_boletos'] ?>,
+            boletos_pendentes: <?= $resumoGeral['boletos_pendentes'] ?>,
+            boletos_vencidos: <?= $resumoGeral['boletos_vencidos'] ?>
         });
     </script>
 </body>

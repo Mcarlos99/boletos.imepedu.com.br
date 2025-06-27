@@ -1,9 +1,9 @@
 <?php
 /**
- * Sistema de Boletos IMED - Serviço de Alunos (CORRIGIDO - Filtro por Subdomínio)
- * Arquivo: src/AlunoService_subdomain_fix.php
+ * Sistema de Boletos IMED - Serviço de Alunos (VERSÃO FINAL CORRIGIDA)
+ * Arquivo: src/AlunoService_final.php
  * 
- * CORREÇÃO: Agora filtra cursos e dados por subdomínio específico
+ * CORREÇÃO DEFINITIVA: Agora salva cursos e matrículas corretamente
  */
 
 require_once __DIR__ . '/../config/database.php';
@@ -20,7 +20,7 @@ class AlunoService {
     }
     
     /**
-     * NOVO MÉTODO: Busca aluno por CPF E subdomínio específico
+     * Busca aluno por CPF E subdomínio específico
      */
     public function buscarAlunoPorCPFESubdomain($cpf, $subdomain) {
         $cpf = preg_replace('/[^0-9]/', '', $cpf);
@@ -36,7 +36,7 @@ class AlunoService {
     }
     
     /**
-     * NOVO MÉTODO: Busca cursos ativos de um aluno APENAS do subdomínio específico
+     * Busca cursos ativos de um aluno APENAS do subdomínio específico
      */
     public function buscarCursosAlunoPorSubdomain($alunoId, $subdomain) {
         $stmt = $this->db->prepare("
@@ -55,7 +55,7 @@ class AlunoService {
     }
     
     /**
-     * MÉTODO ORIGINAL: Busca aluno por CPF (todos os subdomínios)
+     * Busca aluno por CPF (todos os subdomínios) - mantido para compatibilidade
      */
     public function buscarAlunoPorCPF($cpf) {
         $cpf = preg_replace('/[^0-9]/', '', $cpf);
@@ -71,7 +71,7 @@ class AlunoService {
     }
     
     /**
-     * MÉTODO ORIGINAL: Busca cursos de um aluno (todos os subdomínios)
+     * Busca cursos de um aluno (todos os subdomínios) - mantido para compatibilidade
      */
     public function buscarCursosAluno($alunoId) {
         $stmt = $this->db->prepare("
@@ -87,56 +87,15 @@ class AlunoService {
     }
     
     /**
-     * NOVO MÉTODO: Lista todos os subdomínios onde o aluno possui cursos
-     */
-    public function buscarSubdomainsPorAluno($cpf) {
-        $cpf = preg_replace('/[^0-9]/', '', $cpf);
-        
-        $stmt = $this->db->prepare("
-            SELECT DISTINCT c.subdomain, COUNT(c.id) as total_cursos,
-                   MAX(a.nome) as aluno_nome
-            FROM alunos a
-            INNER JOIN matriculas m ON a.id = m.aluno_id
-            INNER JOIN cursos c ON m.curso_id = c.id
-            WHERE a.cpf = ? AND m.status = 'ativa' AND c.ativo = 1
-            GROUP BY c.subdomain
-            ORDER BY c.subdomain
-        ");
-        $stmt->execute([$cpf]);
-        
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
-    }
-    
-    /**
-     * NOVO MÉTODO: Verifica se aluno tem cursos em um subdomínio específico
-     */
-    public function verificarAlunoNoSubdomain($cpf, $subdomain) {
-        $cpf = preg_replace('/[^0-9]/', '', $cpf);
-        
-        $stmt = $this->db->prepare("
-            SELECT COUNT(*) as total
-            FROM alunos a
-            INNER JOIN matriculas m ON a.id = m.aluno_id
-            INNER JOIN cursos c ON m.curso_id = c.id
-            WHERE a.cpf = ? 
-            AND c.subdomain = ?
-            AND m.status = 'ativa' 
-            AND c.ativo = 1
-        ");
-        $stmt->execute([$cpf, $subdomain]);
-        
-        $result = $stmt->fetch();
-        return $result['total'] > 0;
-    }
-    
-    /**
-     * Salva ou atualiza dados do aluno no banco local (VERSÃO CORRIGIDA)
+     * Salva ou atualiza dados do aluno no banco local (VERSÃO DEFINITIVAMENTE CORRIGIDA)
      */
     public function salvarOuAtualizarAluno($dadosAluno) {
         try {
             $this->db->beginTransaction();
             
-            // CORREÇÃO: Usa FOR UPDATE para evitar condições de corrida
+            error_log("AlunoService: Iniciando salvamento - CPF: {$dadosAluno['cpf']}, Subdomain: {$dadosAluno['subdomain']}");
+            
+            // CORREÇÃO: Busca por CPF E subdomain
             $stmt = $this->db->prepare("
                 SELECT id, updated_at 
                 FROM alunos 
@@ -149,6 +108,7 @@ class AlunoService {
             if ($alunoExistente) {
                 // Atualiza dados do aluno existente
                 $alunoId = $this->atualizarAluno($alunoExistente['id'], $dadosAluno);
+                error_log("AlunoService: Aluno atualizado - ID: {$alunoId}");
             } else {
                 // CORREÇÃO: Verifica novamente antes de inserir
                 $stmt = $this->db->prepare("SELECT COUNT(*) as count FROM alunos WHERE cpf = ? AND subdomain = ?");
@@ -157,20 +117,24 @@ class AlunoService {
                 
                 if ($count > 0) {
                     // Se chegou aqui, houve uma condição de corrida
-                    // Busca o registro criado por outro processo
                     $stmt = $this->db->prepare("SELECT id FROM alunos WHERE cpf = ? AND subdomain = ? LIMIT 1");
                     $stmt->execute([$dadosAluno['cpf'], $dadosAluno['subdomain']]);
                     $alunoExistente = $stmt->fetch();
                     $alunoId = $this->atualizarAluno($alunoExistente['id'], $dadosAluno);
+                    error_log("AlunoService: Aluno encontrado após condição de corrida - ID: {$alunoId}");
                 } else {
                     // Cria novo aluno
                     $alunoId = $this->criarAluno($dadosAluno);
+                    error_log("AlunoService: Novo aluno criado - ID: {$alunoId}");
                 }
             }
             
-            // Atualiza/cria cursos e matrículas APENAS para o subdomínio atual
+            // CORREÇÃO PRINCIPAL: Atualiza/cria cursos e matrículas
             if (!empty($dadosAluno['cursos'])) {
+                error_log("AlunoService: Processando " . count($dadosAluno['cursos']) . " cursos");
                 $this->atualizarCursosAluno($alunoId, $dadosAluno['cursos'], $dadosAluno['subdomain']);
+            } else {
+                error_log("AlunoService: AVISO - Nenhum curso fornecido para processamento");
             }
             
             $this->db->commit();
@@ -178,11 +142,13 @@ class AlunoService {
             // Log da operação
             $this->registrarLog('aluno_sincronizado', $alunoId, "Dados sincronizados do Moodle: {$dadosAluno['subdomain']}");
             
+            error_log("AlunoService: Salvamento concluído com sucesso - ID: {$alunoId}");
             return $alunoId;
             
         } catch (Exception $e) {
             $this->db->rollback();
-            error_log("Erro ao salvar/atualizar aluno: " . $e->getMessage());
+            error_log("AlunoService: ERRO no salvamento - " . $e->getMessage());
+            error_log("AlunoService: Stack trace - " . $e->getTraceAsString());
             throw new Exception("Erro ao processar dados do aluno: " . $e->getMessage());
         }
     }
@@ -243,48 +209,67 @@ class AlunoService {
     }
     
     /**
-     * Atualiza cursos e matrículas do aluno APENAS para o subdomínio específico
+     * Atualiza cursos e matrículas do aluno (MÉTODO CORRIGIDO)
      */
     private function atualizarCursosAluno($alunoId, $cursosMoodle, $subdomain) {
-        foreach ($cursosMoodle as $cursoMoodle) {
-            // Verifica se curso já existe NO SUBDOMÍNIO ESPECÍFICO
-            $stmt = $this->db->prepare("
-                SELECT id FROM cursos 
-                WHERE moodle_course_id = ? AND subdomain = ?
-                LIMIT 1
-            ");
-            $stmt->execute([$cursoMoodle['moodle_course_id'], $subdomain]);
-            $cursoExistente = $stmt->fetch();
-            
-            if ($cursoExistente) {
-                $cursoId = $cursoExistente['id'];
+        error_log("AlunoService: Iniciando processamento de cursos para aluno {$alunoId}, subdomain {$subdomain}");
+        
+        foreach ($cursosMoodle as $index => $cursoMoodle) {
+            try {
+                error_log("AlunoService: Processando curso " . ($index + 1) . ": {$cursoMoodle['nome']} (Moodle ID: {$cursoMoodle['moodle_course_id']})");
                 
-                // Atualiza dados do curso
-                $this->atualizarCurso($cursoId, $cursoMoodle);
-            } else {
-                // Cria novo curso
-                $cursoId = $this->criarCurso($cursoMoodle, $subdomain);
-            }
-            
-            // Verifica se matrícula já existe
-            $stmt = $this->db->prepare("
-                SELECT id, status FROM matriculas 
-                WHERE aluno_id = ? AND curso_id = ?
-                LIMIT 1
-            ");
-            $stmt->execute([$alunoId, $cursoId]);
-            $matriculaExistente = $stmt->fetch();
-            
-            if ($matriculaExistente) {
-                // Atualiza matrícula se necessário
-                if ($matriculaExistente['status'] !== 'ativa') {
-                    $this->atualizarMatricula($matriculaExistente['id'], 'ativa');
+                // Verifica se curso já existe NO SUBDOMÍNIO ESPECÍFICO
+                $stmt = $this->db->prepare("
+                    SELECT id, nome, ativo FROM cursos 
+                    WHERE moodle_course_id = ? AND subdomain = ?
+                    LIMIT 1
+                ");
+                $stmt->execute([$cursoMoodle['moodle_course_id'], $subdomain]);
+                $cursoExistente = $stmt->fetch();
+                
+                if ($cursoExistente) {
+                    $cursoId = $cursoExistente['id'];
+                    error_log("AlunoService: Curso já existe - ID: {$cursoId}, Nome: {$cursoExistente['nome']}");
+                    
+                    // Atualiza dados do curso e garante que está ativo
+                    $this->atualizarCurso($cursoId, $cursoMoodle);
+                } else {
+                    // Cria novo curso
+                    $cursoId = $this->criarCurso($cursoMoodle, $subdomain);
+                    error_log("AlunoService: Novo curso criado - ID: {$cursoId}");
                 }
-            } else {
-                // Cria nova matrícula
-                $this->criarMatricula($alunoId, $cursoId, $cursoMoodle);
+                
+                // Verifica se matrícula já existe
+                $stmt = $this->db->prepare("
+                    SELECT id, status FROM matriculas 
+                    WHERE aluno_id = ? AND curso_id = ?
+                    LIMIT 1
+                ");
+                $stmt->execute([$alunoId, $cursoId]);
+                $matriculaExistente = $stmt->fetch();
+                
+                if ($matriculaExistente) {
+                    error_log("AlunoService: Matrícula já existe - ID: {$matriculaExistente['id']}, Status: {$matriculaExistente['status']}");
+                    
+                    // Ativa matrícula se necessário
+                    if ($matriculaExistente['status'] !== 'ativa') {
+                        $this->atualizarMatricula($matriculaExistente['id'], 'ativa');
+                        error_log("AlunoService: Matrícula reativada");
+                    }
+                } else {
+                    // Cria nova matrícula
+                    $matriculaId = $this->criarMatricula($alunoId, $cursoId, $cursoMoodle);
+                    error_log("AlunoService: Nova matrícula criada - ID: {$matriculaId}");
+                }
+                
+            } catch (Exception $e) {
+                error_log("AlunoService: ERRO ao processar curso {$cursoMoodle['nome']}: " . $e->getMessage());
+                // Continua processando outros cursos mesmo se um falhar
+                continue;
             }
         }
+        
+        error_log("AlunoService: Processamento de cursos concluído");
     }
     
     /**
@@ -295,15 +280,15 @@ class AlunoService {
             INSERT INTO cursos (
                 moodle_course_id, nome, nome_curto, valor, subdomain,
                 categoria_id, data_inicio, data_fim, formato, summary,
-                url, ativo, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+                url, ativo, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
         ");
         
         $stmt->execute([
             $cursoMoodle['moodle_course_id'],
             $cursoMoodle['nome'],
             $cursoMoodle['nome_curto'] ?? '',
-            0.00, // Valor padrão, será definido administrativamente
+            0.00, // Valor padrão
             $subdomain,
             $cursoMoodle['categoria'] ?? null,
             $cursoMoodle['data_inicio'] ?? null,
@@ -311,7 +296,7 @@ class AlunoService {
             $cursoMoodle['formato'] ?? 'topics',
             $cursoMoodle['summary'] ?? '',
             $cursoMoodle['url'] ?? null,
-            true
+            1 // ativo = true
         ]);
         
         return $this->db->lastInsertId();
@@ -325,7 +310,7 @@ class AlunoService {
             UPDATE cursos 
             SET nome = ?, nome_curto = ?, categoria_id = ?,
                 data_inicio = ?, data_fim = ?, formato = ?,
-                summary = ?, url = ?, updated_at = NOW()
+                summary = ?, url = ?, ativo = 1, updated_at = NOW()
             WHERE id = ?
         ");
         
@@ -348,8 +333,8 @@ class AlunoService {
     private function criarMatricula($alunoId, $cursoId, $cursoMoodle) {
         $stmt = $this->db->prepare("
             INSERT INTO matriculas (
-                aluno_id, curso_id, status, data_matricula, created_at
-            ) VALUES (?, ?, ?, ?, NOW())
+                aluno_id, curso_id, status, data_matricula, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, NOW(), NOW())
         ");
         
         $dataMatricula = $cursoMoodle['data_inicio'] ?? date('Y-m-d');
@@ -389,93 +374,6 @@ class AlunoService {
         $stmt->execute([$alunoId]);
         
         return $stmt->fetch(PDO::FETCH_ASSOC);
-    }
-    
-    /**
-     * NOVO MÉTODO: Busca estatísticas por subdomínio
-     */
-    public function obterEstatisticasPorSubdomain($subdomain) {
-        // Total de alunos
-        $stmt = $this->db->prepare("
-            SELECT COUNT(DISTINCT a.id) as total_alunos
-            FROM alunos a
-            WHERE a.subdomain = ?
-        ");
-        $stmt->execute([$subdomain]);
-        $totalAlunos = $stmt->fetch()['total_alunos'];
-        
-        // Total de cursos
-        $stmt = $this->db->prepare("
-            SELECT COUNT(*) as total_cursos
-            FROM cursos c
-            WHERE c.subdomain = ? AND c.ativo = 1
-        ");
-        $stmt->execute([$subdomain]);
-        $totalCursos = $stmt->fetch()['total_cursos'];
-        
-        // Total de matrículas ativas
-        $stmt = $this->db->prepare("
-            SELECT COUNT(*) as total_matriculas
-            FROM matriculas m
-            INNER JOIN cursos c ON m.curso_id = c.id
-            WHERE c.subdomain = ? AND m.status = 'ativa'
-        ");
-        $stmt->execute([$subdomain]);
-        $totalMatriculas = $stmt->fetch()['total_matriculas'];
-        
-        return [
-            'total_alunos' => $totalAlunos,
-            'total_cursos' => $totalCursos,
-            'total_matriculas' => $totalMatriculas,
-            'subdomain' => $subdomain
-        ];
-    }
-    
-    /**
-     * NOVO MÉTODO: Debug de dados por subdomínio
-     */
-    public function debugSubdomain($cpf, $subdomain = null) {
-        $cpf = preg_replace('/[^0-9]/', '', $cpf);
-        
-        $debug = [];
-        
-        // Busca em todos os subdomínios se não especificado
-        if ($subdomain) {
-            $subdomains = [$subdomain];
-        } else {
-            $stmt = $this->db->prepare("SELECT DISTINCT subdomain FROM alunos WHERE cpf = ?");
-            $stmt->execute([$cpf]);
-            $subdomains = array_column($stmt->fetchAll(), 'subdomain');
-        }
-        
-        foreach ($subdomains as $sub) {
-            $debug[$sub] = [];
-            
-            // Aluno
-            $stmt = $this->db->prepare("SELECT * FROM alunos WHERE cpf = ? AND subdomain = ?");
-            $stmt->execute([$cpf, $sub]);
-            $debug[$sub]['aluno'] = $stmt->fetch();
-            
-            if ($debug[$sub]['aluno']) {
-                // Cursos
-                $debug[$sub]['cursos'] = $this->buscarCursosAlunoPorSubdomain($debug[$sub]['aluno']['id'], $sub);
-                
-                // Boletos
-                $stmt = $this->db->prepare("
-                    SELECT COUNT(*) as total, 
-                           COUNT(CASE WHEN status = 'pago' THEN 1 END) as pagos,
-                           COUNT(CASE WHEN status = 'pendente' THEN 1 END) as pendentes,
-                           COUNT(CASE WHEN status = 'vencido' THEN 1 END) as vencidos
-                    FROM boletos b
-                    INNER JOIN cursos c ON b.curso_id = c.id
-                    WHERE b.aluno_id = ? AND c.subdomain = ?
-                ");
-                $stmt->execute([$debug[$sub]['aluno']['id'], $sub]);
-                $debug[$sub]['boletos'] = $stmt->fetch();
-            }
-        }
-        
-        return $debug;
     }
     
     /**
