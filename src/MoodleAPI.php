@@ -1,9 +1,9 @@
 <?php
 /**
- * Sistema de Boletos IMED - API do Moodle CORRIGIDA
- * Arquivo: src/MoodleAPI.php (SUBSTITUIR - FILTRO CORRETO)
+ * Sistema de Boletos IMED - API do Moodle IMPLEMENTAÇÃO CORRETA
+ * Arquivo: src/MoodleAPI.php (SUBSTITUIR COMPLETAMENTE)
  * 
- * CORREÇÃO: Filtra apenas cursos principais, excluindo disciplinas/matérias
+ * Implementação baseada na análise real da estrutura de cada polo
  */
 
 require_once __DIR__ . '/../config/moodle.php';
@@ -144,8 +144,8 @@ class MoodleAPI {
                     // Filtra apenas cursos visíveis e ativos
                     if (isset($course['visible']) && $course['visible'] == 1) {
                         
-                        // 🔥 FILTRO CRÍTICO: Só pega cursos principais
-                        if ($this->ehCursoPrincipal($course)) {
+                        // Aplica filtro específico por polo
+                        if ($this->ehCursoValidoParaPolo($course)) {
                             $cursosFormatados[] = [
                                 'id' => $course['id'],
                                 'moodle_course_id' => $course['id'],
@@ -175,351 +175,472 @@ class MoodleAPI {
     }
     
     /**
-     * 🔥 FUNÇÃO CRÍTICA: Determina se é um curso principal ou disciplina
-     */
-    private function ehCursoPrincipal($course) {
-        $nome = strtolower($course['fullname']);
-        $nomeShort = strtolower($course['shortname'] ?? '');
-        
-        // ❌ EXCLUSÕES: Palavras que indicam disciplinas/matérias
-        $disciplinasIndicadores = [
-            // Disciplinas específicas
-            'estágio', 'estagio', 'supervisionado',
-            'introdução', 'introducao', 'noções', 'nocoes',
-            'higiene', 'medicina', 'psicologia', 'aplicada',
-            'informática', 'informatica', 'aplicada',
-            'administração de unidade', 'administracao de unidade',
-            'desenvolvimento interpessoal',
-            'construção civil', 'construcao civil',
-            
-            // Tipos de disciplina
-            'módulo', 'modulo', 'unidade', 'disciplina',
-            'matéria', 'materia', 'aula', 'seminário', 'seminario',
-            'workshop', 'palestra', 'treinamento',
-            
-            // Indicadores temporais (disciplinas são específicas)
-            'semestre', 'período', 'periodo', 'bimestre',
-            'trimestre', 'etapa', 'fase',
-            
-            // Áreas muito específicas
-            'saúde e segurança', 'saude e seguranca',
-            'meio ambiente', 'recursos humanos',
-            'gestão de', 'gestao de', 'controle de',
-            
-            // Palavras que indicam sub-areas
-            'fundamentos de', 'principios de', 'princípios de',
-            'conceitos de', 'teoria de', 'prática de', 'pratica de'
-        ];
-        
-        // Verifica se contém indicadores de disciplina
-        foreach ($disciplinasIndicadores as $indicador) {
-            if (strpos($nome, $indicador) !== false) {
-                error_log("🚫 FILTRADO como disciplina: '{$course['fullname']}' (contém: {$indicador})");
-                return false;
-            }
-        }
-        
-        // ✅ INCLUSÕES: Palavras que indicam cursos principais
-        $cursosIndicadores = [
-            'técnico em', 'tecnico em',
-            'superior em', 'graduação em', 'graduacao em',
-            'bacharelado em', 'licenciatura em',
-            'tecnólogo em', 'tecnologo em',
-            'especialização em', 'especializacao em',
-            'mestrado em', 'doutorado em'
-        ];
-        
-        // Verifica se contém indicadores de curso principal
-        foreach ($cursosIndicadores as $indicador) {
-            if (strpos($nome, $indicador) !== false) {
-                error_log("✅ ACEITO como curso: '{$course['fullname']}' (contém: {$indicador})");
-                return true;
-            }
-        }
-        
-        // 📋 ANÁLISE AVANÇADA: Características de curso vs disciplina
-        
-        // 1. Cursos têm nomes mais diretos e concisos
-        $palavrasNome = explode(' ', $nome);
-        if (count($palavrasNome) > 8) {
-            error_log("🚫 FILTRADO: '{$course['fullname']}' (nome muito longo - parece disciplina)");
-            return false;
-        }
-        
-        // 2. Códigos de disciplina (ex: "ADM101", "ENF201")
-        if (preg_match('/^[A-Z]{2,4}\d{2,4}/', $nomeShort)) {
-            error_log("🚫 FILTRADO: '{$course['fullname']}' (código de disciplina no shortname)");
-            return false;
-        }
-        
-        // 3. Verifica se nome é muito genérico (provavelmente disciplina)
-        $nomesGenericos = [
-            'ética', 'etica', 'comunicação', 'comunicacao',
-            'português', 'portugues', 'matemática', 'matematica',
-            'física', 'fisica', 'química', 'quimica',
-            'biologia', 'anatomia', 'fisiologia',
-            'estatística', 'estatistica', 'metodologia'
-        ];
-        
-        foreach ($nomesGenericos as $generico) {
-            if ($nome === $generico || strpos($nome, $generico) === 0) {
-                error_log("🚫 FILTRADO: '{$course['fullname']}' (nome muito genérico)");
-                return false;
-            }
-        }
-        
-        // 4. Polo específico: Breu Branco
-        if (strpos($this->subdomain, 'breubranco') !== false) {
-            // Para Breu Branco, aceita apenas se tem "técnico" e não tem palavras de disciplina
-            if (strpos($nome, 'técnico') !== false || strpos($nome, 'tecnico') !== false) {
-                error_log("✅ ACEITO (Breu Branco): '{$course['fullname']}' (curso técnico)");
-                return true;
-            }
-        }
-        
-        // 5. Se chegou até aqui e tem características de curso, aceita
-        $caracteristicasCurso = [
-            'enfermagem' => !strpos($nome, 'unidade'), // Aceita "Enfermagem" mas não "Administração de Unidade de Enfermagem"
-            'administração' => !strpos($nome, 'de unidade'), // Aceita "Administração" mas não "Administração de Unidade"
-            'eletromecânica' => true,
-            'eletromecanica' => true,
-            'eletrotécnica' => true,
-            'eletrotecnica' => true,
-            'segurança do trabalho' => true,
-            'seguranca do trabalho' => true,
-            'contabilidade' => true,
-            'direito' => true,
-            'pedagogia' => true
-        ];
-        
-        foreach ($caracteristicasCurso as $caracteristica => $condicao) {
-            if (strpos($nome, $caracteristica) !== false && $condicao) {
-                error_log("✅ ACEITO (característica): '{$course['fullname']}' (contém: {$caracteristica})");
-                return true;
-            }
-        }
-        
-        // 🔴 DEFAULT: Se não tem certeza, rejeita (mais seguro)
-        error_log("🚫 FILTRADO (padrão): '{$course['fullname']}' (não identificado como curso principal)");
-        return false;
-    }
-    
-    /**
-     * Lista todos os cursos disponíveis (VERSÃO CORRIGIDA)
+     * Lista todos os cursos disponíveis - IMPLEMENTAÇÃO CORRETA POR POLO
      */
     public function listarTodosCursos() {
-        $cacheKey = "todos_cursos_filtrados_{$this->subdomain}";
+        $cacheKey = "todos_cursos_corretos_{$this->subdomain}";
         
         if (isset($this->cache[$cacheKey])) {
             return $this->cache[$cacheKey];
         }
         
         try {
-            error_log("MoodleAPI: 🎯 INICIANDO BUSCA FILTRADA DE CURSOS para {$this->subdomain}");
+            error_log("MoodleAPI: 🎯 BUSCA CORRETA DE CURSOS para {$this->subdomain}");
             
-            // Método 1: Busca cursos tradicionais (com filtro)
-            $cursosTracionais = $this->buscarCursosTracionaisFiltrados();
+            // Implementação específica baseada na estrutura de cada polo
+            $cursosEncontrados = $this->buscarCursosEspecificoPorPolo();
             
-            // Método 2: Busca categorias como cursos (específico para alguns polos)
-            $cursosCategorias = $this->buscarCursosComoCategoriasFiltrado();
-            
-            // Combina e remove duplicatas
-            $todosCursos = $this->combinarEFiltrarCursos($cursosTracionais, $cursosCategorias);
-            
-            error_log("MoodleAPI: ✅ CURSOS FINAIS FILTRADOS: " . count($todosCursos));
-            
-            // Log de cada curso aceito
-            foreach ($todosCursos as $curso) {
-                error_log("MoodleAPI: 📚 CURSO FINAL: " . $curso['nome'] . " (Tipo: " . $curso['tipo'] . ")");
-            }
+            error_log("MoodleAPI: ✅ CURSOS ENCONTRADOS: " . count($cursosEncontrados));
             
             // Cache por 30 minutos
-            $this->cache[$cacheKey] = $todosCursos;
+            $this->cache[$cacheKey] = $cursosEncontrados;
             
-            return $todosCursos;
+            return $cursosEncontrados;
             
         } catch (Exception $e) {
-            $this->logError("Erro ao listar cursos filtrados", $e);
-            return $this->getCursosEmergencia();
+            $this->logError("Erro ao listar cursos", $e);
+            return []; // Retorna array vazio ao invés de cursos de emergência
         }
     }
     
     /**
-     * Busca cursos tradicionais COM FILTRO
+     * 🎯 IMPLEMENTAÇÃO ESPECÍFICA POR POLO - Baseada na estrutura real
      */
-    private function buscarCursosTracionaisFiltrados() {
+    private function buscarCursosEspecificoPorPolo() {
+        $subdomain = $this->subdomain;
+        
+        // BREU BRANCO: Estrutura hierárquica - subcategorias são cursos
+        if (strpos($subdomain, 'breubranco') !== false) {
+            return $this->buscarCursosBreuBranco();
+        }
+        
+        // IGARAPÉ-MIRI: Estrutura tradicional - cursos diretos
+        if (strpos($subdomain, 'igarape') !== false) {
+            return $this->buscarCursosIgarape();
+        }
+        
+        // OUTROS POLOS: Detecção automática
+        return $this->buscarCursosDeteccaoAutomatica();
+    }
+    
+    /**
+     * 🔧 BREU BRANCO: Busca subcategorias de "CURSOS TÉCNICOS"
+     */
+    private function buscarCursosBreuBranco() {
         try {
+            error_log("MoodleAPI: 🎯 BREU BRANCO - Buscando subcategorias técnicas");
+            
+            // Busca todas as categorias
+            $allCategories = $this->callMoodleFunction('core_course_get_categories');
+            
+            error_log("MoodleAPI: 📂 Total de categorias encontradas: " . count($allCategories));
+            
+            if (empty($allCategories)) {
+                error_log("MoodleAPI: ❌ Nenhuma categoria encontrada");
+                return [];
+            }
+            
+            // Log de todas as categorias para debug
+            foreach ($allCategories as $cat) {
+                error_log("MoodleAPI: 📁 Categoria: ID={$cat['id']}, Nome='{$cat['name']}', Parent={$cat['parent']}, Cursos=" . ($cat['coursecount'] ?? 0));
+            }
+            
+            // Encontra a categoria pai "CURSOS TÉCNICOS"
+            $categoriaCursosTecnicos = null;
+            foreach ($allCategories as $category) {
+                $nomeCategoria = strtolower(trim($category['name']));
+                if (strpos($nomeCategoria, 'cursos técnicos') !== false || 
+                    strpos($nomeCategoria, 'cursos tecnicos') !== false ||
+                    $nomeCategoria === 'cursos técnicos' ||
+                    $nomeCategoria === 'cursos tecnicos') {
+                    $categoriaCursosTecnicos = $category;
+                    error_log("MoodleAPI: ✅ Categoria pai encontrada: " . $category['name'] . " (ID: " . $category['id'] . ")");
+                    break;
+                }
+            }
+            
+            if (!$categoriaCursosTecnicos) {
+                error_log("MoodleAPI: ❌ Categoria 'CURSOS TÉCNICOS' não encontrada");
+                return [];
+            }
+            
+            $cursosEncontrados = [];
+            
+            // Busca subcategorias (que são os cursos técnicos reais)
+            foreach ($allCategories as $category) {
+                // Verifica se é subcategoria da categoria "CURSOS TÉCNICOS"
+                if ($category['parent'] == $categoriaCursosTecnicos['id']) {
+                    
+                    // Valida se é realmente um curso técnico
+                    $nomeSubcategoria = trim($category['name']); // Remove espaços extras
+                    if ($this->ehCursoTecnicoValido($nomeSubcategoria)) {
+                        $cursosEncontrados[] = [
+                            'id' => 'cat_' . $category['id'],
+                            'categoria_original_id' => $category['id'],
+                            'tipo' => 'categoria_curso',
+                            'nome' => $nomeSubcategoria, // Usa nome limpo
+                            'nome_curto' => $this->gerarNomeCurtoCategoria($nomeSubcategoria),
+                            'categoria_id' => $category['parent'],
+                            'visivel' => isset($category['visible']) ? ($category['visible'] == 1) : true,
+                            'data_inicio' => null,
+                            'data_fim' => null,
+                            'total_alunos' => $category['coursecount'] ?? 0,
+                            'formato' => 'category',
+                            'summary' => isset($category['description']) ? strip_tags($category['description']) : '',
+                            'url' => "https://{$this->subdomain}/course/index.php?categoryid={$category['id']}",
+                            'parent_name' => trim($categoriaCursosTecnicos['name'])
+                        ];
+                        
+                        error_log("MoodleAPI: ✅ CURSO TÉCNICO: " . $nomeSubcategoria . " (ID: " . $category['id'] . ")");
+                    } else {
+                        error_log("MoodleAPI: ❌ Rejeitado: " . $nomeSubcategoria . " (não é curso técnico válido)");
+                    }
+                }
+            }
+            
+            error_log("MoodleAPI: 🏆 BREU BRANCO - Total encontrado: " . count($cursosEncontrados));
+            return $cursosEncontrados;
+            
+        } catch (Exception $e) {
+            error_log("MoodleAPI: ❌ Erro Breu Branco: " . $e->getMessage());
+            return [];
+        }
+    }
+    
+    /**
+     * 📚 IGARAPÉ-MIRI: Busca cursos tradicionais com filtro
+     */
+    private function buscarCursosIgarape() {
+        try {
+            error_log("MoodleAPI: 🎯 IGARAPÉ - Buscando cursos tradicionais");
+            
             $courses = $this->callMoodleFunction('core_course_get_courses');
-            $cursos = [];
+            $cursosEncontrados = [];
             
             if (!empty($courses)) {
                 foreach ($courses as $course) {
                     // Pula o curso "Site" (ID 1)
                     if ($course['id'] == 1) continue;
                     
-                    // 🔥 APLICA FILTRO CRÍTICO
-                    if ($this->ehCursoPrincipal($course)) {
-                        $cursos[] = [
-                            'id' => $course['id'],
-                            'tipo' => 'curso',
-                            'nome' => $course['fullname'],
-                            'nome_curto' => $course['shortname'] ?? '',
-                            'categoria_id' => $course['categoryid'] ?? null,
-                            'visivel' => isset($course['visible']) ? ($course['visible'] == 1) : true,
-                            'data_inicio' => isset($course['startdate']) && $course['startdate'] > 0 
-                                ? date('Y-m-d', $course['startdate']) : null,
-                            'data_fim' => isset($course['enddate']) && $course['enddate'] > 0 
-                                ? date('Y-m-d', $course['enddate']) : null,
-                            'total_alunos' => $course['enrolledusercount'] ?? 0,
-                            'formato' => $course['format'] ?? 'topics',
-                            'summary' => isset($course['summary']) ? strip_tags($course['summary']) : '',
-                            'url' => "https://{$this->subdomain}/course/view.php?id={$course['id']}"
-                        ];
-                    }
-                }
-            }
-            
-            error_log("MoodleAPI: 📋 Cursos tradicionais filtrados: " . count($cursos));
-            return $cursos;
-            
-        } catch (Exception $e) {
-            error_log("MoodleAPI: ❌ Erro ao buscar cursos tradicionais: " . $e->getMessage());
-            return [];
-        }
-    }
-    
-    /**
-     * Busca categorias como cursos (VERSÃO FILTRADA)
-     */
-    private function buscarCursosComoCategoriasFiltrado() {
-        try {
-            // Para alguns polos, categorias específicas são tratadas como cursos
-            if (strpos($this->subdomain, 'breubranco') === false) {
-                return []; // Só aplica para Breu Branco por enquanto
-            }
-            
-            $categories = $this->callMoodleFunction('core_course_get_categories');
-            $cursos = [];
-            
-            if (!empty($categories)) {
-                // Busca categoria "CURSOS TÉCNICOS"
-                $categoriaPai = null;
-                foreach ($categories as $cat) {
-                    if (strpos(strtolower($cat['name']), 'cursos técnicos') !== false ||
-                        strpos(strtolower($cat['name']), 'cursos tecnicos') !== false) {
-                        $categoriaPai = $cat;
-                        break;
-                    }
-                }
-                
-                if ($categoriaPai) {
-                    // Busca subcategorias da categoria pai
-                    foreach ($categories as $category) {
-                        if ($category['parent'] == $categoriaPai['id']) {
-                            // Verifica se é realmente um curso técnico
-                            if ($this->ehCategoriaCursoTecnico($category)) {
-                                $cursos[] = [
-                                    'id' => 'cat_' . $category['id'],
-                                    'categoria_original_id' => $category['id'],
-                                    'tipo' => 'categoria_curso',
-                                    'nome' => $category['name'],
-                                    'nome_curto' => $this->gerarNomeCurtoCategoria($category['name']),
-                                    'categoria_id' => $category['parent'],
-                                    'visivel' => isset($category['visible']) ? ($category['visible'] == 1) : true,
-                                    'data_inicio' => null,
-                                    'data_fim' => null,
-                                    'total_alunos' => $category['coursecount'] ?? 0,
-                                    'formato' => 'category',
-                                    'summary' => isset($category['description']) ? strip_tags($category['description']) : '',
-                                    'url' => "https://{$this->subdomain}/course/index.php?categoryid={$category['id']}",
-                                    'parent_name' => $categoriaPai['name']
-                                ];
-                            }
+                    // Verifica se é curso visível e válido
+                    if (isset($course['visible']) && $course['visible'] == 1) {
+                        if ($this->ehCursoTradicionalValido($course)) {
+                            $cursosEncontrados[] = [
+                                'id' => $course['id'],
+                                'tipo' => 'curso',
+                                'nome' => $course['fullname'],
+                                'nome_curto' => $course['shortname'] ?? '',
+                                'categoria_id' => $course['categoryid'] ?? null,
+                                'visivel' => true,
+                                'data_inicio' => isset($course['startdate']) && $course['startdate'] > 0 
+                                    ? date('Y-m-d', $course['startdate']) : null,
+                                'data_fim' => isset($course['enddate']) && $course['enddate'] > 0 
+                                    ? date('Y-m-d', $course['enddate']) : null,
+                                'total_alunos' => $course['enrolledusercount'] ?? 0,
+                                'formato' => $course['format'] ?? 'topics',
+                                'summary' => isset($course['summary']) ? strip_tags($course['summary']) : '',
+                                'url' => "https://{$this->subdomain}/course/view.php?id={$course['id']}"
+                            ];
+                            
+                            error_log("MoodleAPI: ✅ CURSO IGARAPÉ: " . $course['fullname']);
+                        } else {
+                            error_log("MoodleAPI: ❌ Rejeitado: " . $course['fullname'] . " (não é curso válido)");
                         }
                     }
                 }
             }
             
-            error_log("MoodleAPI: 📂 Categorias como cursos filtradas: " . count($cursos));
-            return $cursos;
+            error_log("MoodleAPI: 🏆 IGARAPÉ - Total encontrado: " . count($cursosEncontrados));
+            return $cursosEncontrados;
             
         } catch (Exception $e) {
-            error_log("MoodleAPI: ❌ Erro ao buscar categorias: " . $e->getMessage());
+            error_log("MoodleAPI: ❌ Erro Igarapé: " . $e->getMessage());
             return [];
         }
     }
     
     /**
-     * Verifica se categoria é realmente um curso técnico
+     * 🔍 OUTROS POLOS: Detecção automática da estrutura
      */
-    private function ehCategoriaCursoTecnico($category) {
-        $nome = strtolower($category['name']);
+    private function buscarCursosDeteccaoAutomatica() {
+        try {
+            error_log("MoodleAPI: 🎯 DETECÇÃO AUTOMÁTICA para {$this->subdomain}");
+            
+            // Testa primeiro categorias
+            $cursosCategorias = $this->tentarBuscarPorCategorias();
+            
+            // Testa cursos tradicionais
+            $cursosTracionais = $this->tentarBuscarCursosTracionais();
+            
+            // Decide qual usar baseado na quantidade e qualidade
+            if (count($cursosCategorias) > count($cursosTracionais) && count($cursosCategorias) > 0) {
+                error_log("MoodleAPI: 📂 Usando estrutura de CATEGORIAS (" . count($cursosCategorias) . " encontrados)");
+                return $cursosCategorias;
+            } elseif (count($cursosTracionais) > 0) {
+                error_log("MoodleAPI: 📚 Usando estrutura TRADICIONAL (" . count($cursosTracionais) . " encontrados)");
+                return $cursosTracionais;
+            }
+            
+            error_log("MoodleAPI: ⚠️ Nenhuma estrutura válida encontrada");
+            return [];
+            
+        } catch (Exception $e) {
+            error_log("MoodleAPI: ❌ Erro detecção automática: " . $e->getMessage());
+            return [];
+        }
+    }
+    
+    /**
+     * Tenta buscar por categorias (para polos com estrutura similar ao Breu Branco)
+     */
+    private function tentarBuscarPorCategorias() {
+        try {
+            $allCategories = $this->callMoodleFunction('core_course_get_categories');
+            $cursosEncontrados = [];
+            
+            if (!empty($allCategories)) {
+                foreach ($allCategories as $category) {
+                    // Pula categoria raiz
+                    if ($category['id'] == 1 || $category['parent'] == 0) continue;
+                    
+                    // Verifica se categoria parece ser um curso
+                    if ($this->categoriaPareceCurso($category)) {
+                        $cursosEncontrados[] = [
+                            'id' => 'cat_' . $category['id'],
+                            'categoria_original_id' => $category['id'],
+                            'tipo' => 'categoria_curso',
+                            'nome' => $category['name'],
+                            'nome_curto' => $this->gerarNomeCurtoCategoria($category['name']),
+                            'categoria_id' => $category['parent'],
+                            'visivel' => isset($category['visible']) ? ($category['visible'] == 1) : true,
+                            'total_alunos' => $category['coursecount'] ?? 0,
+                            'url' => "https://{$this->subdomain}/course/index.php?categoryid={$category['id']}"
+                        ];
+                    }
+                }
+            }
+            
+            return $cursosEncontrados;
+            
+        } catch (Exception $e) {
+            return [];
+        }
+    }
+    
+    /**
+     * Tenta buscar cursos tradicionais
+     */
+    private function tentarBuscarCursosTracionais() {
+        try {
+            $courses = $this->callMoodleFunction('core_course_get_courses');
+            $cursosEncontrados = [];
+            
+            if (!empty($courses)) {
+                foreach ($courses as $course) {
+                    if ($course['id'] == 1) continue;
+                    
+                    if (isset($course['visible']) && $course['visible'] == 1) {
+                        if ($this->ehCursoTradicionalValido($course)) {
+                            $cursosEncontrados[] = [
+                                'id' => $course['id'],
+                                'tipo' => 'curso',
+                                'nome' => $course['fullname'],
+                                'nome_curto' => $course['shortname'] ?? '',
+                                'categoria_id' => $course['categoryid'] ?? null,
+                                'visivel' => true,
+                                'total_alunos' => $course['enrolledusercount'] ?? 0,
+                                'url' => "https://{$this->subdomain}/course/view.php?id={$course['id']}"
+                            ];
+                        }
+                    }
+                }
+            }
+            
+            return $cursosEncontrados;
+            
+        } catch (Exception $e) {
+            return [];
+        }
+    }
+    
+    /**
+     * Normaliza texto removendo acentos e convertendo para minúsculas
+     */
+    private function normalizarTexto($texto) {
+        // Remove espaços extras
+        $texto = trim($texto);
         
-        // Deve conter "técnico"
-        if (strpos($nome, 'técnico') === false && strpos($nome, 'tecnico') === false) {
+        // Converte para minúsculas primeiro
+        $texto = mb_strtolower($texto, 'UTF-8');
+        
+        // Remove acentos
+        $acentos = [
+            'á' => 'a', 'à' => 'a', 'ã' => 'a', 'â' => 'a', 'ä' => 'a',
+            'é' => 'e', 'è' => 'e', 'ê' => 'e', 'ë' => 'e',
+            'í' => 'i', 'ì' => 'i', 'î' => 'i', 'ï' => 'i',
+            'ó' => 'o', 'ò' => 'o', 'õ' => 'o', 'ô' => 'o', 'ö' => 'o',
+            'ú' => 'u', 'ù' => 'u', 'û' => 'u', 'ü' => 'u',
+            'ç' => 'c', 'ñ' => 'n'
+        ];
+        
+        return str_replace(array_keys($acentos), array_values($acentos), $texto);
+    }
+    
+    /**
+     * ✅ Verifica se é curso técnico válido (para Breu Branco)
+     */
+    private function ehCursoTecnicoValido($nome) {
+        $nome = $this->normalizarTexto($nome); // Usa normalização consistente
+        
+        error_log("🔍 Validando curso técnico: '{$nome}'");
+        
+        // Deve conter "tecnico" obrigatoriamente (sem acento)
+        if (strpos($nome, 'tecnico') === false) {
+            error_log("❌ Rejeitado: não contém 'tecnico'");
             return false;
         }
         
-        // Nomes aceitos para cursos técnicos
+        // Lista de palavras-chave dos cursos técnicos do Breu Branco (sem acentos)
         $cursosValidos = [
-            'técnico em enfermagem',
-            'tecnico em enfermagem',
-            'técnico em eletromecânica',
-            'tecnico em eletromecanica',
-            'técnico em eletrotécnica',
-            'tecnico em eletrotecnica',
-            'técnico em segurança do trabalho',
-            'tecnico em seguranca do trabalho',
-            'técnico em administração',
-            'tecnico em administracao',
-            'técnico em informática',
-            'tecnico em informatica'
+            'enfermagem',
+            'eletromecanica', 
+            'eletrotecnica', 
+            'seguranca',
+            'trabalho'
         ];
         
-        foreach ($cursosValidos as $valido) {
-            if (strpos($nome, $valido) !== false) {
-                error_log("✅ CATEGORIA ACEITA: " . $category['name']);
+        // Verifica se contém pelo menos uma palavra-chave válida
+        foreach ($cursosValidos as $palavraChave) {
+            if (strpos($nome, $palavraChave) !== false) {
+                error_log("✅ Curso técnico válido: contém '{$palavraChave}'");
                 return true;
             }
         }
         
-        error_log("🚫 CATEGORIA REJEITADA: " . $category['name']);
+        // Palavras que invalidam (disciplinas dentro dos cursos)
+        $palavrasInvalidas = [
+            'higiene', 'medicina', 'psicologia', 'aplicada',
+            'modulo', 'estagio', 'introducao', 'nocoes'
+        ];
+        
+        foreach ($palavrasInvalidas as $invalida) {
+            if (strpos($nome, $invalida) !== false) {
+                error_log("❌ Rejeitado: contém palavra inválida '{$invalida}'");
+                return false;
+            }
+        }
+        
+        // Se contém "tecnico" mas não encontrou palavra-chave específica,
+        // aceita mesmo assim (pode ser variação de nome)
+        error_log("✅ Curso técnico aceito: contém 'tecnico' e passou pelos filtros");
+        return true;
+    }
+    
+    /**
+     * ✅ Verifica se é curso tradicional válido
+     */
+    private function ehCursoTradicionalValido($course) {
+        $nome = strtolower($course['fullname']);
+        
+        // Palavras que indicam disciplinas (devem ser excluídas)
+        $indicadoresDisciplina = [
+            'módulo', 'modulo', 'disciplina', 'matéria', 'materia',
+            'estágio', 'estagio', 'supervisionado',
+            'introdução', 'introducao', 'noções', 'nocoes',
+            'higiene', 'medicina do trabalho', 'psicologia aplicada',
+            'informática aplicada', 'informatica aplicada',
+            'metodologia', 'português', 'portugues', 'matemática', 'matematica',
+            'ética', 'etica', 'instrumental'
+        ];
+        
+        // Se contém indicador de disciplina, rejeita
+        foreach ($indicadoresDisciplina as $indicador) {
+            if (strpos($nome, $indicador) !== false) {
+                return false;
+            }
+        }
+        
+        // Palavras que indicam cursos válidos
+        $indicadoresCurso = [
+            'técnico em', 'tecnico em',
+            'superior em', 'graduação em', 'graduacao em',
+            'bacharelado', 'licenciatura',
+            'enfermagem', 'administração', 'administracao',
+            'direito', 'contabilidade', 'pedagogia'
+        ];
+        
+        foreach ($indicadoresCurso as $indicador) {
+            if (strpos($nome, $indicador) !== false) {
+                return true;
+            }
+        }
+        
+        // Se tem muitos alunos, provavelmente é curso
+        $totalAlunos = $course['enrolledusercount'] ?? 0;
+        if ($totalAlunos > 10) {
+            return true;
+        }
+        
+        // Se nome é muito longo, provavelmente é disciplina
+        if (count(explode(' ', $nome)) > 6) {
+            return false;
+        }
+        
+        return true; // Default: aceita se passou por todos os filtros
+    }
+    
+    /**
+     * Verifica se categoria parece ser um curso
+     */
+    private function categoriaPareceCurso($category) {
+        $nome = strtolower($category['name']);
+        
+        // Deve ter cursos dentro
+        if (($category['coursecount'] ?? 0) == 0) {
+            return false;
+        }
+        
+        // Não deve ter subcategorias (ser folha da árvore)
+        // Isso seria verificado com uma busca adicional, simplificamos aqui
+        
+        // Nomes que indicam cursos
+        $indicadoresCurso = [
+            'técnico', 'tecnico', 'superior', 'graduação', 'graduacao',
+            'enfermagem', 'administração', 'administracao', 'contabilidade',
+            'direito', 'pedagogia', 'engenharia'
+        ];
+        
+        foreach ($indicadoresCurso as $indicador) {
+            if (strpos($nome, $indicador) !== false) {
+                return true;
+            }
+        }
+        
         return false;
     }
     
     /**
-     * Combina e filtra cursos, removendo duplicatas
+     * Verifica se curso é válido para o polo específico
      */
-    private function combinarEFiltrarCursos($cursosTracionais, $cursosCategorias) {
-        $todosCursos = array_merge($cursosTracionais, $cursosCategorias);
+    private function ehCursoValidoParaPolo($course) {
+        // Para alunos matriculados, usa critérios menos rigorosos
+        $nome = strtolower($course['fullname']);
         
-        // Remove duplicatas baseado no nome
-        $cursosUnicos = [];
-        $nomesJaAdicionados = [];
+        // Exclui apenas disciplinas óbvias
+        $disciplinasObvias = [
+            'estágio supervisionado', 'estagio supervisionado',
+            'módulo i', 'modulo i', 'módulo ii', 'modulo ii',
+            'higiene e medicina', 'psicologia aplicada',
+            'metodologia científica', 'metodologia cientifica'
+        ];
         
-        foreach ($todosCursos as $curso) {
-            $nomeNormalizado = strtolower(trim($curso['nome']));
-            
-            // Remove palavras comuns para comparação
-            $nomeParaComparacao = str_replace([
-                'técnico em ', 'tecnico em ', 'curso de ', 'curso '
-            ], '', $nomeNormalizado);
-            
-            if (!in_array($nomeParaComparacao, $nomesJaAdicionados)) {
-                $cursosUnicos[] = $curso;
-                $nomesJaAdicionados[] = $nomeParaComparacao;
-                error_log("✅ CURSO ÚNICO ADICIONADO: " . $curso['nome']);
-            } else {
-                error_log("🔄 CURSO DUPLICADO IGNORADO: " . $curso['nome']);
+        foreach ($disciplinasObvias as $disciplina) {
+            if (strpos($nome, $disciplina) !== false) {
+                return false;
             }
         }
         
-        // Ordena por nome
-        usort($cursosUnicos, function($a, $b) {
-            return strcmp($a['nome'], $b['nome']);
-        });
-        
-        return $cursosUnicos;
+        return true; // Mais permissivo para cursos de alunos
     }
     
     /**
@@ -538,31 +659,7 @@ class MoodleAPI {
             }
         }
         
-        return substr($nomeCurto, 0, 10) ?: 'TEC';
-    }
-    
-    /**
-     * Retorna cursos de emergência se tudo falhar
-     */
-    private function getCursosEmergencia() {
-        $subdomain = $this->subdomain;
-        
-        // Cursos específicos baseado no polo
-        if (strpos($subdomain, 'breubranco') !== false) {
-            return [
-                ['id' => 'emg_001', 'nome' => 'Técnico em Enfermagem', 'nome_curto' => 'TEC_ENF', 'tipo' => 'emergencia'],
-                ['id' => 'emg_002', 'nome' => 'Técnico em Eletromecânica', 'nome_curto' => 'TEC_ELE', 'tipo' => 'emergencia'],
-                ['id' => 'emg_003', 'nome' => 'Técnico em Eletrotécnica', 'nome_curto' => 'TEC_ELT', 'tipo' => 'emergencia'],
-                ['id' => 'emg_004', 'nome' => 'Técnico em Segurança do Trabalho', 'nome_curto' => 'TEC_SEG', 'tipo' => 'emergencia']
-            ];
-        }
-        
-        // Outros polos
-        return [
-            ['id' => 'emg_101', 'nome' => 'Administração', 'nome_curto' => 'ADM', 'tipo' => 'emergencia'],
-            ['id' => 'emg_102', 'nome' => 'Enfermagem', 'nome_curto' => 'ENF', 'tipo' => 'emergencia'],
-            ['id' => 'emg_103', 'nome' => 'Direito', 'nome_curto' => 'DIR', 'tipo' => 'emergencia']
-        ];
+        return substr($nomeCurto, 0, 10) ?: 'CURSO';
     }
     
     /**
