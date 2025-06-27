@@ -1,6 +1,6 @@
 <?php
 define('APP_NAME', 'Sistema de Boletos IMED');
-define('APP_URL', 'https://boletos.imepedu.com.br');
+define('APP_URL', 'https://boleto.imepedu.com.br/');
 define('APP_ENV', 'production'); // ou 'development'
 
 // Configuração do banco

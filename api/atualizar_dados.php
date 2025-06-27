@@ -49,7 +49,13 @@ try {
     
     // Conecta com a API do Moodle
     $moodleAPI = new MoodleAPI($subdomain);
+    // Busca dados no Moodle
     $dadosAluno = $moodleAPI->buscarAlunoPorCPF($cpf);
+    
+    // Força o subdomínio correto
+    if ($dadosAluno) {
+        $dadosAluno['subdomain'] = $subdomain;
+    }
     
     if (!$dadosAluno) {
         throw new Exception("Aluno não encontrado no sistema do Moodle");
@@ -65,7 +71,7 @@ try {
     $_SESSION['aluno_email'] = $dadosAluno['email'];
     
     // Busca cursos atualizados
-    $cursosAtualizados = $alunoService->buscarCursosAluno($alunoId);
+    $cursosAtualizados = $alunoService->buscarCursosAluno($alunoId, $subdomain);
     
     // Log de sucesso
     error_log("API: Dados atualizados com sucesso. Cursos encontrados: " . count($cursosAtualizados));

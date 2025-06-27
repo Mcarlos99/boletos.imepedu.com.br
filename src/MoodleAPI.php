@@ -67,8 +67,6 @@ class MoodleAPI {
         }
         
         try {
-            error_log("MoodleAPI: Iniciando busca por CPF {$cpf} no subdomínio {$this->subdomain}");
-            
             // Busca por CPF no campo idnumber
             $users = $this->callMoodleFunction('core_user_get_users', [
                 'criteria' => [
@@ -79,10 +77,7 @@ class MoodleAPI {
                 ]
             ]);
             
-            error_log("MoodleAPI: Busca por idnumber retornou " . count($users['users'] ?? []) . " usuários");
-            
             if (empty($users['users'])) {
-                error_log("MoodleAPI: Tentando busca por username");
                 // Tenta buscar por username se não encontrou por idnumber
                 $users = $this->callMoodleFunction('core_user_get_users', [
                     'criteria' => [
@@ -92,18 +87,13 @@ class MoodleAPI {
                         ]
                     ]
                 ]);
-                
-                error_log("MoodleAPI: Busca por username retornou " . count($users['users'] ?? []) . " usuários");
             }
             
             if (!empty($users['users'])) {
                 $user = $users['users'][0];
-                error_log("MoodleAPI: Usuário encontrado - ID: {$user['id']}, Nome: {$user['fullname']}");
                 
                 // Busca cursos do aluno
-                error_log("MoodleAPI: Buscando cursos do usuário {$user['id']}");
                 $cursos = $this->buscarCursosAluno($user['id']);
-                error_log("MoodleAPI: Encontrados " . count($cursos) . " cursos");
                 
                 $dadosAluno = [
                     'nome' => $user['fullname'],
@@ -121,18 +111,14 @@ class MoodleAPI {
                 // Cache por 5 minutos
                 $this->cache[$cacheKey] = $dadosAluno;
                 
-                error_log("MoodleAPI: Dados do aluno preparados com sucesso");
                 return $dadosAluno;
             }
             
-            error_log("MoodleAPI: Nenhum usuário encontrado para CPF {$cpf}");
             return null;
             
         } catch (Exception $e) {
-            error_log("MoodleAPI: Erro na busca por CPF {$cpf}: " . $e->getMessage());
-            error_log("MoodleAPI: Stack trace: " . $e->getTraceAsString());
             $this->logError("Erro ao buscar aluno por CPF: {$cpf}", $e);
-            throw new Exception("Erro ao buscar dados do aluno no Moodle: " . $e->getMessage());
+            throw new Exception("Erro ao buscar dados do aluno no Moodle");
         }
     }
     
