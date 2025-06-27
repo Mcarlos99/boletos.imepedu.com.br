@@ -1,9 +1,7 @@
 <?php
 /**
- * Sistema de Boletos IMED - API para buscar cursos CORRIGIDA (Suporte à Hierarquia)
+ * Sistema de Boletos IMED - API para buscar cursos com suporte a hierarquia
  * Arquivo: admin/api/buscar-cursos.php
- * 
- * VERSÃO ESPECÍFICA PARA BREU BRANCO E OUTROS POLOS COM HIERARQUIA
  */
 
 session_start();
@@ -28,7 +26,7 @@ try {
         throw new Exception('Polo é obrigatório');
     }
     
-    error_log("=== API BUSCAR CURSOS: INÍCIO PARA POLO {$polo} ===");
+    error_log("API buscar-cursos: Iniciando busca para polo: " . $polo);
     
     // Verifica configuração do polo
     if (!MoodleConfig::isValidSubdomain($polo)) {
@@ -44,8 +42,6 @@ try {
         throw new Exception("Token não configurado para polo {$polo}. Configure um token válido no arquivo config/moodle.php");
     }
     
-    error_log("API: Token OK para {$polo}");
-    
     // Conecta com o Moodle
     $moodleAPI = new MoodleAPI($polo);
     
@@ -55,12 +51,12 @@ try {
         throw new Exception("Erro ao conectar com Moodle: " . $testeConexao['erro']);
     }
     
-    error_log("API: Conexão OK com {$polo}");
+    error_log("API buscar-cursos: Conexão OK com {$polo}");
     
-    // 🔥 BUSCA CURSOS COM HIERARQUIA MELHORADA
+    // Busca cursos com suporte a hierarquia
     $cursosMoodle = $moodleAPI->listarTodosCursos();
     
-    error_log("API: Cursos/categorias encontrados no Moodle: " . count($cursosMoodle));
+    error_log("API buscar-cursos: Encontrados " . count($cursosMoodle) . " cursos/categorias no Moodle");
     
     // Processa e salva cursos no banco local
     $db = (new Database())->getConnection();
@@ -70,32 +66,23 @@ try {
     
     foreach ($cursosMoodle as $curso) {
         try {
-            error_log("API: Processando: " . $curso['nome'] . " (Tipo: " . $curso['tipo'] . ")");
-            
             // Determina ID do Moodle baseado no tipo
-            if ($curso['tipo'] === 'categoria_curso') {
-                $moodleCourseId = $curso['categoria_original_id'];
-                $identificador = 'cat_' . $curso['categoria_original_id'];
-            } else {
-                $moodleCourseId = $curso['id'];
-                $identificador = 'course_' . $curso['id'];
-            }
+            $moodleCourseId = $curso['tipo'] === 'categoria_curso' 
+                ? $curso['categoria_original_id'] 
+                : $curso['id'];
             
-            // Verifica se já existe (busca mais robusta)
+            // Monta identificador único
+            $identificador = $curso['tipo'] === 'categoria_curso' 
+                ? 'cat_' . $curso['categoria_original_id']
+                : 'course_' . $curso['id'];
+            
+            // Verifica se já existe
             $stmt = $db->prepare("
                 SELECT id FROM cursos 
-                WHERE (
-                    (moodle_course_id = ? AND subdomain = ?) OR
-                    (identificador_moodle = ? AND subdomain = ?) OR
-                    (nome = ? AND subdomain = ?)
-                )
-                LIMIT 1
+                WHERE (moodle_course_id = ? OR identificador_moodle = ?) 
+                AND subdomain = ?
             ");
-            $stmt->execute([
-                $moodleCourseId, $polo,
-                $identificador, $polo,
-                $curso['nome'], $polo
-            ]);
+            $stmt->execute([$moodleCourseId, $identificador, $polo]);
             $cursoExistente = $stmt->fetch();
             
             if ($cursoExistente) {
@@ -103,9 +90,7 @@ try {
                 $stmt = $db->prepare("
                     UPDATE cursos 
                     SET nome = ?, nome_curto = ?, tipo_estrutura = ?, 
-                        categoria_pai = ?, ativo = 1, updated_at = NOW(),
-                        identificador_moodle = ?, categoria_id = ?,
-                        total_alunos = ?, visivel = ?, url = ?
+                        categoria_pai = ?, ativo = 1, updated_at = NOW()
                     WHERE id = ?
                 ");
                 $stmt->execute([
@@ -113,17 +98,10 @@ try {
                     $curso['nome_curto'],
                     $curso['tipo'],
                     $curso['parent_name'] ?? null,
-                    $identificador,
-                    $curso['categoria_id'] ?? null,
-                    $curso['total_alunos'] ?? 0,
-                    $curso['visivel'] ? 1 : 0,
-                    $curso['url'] ?? null,
                     $cursoExistente['id']
                 ]);
                 $cursoId = $cursoExistente['id'];
                 $cursosAtualizados++;
-                
-                error_log("API: Curso ATUALIZADO - ID: {$cursoId}");
                 
             } else {
                 // Cria novo curso
@@ -132,8 +110,8 @@ try {
                         moodle_course_id, identificador_moodle, nome, nome_curto, 
                         subdomain, tipo_estrutura, categoria_pai, categoria_id,
                         data_inicio, data_fim, formato, summary, url,
-                        ativo, valor, total_alunos, visivel, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0.00, ?, ?, NOW(), NOW())
+                        ativo, valor, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0.00, NOW(), NOW())
                 ");
                 $stmt->execute([
                     $moodleCourseId,
@@ -148,14 +126,10 @@ try {
                     $curso['data_fim'],
                     $curso['formato'] ?? 'topics',
                     $curso['summary'] ?? '',
-                    $curso['url'] ?? null,
-                    $curso['total_alunos'] ?? 0,
-                    $curso['visivel'] ? 1 : 0
+                    $curso['url'] ?? null
                 ]);
                 $cursoId = $db->lastInsertId();
                 $cursosNovos++;
-                
-                error_log("API: Curso CRIADO - ID: {$cursoId}");
             }
             
             // Adiciona à lista de retorno
@@ -170,12 +144,11 @@ try {
                 'categoria_pai' => $curso['parent_name'] ?? null,
                 'total_alunos' => $curso['total_alunos'] ?? 0,
                 'visivel' => $curso['visivel'] ?? true,
-                'url' => $curso['url'] ?? null,
-                'formato' => $curso['formato'] ?? 'topics'
+                'url' => $curso['url'] ?? null
             ];
             
         } catch (Exception $e) {
-            error_log("API: ERRO ao processar curso/categoria {$curso['nome']}: " . $e->getMessage());
+            error_log("Erro ao processar curso/categoria {$curso['nome']}: " . $e->getMessage());
             continue;
         }
     }
@@ -184,6 +157,8 @@ try {
     usort($cursosProcessados, function($a, $b) {
         return strcmp($a['nome'], $b['nome']);
     });
+    
+    error_log("API buscar-cursos: Processamento concluído - {$cursosNovos} novos, {$cursosAtualizados} atualizados");
     
     // Detecta estrutura do polo para informação
     $estruturaDetectada = 'mista';
@@ -197,23 +172,6 @@ try {
     } elseif (isset($contadorTipos['curso'])) {
         $estruturaDetectada = 'tradicional';
     }
-    
-    // Informações específicas para Breu Branco
-    $infoEspecifica = [];
-    if (strpos($polo, 'breubranco') !== false) {
-        $subcategorias = array_filter($cursosProcessados, function($curso) {
-            return $curso['tipo_estrutura'] === 'categoria_curso' && !empty($curso['categoria_pai']);
-        });
-        
-        $infoEspecifica = [
-            'polo_especial' => 'Breu Branco',
-            'subcategorias_encontradas' => count($subcategorias),
-            'logica_aplicada' => 'Busca por subcategorias que representam cursos técnicos',
-            'palavras_chave_usadas' => ['técnico', 'enfermagem', 'administração', 'informática', 'segurança']
-        ];
-    }
-    
-    error_log("=== API BUSCAR CURSOS: CONCLUÍDA - {$cursosNovos} novos, {$cursosAtualizados} atualizados ===");
     
     echo json_encode([
         'success' => true,
@@ -232,53 +190,30 @@ try {
             'versao' => $testeConexao['versao'] ?? '',
             'url' => $testeConexao['url'] ?? ''
         ],
-        'info_especifica' => $infoEspecifica,
         'debug' => [
             'token_configurado' => !empty($token) && $token !== 'x',
             'polo_ativo' => true,
             'conexao_moodle' => $testeConexao['sucesso'],
-            'timestamp' => date('Y-m-d H:i:s'),
-            'metodo_usado' => 'hierarquia_melhorada',
-            'cache_limpo' => true
+            'timestamp' => date('Y-m-d H:i:s')
         ]
     ]);
     
 } catch (Exception $e) {
-    error_log("=== API BUSCAR CURSOS: ERRO CRÍTICO ===");
-    error_log("Erro: " . $e->getMessage());
+    error_log("Erro na API buscar-cursos: " . $e->getMessage());
     error_log("Stack trace: " . $e->getTraceAsString());
-    
-    // Em caso de erro, tenta buscar cursos já salvos no banco
-    $cursosSalvos = [];
-    try {
-        $db = (new Database())->getConnection();
-        $stmt = $db->prepare("
-            SELECT id, nome, nome_curto, tipo_estrutura, categoria_pai 
-            FROM cursos 
-            WHERE subdomain = ? AND ativo = 1 
-            ORDER BY nome ASC
-        ");
-        $stmt->execute([$polo ?? '']);
-        $cursosSalvos = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    } catch (Exception $dbError) {
-        error_log("Erro adicional ao buscar no banco: " . $dbError->getMessage());
-    }
     
     http_response_code(400);
     echo json_encode([
         'success' => false,
         'message' => $e->getMessage(),
         'polo' => $polo ?? 'não informado',
-        'cursos_salvos' => $cursosSalvos,
-        'total_salvos' => count($cursosSalvos),
         'debug' => [
             'file' => __FILE__,
             'line' => __LINE__,
             'token_configurado' => !empty(MoodleConfig::getToken($polo ?? '')) && MoodleConfig::getToken($polo ?? '') !== 'x',
             'polo_ativo' => MoodleConfig::isActiveSubdomain($polo ?? ''),
             'erro_detalhado' => $e->getMessage(),
-            'trace' => $e->getTraceAsString(),
-            'versao_api' => 'v2_hierarquia_corrigida'
+            'trace' => $e->getTraceAsString()
         ]
     ]);
 }
