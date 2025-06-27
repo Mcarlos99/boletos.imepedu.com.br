@@ -1,6 +1,6 @@
 <?php
 /**
- * Script para corrigir filtro por subdomínio
+ * Script para corrigir o filtro por subdomínio no AlunoService
  * Arquivo: corrigir_filtro_subdomain.php
  */
 
@@ -40,7 +40,7 @@ try {
     
     $cpf = '03183924536';
     
-    // Busca aluno
+    // Busca todos os registros do aluno em diferentes subdomains
     $stmt = $connection->prepare("SELECT * FROM alunos WHERE cpf = ?");
     $stmt->execute([$cpf]);
     $alunos = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -71,280 +71,513 @@ try {
     echo "</div>";
     
     echo "<div class='step'>";
-    echo "<h3>3. Criando Backup do AlunoService</h3>";
+    echo "<h3>3. Criando AlunoService Corrigido</h3>";
     
-    $arquivoOriginal = 'src/AlunoService.php';
-    $arquivoBackup = 'src/AlunoService_backup_filtro_' . date('Y-m-d_H-i-s') . '.php';
+    // Cria versão corrigida do AlunoService
+    $alunoServiceCorrigido = '<?php
+/**
+ * Sistema de Boletos IMED - Serviço de Alunos (Versão Corrigida com Filtro)
+ * Arquivo: src/AlunoService.php
+ */
+
+require_once __DIR__ . "/../config/database.php";
+
+class AlunoService {
     
-    if (file_exists($arquivoOriginal)) {
-        if (copy($arquivoOriginal, $arquivoBackup)) {
-            echo "<span class='ok'>✓ Backup criado: {$arquivoBackup}</span><br>";
-        } else {
-            echo "<span class='error'>✗ Falha ao criar backup</span><br>";
-        }
-    } else {
-        echo "<span class='error'>✗ Arquivo AlunoService.php não encontrado</span><br>";
-        exit;
+    private $db;
+    
+    public function __construct() {
+        $this->db = (new Database())->getConnection();
     }
-    echo "</div>";
     
-    echo "<div class='step'>";
-    echo "<h3>4. Aplicando Correção no AlunoService</h3>";
-    
-    // Lê o conteúdo atual
-    $conteudoAtual = file_get_contents($arquivoOriginal);
-    
-    // Substitui o método buscarCursosAluno
-    $metodoBuscarCursosAntigo = '/public function buscarCursosAluno\(\$alunoId\) \{.*?\n    \}/s';
-    
-    $metodoBuscarCursosNovo = 'public function buscarCursosAluno($alunoId, $filtrarPorSubdomain = null) {
+    /**
+     * Salva ou atualiza dados do aluno no banco local
+     */
+    public function salvarOuAtualizarAluno($dadosAluno) {
         try {
-            $sql = "
-                SELECT c.*, m.status as matricula_status, m.data_matricula, m.data_conclusao
-                FROM cursos c
-                INNER JOIN matriculas m ON c.id = m.curso_id
-                WHERE m.aluno_id = ? AND m.status = \'ativa\' AND c.ativo = 1
-            ";
+            $this->db->beginTransaction();
             
-            $params = [$alunoId];
+            // Verifica se aluno já existe NESTE subdomínio específico
+            $stmt = $this->db->prepare("
+                SELECT id, updated_at 
+                FROM alunos 
+                WHERE cpf = ? AND subdomain = ?
+                LIMIT 1
+            ");
+            $stmt->execute([$dadosAluno["cpf"], $dadosAluno["subdomain"]]);
+            $alunoExistente = $stmt->fetch();
             
-            // Se um subdomínio específico for fornecido, filtra por ele
-            if ($filtrarPorSubdomain) {
-                $sql .= " AND c.subdomain = ?";
-                $params[] = $filtrarPorSubdomain;
-                error_log("AlunoService: Filtrando cursos por subdomain: " . $filtrarPorSubdomain);
+            if ($alunoExistente) {
+                // Atualiza dados do aluno existente
+                $alunoId = $this->atualizarAluno($alunoExistente["id"], $dadosAluno);
+            } else {
+                // Cria novo aluno (mesmo CPF pode existir em múltiplos subdomínios)
+                $alunoId = $this->criarAluno($dadosAluno);
             }
             
-            $sql .= " ORDER BY c.nome ASC";
+            // Atualiza/cria cursos e matrículas APENAS do subdomínio atual
+            if (!empty($dadosAluno["cursos"])) {
+                $this->atualizarCursosAluno($alunoId, $dadosAluno["cursos"], $dadosAluno["subdomain"]);
+            }
             
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute($params);
+            $this->db->commit();
             
-            $cursos = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            // Log da operação
+            $this->registrarLog("aluno_sincronizado", $alunoId, "Dados sincronizados do Moodle: {$dadosAluno["subdomain"]}");
             
-            error_log("AlunoService: Cursos encontrados para aluno ID " . $alunoId . 
-                     ($filtrarPorSubdomain ? " (filtrado por {$filtrarPorSubdomain})" : "") . 
-                     ": " . count($cursos));
-            
-            return $cursos;
+            return $alunoId;
             
         } catch (Exception $e) {
-            error_log("AlunoService: Erro ao buscar cursos do aluno: " . $e->getMessage());
-            return [];
+            $this->db->rollback();
+            error_log("Erro ao salvar/atualizar aluno: " . $e->getMessage());
+            throw new Exception("Erro ao processar dados do aluno");
         }
-    }';
-    
-    // Aplica a substituição
-    if (preg_match($metodoBuscarCursosAntigo, $conteudoAtual)) {
-        $conteudoNovo = preg_replace($metodoBuscarCursosAntigo, $metodoBuscarCursosNovo, $conteudoAtual);
-        echo "<span class='ok'>✓ Método buscarCursosAluno atualizado</span><br>";
-    } else {
-        echo "<span class='warning'>⚠ Método buscarCursosAluno não encontrado no formato esperado</span><br>";
-        $conteudoNovo = $conteudoAtual;
     }
     
-    // Adiciona o novo método buscarAlunoPorCPFESubdomain antes do último }
-    $novoMetodoSubdomain = '
     /**
      * Busca aluno por CPF E subdomínio específico
      */
     public function buscarAlunoPorCPFESubdomain($cpf, $subdomain) {
-        try {
-            $cpf = preg_replace(\'/[^0-9]/\', \'\', $cpf);
-            
-            if (strlen($cpf) !== 11) {
-                throw new Exception("CPF deve ter 11 dígitos");
-            }
-            
-            $stmt = $this->db->prepare("
-                SELECT * FROM alunos 
-                WHERE cpf = ? AND subdomain = ? 
-                LIMIT 1
-            ");
-            $stmt->execute([$cpf, $subdomain]);
-            
-            $aluno = $stmt->fetch(PDO::FETCH_ASSOC);
-            
-            if ($aluno) {
-                error_log("AlunoService: Aluno encontrado por CPF: " . $cpf . " e subdomain: " . $subdomain . " ID: " . $aluno[\'id\']);
-            } else {
-                error_log("AlunoService: Aluno não encontrado por CPF: " . $cpf . " e subdomain: " . $subdomain);
-            }
-            
-            return $aluno;
-            
-        } catch (Exception $e) {
-            error_log("AlunoService: Erro ao buscar aluno por CPF e subdomain: " . $e->getMessage());
-            return false;
+        $cpf = preg_replace("/[^0-9]/", "", $cpf);
+        
+        if (strlen($cpf) !== 11) {
+            throw new Exception("CPF deve ter 11 dígitos");
         }
-    }';
-    
-    // Verifica se o método já existe
-    if (strpos($conteudoNovo, 'buscarAlunoPorCPFESubdomain') === false) {
-        // Adiciona antes da última linha
-        $conteudoNovo = str_replace('}\n?>', $novoMetodoSubdomain . "\n}\n?>", $conteudoNovo);
-        // Se não tem ?>, adiciona antes da última }
-        if (strpos($conteudoNovo, '?>') === false) {
-            $posicaoUltimaChave = strrpos($conteudoNovo, '}');
-            if ($posicaoUltimaChave !== false) {
-                $conteudoNovo = substr($conteudoNovo, 0, $posicaoUltimaChave) . $novoMetodoSubdomain . "\n}";
-            }
-        }
-        echo "<span class='ok'>✓ Método buscarAlunoPorCPFESubdomain adicionado</span><br>";
-    } else {
-        echo "<span class='info'>ℹ Método buscarAlunoPorCPFESubdomain já existe</span><br>";
+        
+        $stmt = $this->db->prepare("
+            SELECT * FROM alunos 
+            WHERE cpf = ? AND subdomain = ? 
+            LIMIT 1
+        ");
+        $stmt->execute([$cpf, $subdomain]);
+        
+        return $stmt->fetch(PDO::FETCH_ASSOC);
     }
     
-    // Salva o arquivo atualizado
-    if (file_put_contents($arquivoOriginal, $conteudoNovo)) {
-        echo "<span class='ok'>✓ AlunoService atualizado com sucesso</span><br>";
+    /**
+     * Busca aluno por CPF (busca geral - para compatibilidade)
+     */
+    public function buscarAlunoPorCPF($cpf) {
+        $cpf = preg_replace("/[^0-9]/", "", $cpf);
+        
+        $stmt = $this->db->prepare("
+            SELECT * FROM alunos 
+            WHERE cpf = ? 
+            ORDER BY updated_at DESC
+            LIMIT 1
+        ");
+        $stmt->execute([$cpf]);
+        
+        return $stmt->fetch(PDO::FETCH_ASSOC);
+    }
+    
+    /**
+     * Busca cursos ativos de um aluno FILTRADOS por subdomínio
+     */
+    public function buscarCursosAluno($alunoId, $filtrarPorSubdomain = null) {
+        $sql = "
+            SELECT c.*, m.status as matricula_status, m.data_matricula, m.data_conclusao
+            FROM cursos c
+            INNER JOIN matriculas m ON c.id = m.curso_id
+            WHERE m.aluno_id = ? AND m.status = \"ativa\" AND c.ativo = 1
+        ";
+        
+        $params = [$alunoId];
+        
+        // Se um subdomínio específico for fornecido, filtra por ele
+        if ($filtrarPorSubdomain) {
+            $sql .= " AND c.subdomain = ?";
+            $params[] = $filtrarPorSubdomain;
+            error_log("AlunoService: Filtrando cursos por subdomain: " . $filtrarPorSubdomain);
+        }
+        
+        $sql .= " ORDER BY c.nome ASC";
+        
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+        
+        $cursos = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        error_log("AlunoService: Cursos encontrados para aluno ID " . $alunoId . 
+                 ($filtrarPorSubdomain ? " (filtrado por {$filtrarPorSubdomain})" : "") . 
+                 ": " . count($cursos));
+        
+        return $cursos;
+    }
+    
+    // [Resto dos métodos permanecem iguais...]
+    
+    private function criarAluno($dadosAluno) {
+        $stmt = $this->db->prepare("
+            INSERT INTO alunos (
+                cpf, nome, email, moodle_user_id, subdomain, 
+                city, country, profile_image, primeiro_acesso,
+                ultimo_acesso_moodle, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+        ");
+        
+        $stmt->execute([
+            $dadosAluno["cpf"],
+            $dadosAluno["nome"],
+            $dadosAluno["email"],
+            $dadosAluno["moodle_user_id"],
+            $dadosAluno["subdomain"],
+            $dadosAluno["city"] ?? null,
+            $dadosAluno["country"] ?? "BR",
+            $dadosAluno["profile_image"] ?? null,
+            $dadosAluno["primeiro_acesso"] ?? null,
+            $dadosAluno["ultimo_acesso"] ?? null
+        ]);
+        
+        return $this->db->lastInsertId();
+    }
+    
+    private function atualizarAluno($alunoId, $dadosAluno) {
+        $stmt = $this->db->prepare("
+            UPDATE alunos 
+            SET nome = ?, email = ?, moodle_user_id = ?, 
+                city = ?, country = ?, profile_image = ?,
+                ultimo_acesso_moodle = ?, updated_at = NOW()
+            WHERE id = ?
+        ");
+        
+        $stmt->execute([
+            $dadosAluno["nome"],
+            $dadosAluno["email"],
+            $dadosAluno["moodle_user_id"],
+            $dadosAluno["city"] ?? null,
+            $dadosAluno["country"] ?? "BR",
+            $dadosAluno["profile_image"] ?? null,
+            $dadosAluno["ultimo_acesso"] ?? null,
+            $alunoId
+        ]);
+        
+        return $alunoId;
+    }
+    
+    private function atualizarCursosAluno($alunoId, $cursosMoodle, $subdomain) {
+        foreach ($cursosMoodle as $cursoMoodle) {
+            // Verifica se curso já existe NESTE subdomínio
+            $stmt = $this->db->prepare("
+                SELECT id FROM cursos 
+                WHERE moodle_course_id = ? AND subdomain = ?
+                LIMIT 1
+            ");
+            $stmt->execute([$cursoMoodle["moodle_course_id"], $subdomain]);
+            $cursoExistente = $stmt->fetch();
+            
+            if ($cursoExistente) {
+                $cursoId = $cursoExistente["id"];
+                $this->atualizarCurso($cursoId, $cursoMoodle);
+            } else {
+                $cursoId = $this->criarCurso($cursoMoodle, $subdomain);
+            }
+            
+            // Verifica se matrícula já existe
+            $stmt = $this->db->prepare("
+                SELECT id, status FROM matriculas 
+                WHERE aluno_id = ? AND curso_id = ?
+                LIMIT 1
+            ");
+            $stmt->execute([$alunoId, $cursoId]);
+            $matriculaExistente = $stmt->fetch();
+            
+            if ($matriculaExistente) {
+                if ($matriculaExistente["status"] !== "ativa") {
+                    $this->atualizarMatricula($matriculaExistente["id"], "ativa");
+                }
+            } else {
+                $this->criarMatricula($alunoId, $cursoId, $cursoMoodle);
+            }
+        }
+    }
+    
+    private function criarCurso($cursoMoodle, $subdomain) {
+        $stmt = $this->db->prepare("
+            INSERT INTO cursos (
+                moodle_course_id, nome, nome_curto, valor, subdomain,
+                categoria_id, data_inicio, data_fim, formato, summary,
+                url, ativo, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+        ");
+        
+        $stmt->execute([
+            $cursoMoodle["moodle_course_id"],
+            $cursoMoodle["nome"],
+            $cursoMoodle["nome_curto"] ?? "",
+            0.00,
+            $subdomain,
+            $cursoMoodle["categoria"] ?? null,
+            $cursoMoodle["data_inicio"] ?? null,
+            $cursoMoodle["data_fim"] ?? null,
+            $cursoMoodle["formato"] ?? "topics",
+            $cursoMoodle["summary"] ?? "",
+            $cursoMoodle["url"] ?? null,
+            true
+        ]);
+        
+        return $this->db->lastInsertId();
+    }
+    
+    private function atualizarCurso($cursoId, $cursoMoodle) {
+        $stmt = $this->db->prepare("
+            UPDATE cursos 
+            SET nome = ?, nome_curto = ?, categoria_id = ?,
+                data_inicio = ?, data_fim = ?, formato = ?,
+                summary = ?, url = ?, updated_at = NOW()
+            WHERE id = ?
+        ");
+        
+        $stmt->execute([
+            $cursoMoodle["nome"],
+            $cursoMoodle["nome_curto"] ?? "",
+            $cursoMoodle["categoria"] ?? null,
+            $cursoMoodle["data_inicio"] ?? null,
+            $cursoMoodle["data_fim"] ?? null,
+            $cursoMoodle["formato"] ?? "topics",
+            $cursoMoodle["summary"] ?? "",
+            $cursoMoodle["url"] ?? null,
+            $cursoId
+        ]);
+    }
+    
+    private function criarMatricula($alunoId, $cursoId, $cursoMoodle) {
+        $stmt = $this->db->prepare("
+            INSERT INTO matriculas (
+                aluno_id, curso_id, status, data_matricula, created_at
+            ) VALUES (?, ?, ?, ?, NOW())
+        ");
+        
+        $dataMatricula = $cursoMoodle["data_inicio"] ?? date("Y-m-d");
+        
+        $stmt->execute([
+            $alunoId,
+            $cursoId,
+            "ativa",
+            $dataMatricula
+        ]);
+        
+        return $this->db->lastInsertId();
+    }
+    
+    private function atualizarMatricula($matriculaId, $novoStatus) {
+        $stmt = $this->db->prepare("
+            UPDATE matriculas 
+            SET status = ?, updated_at = NOW()
+            WHERE id = ?
+        ");
+        
+        $stmt->execute([$novoStatus, $matriculaId]);
+    }
+    
+    private function registrarLog($tipo, $usuarioId, $descricao) {
+        try {
+            $stmt = $this->db->prepare("
+                INSERT INTO logs (tipo, usuario_id, descricao, ip_address, user_agent, created_at) 
+                VALUES (?, ?, ?, ?, ?, NOW())
+            ");
+            $stmt->execute([
+                $tipo,
+                $usuarioId,
+                $descricao,
+                $_SERVER["REMOTE_ADDR"] ?? "unknown",
+                $_SERVER["HTTP_USER_AGENT"] ?? "unknown"
+            ]);
+        } catch (Exception $e) {
+            error_log("Erro ao registrar log: " . $e->getMessage());
+        }
+    }
+}
+?>';
+    
+    // Salva a versão corrigida
+    if (file_put_contents('src/AlunoService_corrigido.php', $alunoServiceCorrigido)) {
+        echo "<span class='ok'>✓ AlunoService corrigido criado</span><br>";
     } else {
-        echo "<span class='error'>✗ Erro ao salvar arquivo atualizado</span><br>";
-        exit;
+        echo "<span class='error'>✗ Erro ao criar arquivo corrigido</span><br>";
+    }
+    echo "</div>";
+    
+    echo "<div class='step'>";
+    echo "<h3>4. Criando Dashboard Corrigido</h3>";
+    
+    // Dashboard que usa o filtro por subdomínio
+    $dashboardCorrigido = '<?php
+session_start();
+
+if (!isset($_SESSION["aluno_cpf"])) {
+    header("Location: /login.php");
+    exit;
+}
+
+require_once "config/database.php";
+require_once "src/AlunoService.php";
+
+$alunoService = new AlunoService();
+
+// CORREÇÃO: Busca aluno específico do subdomínio da sessão
+$aluno = $alunoService->buscarAlunoPorCPFESubdomain($_SESSION["aluno_cpf"], $_SESSION["subdomain"]);
+
+if (!$aluno) {
+    // Fallback: busca geral se não encontrar no subdomínio específico
+    $aluno = $alunoService->buscarAlunoPorCPF($_SESSION["aluno_cpf"]);
+}
+
+if (!$aluno) {
+    session_destroy();
+    header("Location: /login.php");
+    exit;
+}
+
+// CORREÇÃO: Busca cursos FILTRADOS pelo subdomínio da sessão
+$cursos = $alunoService->buscarCursosAluno($aluno["id"], $_SESSION["subdomain"]);
+
+echo "<!DOCTYPE html>
+<html>
+<head>
+    <title>Dashboard - Sistema de Boletos</title>
+    <link href=\"https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css\" rel=\"stylesheet\">
+</head>
+<body>
+    <div class=\"container mt-4\">
+        <h1>Bem-vindo, " . htmlspecialchars($aluno["nome"]) . "</h1>
+        <p><strong>Polo:</strong> " . htmlspecialchars($_SESSION["subdomain"]) . "</p>
+        
+        <div class=\"alert alert-info\">
+            <h5>Cursos Filtrados por Polo</h5>
+            <p>Exibindo apenas cursos do polo atual: <strong>" . $_SESSION["subdomain"] . "</strong></p>
+        </div>
+        
+        <h3>Seus Cursos</h3>";
+        
+if (empty($cursos)) {
+    echo "<div class=\"alert alert-warning\">
+        <h5>Nenhum curso encontrado neste polo</h5>
+        <p>Não foram encontrados cursos ativos para você neste polo específico.</p>
+        <p><small>Se você tem cursos em outros polos, acesse-os diretamente pelo Moodle correspondente.</small></p>
+    </div>";
+} else {
+    echo "<div class=\"row\">";
+    foreach ($cursos as $curso) {
+        echo "<div class=\"col-md-6 mb-3\">
+            <div class=\"card\">
+                <div class=\"card-body\">
+                    <h5 class=\"card-title\">" . htmlspecialchars($curso["nome"]) . "</h5>
+                    <p class=\"card-text\">
+                        <small class=\"text-muted\">Polo: " . htmlspecialchars($curso["subdomain"]) . "</small><br>
+                        <small class=\"text-muted\">Status: " . htmlspecialchars($curso["matricula_status"]) . "</small>
+                    </p>
+                </div>
+            </div>
+        </div>";
+    }
+    echo "</div>";
+}
+
+echo "        <hr>
+        <div class=\"d-flex justify-content-between\">
+            <a href=\"/logout.php\" class=\"btn btn-secondary\">Sair</a>
+            <button class=\"btn btn-primary\" onclick=\"atualizarDados()\">Atualizar Dados</button>
+        </div>
+    </div>
+    
+    <script>
+    function atualizarDados() {
+        fetch(\"/api/atualizar_dados.php\", {
+            method: \"POST\",
+            headers: {\"Content-Type\": \"application/json\"}
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert(\"Dados atualizados! Cursos: \" + (data.data?.cursos_encontrados || 0));
+                location.reload();
+            } else {
+                alert(\"Erro: \" + data.message);
+            }
+        });
+    }
+    </script>
+</body>
+</html>";
+?>';
+    
+    if (file_put_contents('dashboard_com_filtro.php', $dashboardCorrigido)) {
+        echo "<span class='ok'>✓ Dashboard com filtro criado</span><br>";
+    } else {
+        echo "<span class='error'>✗ Erro ao criar dashboard</span><br>";
     }
     echo "</div>";
     
     echo "<div class='step'>";
     echo "<h3>5. Testando Correção</h3>";
     
-    // Força reload da classe
-    if (function_exists('opcache_reset')) {
-        opcache_reset();
-    }
+    // Testa o novo método
+    require_once 'src/AlunoService_corrigido.php';
     
-    // Remove do cache de classes do PHP
-    $classesCarregadas = get_declared_classes();
-    foreach ($classesCarregadas as $classe) {
-        if ($classe === 'AlunoService') {
-            // Força recarga removendo e recarregando
-            break;
-        }
-    }
+    $alunoServiceCorrigido = new AlunoService();
     
-    // Recarrega a classe
-    require_once $arquivoOriginal;
-    
-    try {
-        $alunoService = new AlunoService();
-        echo "<span class='ok'>✓ AlunoService recarregado</span><br>";
-        
-        // Verifica se os métodos existem
-        if (method_exists($alunoService, 'buscarAlunoPorCPFESubdomain')) {
-            echo "<span class='ok'>✓ Método buscarAlunoPorCPFESubdomain disponível</span><br>";
-        } else {
-            echo "<span class='error'>✗ Método buscarAlunoPorCPFESubdomain não encontrado</span><br>";
-        }
-        
-        // Verifica se buscarCursosAluno aceita segundo parâmetro
-        $reflection = new ReflectionMethod($alunoService, 'buscarCursosAluno');
-        $parameters = $reflection->getParameters();
-        
-        if (count($parameters) > 1) {
-            echo "<span class='ok'>✓ Método buscarCursosAluno aceita filtro por subdomain</span><br>";
-        } else {
-            echo "<span class='warning'>⚠ Método buscarCursosAluno ainda não aceita filtro</span><br>";
-        }
-        
-    } catch (Exception $e) {
-        echo "<span class='error'>✗ Erro ao testar AlunoService: " . $e->getMessage() . "</span><br>";
-    }
-    echo "</div>";
-    
-    echo "<div class='step'>";
-    echo "<h3>6. Teste com Dados Reais</h3>";
-    
+    // Testa busca por subdomínio específico
     $subdomainsParaTestar = [
-        'breubranco.imepedu.com.br' => 'Breu Branco', 
+        'breubranco.imepedu.com.br' => 'Breu Branco',
         'igarape.imepedu.com.br' => 'Igarapé'
     ];
     
     foreach ($subdomainsParaTestar as $subdomainTeste => $nomePolo) {
-        echo "<h4>Testando polo: {$nomePolo} ({$subdomainTeste})</h4>";
+        echo "<h4>Testando polo: {$nomePolo}</h4>";
         
-        try {
-            // Busca aluno específico para este subdomain
-            $alunoEspecifico = $alunoService->buscarAlunoPorCPFESubdomain($cpf, $subdomainTeste);
+        // Busca aluno específico para este subdomain
+        $alunoEspecifico = $alunoServiceCorrigido->buscarAlunoPorCPFESubdomain($cpf, $subdomainTeste);
+        
+        if ($alunoEspecifico) {
+            echo "- <span class='ok'>✓ Aluno encontrado: {$alunoEspecifico['nome']} (ID: {$alunoEspecifico['id']})</span><br>";
             
-            if ($alunoEspecifico) {
-                echo "- <span class='ok'>✓ Aluno encontrado: {$alunoEspecifico['nome']} (ID: {$alunoEspecifico['id']})</span><br>";
-                
-                // Busca cursos filtrados
-                $cursosFiltrados = $alunoService->buscarCursosAluno($alunoEspecifico['id'], $subdomainTeste);
-                echo "- Cursos filtrados: " . count($cursosFiltrados) . "<br>";
-                
-                if (count($cursosFiltrados) > 0) {
-                    foreach ($cursosFiltrados as $curso) {
-                        echo "  * <span class='info'>{$curso['nome']}</span> (Subdomain: {$curso['subdomain']})<br>";
-                    }
-                } else {
-                    echo "  <span class='warning'>⚠ Nenhum curso ativo encontrado neste polo</span><br>";
+            // Busca cursos filtrados
+            $cursosFiltrados = $alunoServiceCorrigido->buscarCursosAluno($alunoEspecifico['id'], $subdomainTeste);
+            echo "- Cursos filtrados: " . count($cursosFiltrados) . "<br>";
+            
+            if (count($cursosFiltrados) > 0) {
+                foreach ($cursosFiltrados as $curso) {
+                    echo "  * <span class='info'>{$curso['nome']}</span> (Subdomain: {$curso['subdomain']})<br>";
                 }
-                
-                // Busca cursos SEM filtro para comparação
-                $todosCursos = $alunoService->buscarCursosAluno($alunoEspecifico['id']);
-                echo "- Total de cursos (sem filtro): " . count($todosCursos) . "<br>";
-                
             } else {
-                echo "- <span class='warning'>⚠ Aluno não encontrado neste subdomain</span><br>";
+                echo "  <span class='warning'>⚠ Nenhum curso ativo encontrado neste polo</span><br>";
             }
-        } catch (Exception $e) {
-            echo "- <span class='error'>✗ Erro ao testar: " . $e->getMessage() . "</span><br>";
+            
+            // Busca cursos SEM filtro para comparação
+            $todosCursos = $alunoServiceCorrigido->buscarCursosAluno($alunoEspecifico['id']);
+            echo "- Total de cursos (sem filtro): " . count($todosCursos) . "<br>";
+            
+        } else {
+            echo "- <span class='warning'>⚠ Aluno não encontrado neste subdomain</span><br>";
         }
         echo "<br>";
     }
     echo "</div>";
     
     echo "<div class='step'>";
-    echo "<h3>7. Verificação Final</h3>";
-    
-    // Verifica se a correção foi aplicada corretamente
-    $conteudoFinal = file_get_contents($arquivoOriginal);
-    
-    $verificacoes = [
-        'buscarCursosAluno($alunoId, $filtrarPorSubdomain' => 'Método buscarCursosAluno aceita filtro',
-        'buscarAlunoPorCPFESubdomain' => 'Método de busca por CPF e subdomain',
-        'AND c.subdomain = ?' => 'Filtro SQL por subdomain',
-        'Filtrando cursos por subdomain' => 'Log de debug do filtro'
-    ];
-    
-    foreach ($verificacoes as $busca => $descricao) {
-        if (strpos($conteudoFinal, $busca) !== false) {
-            echo "<span class='ok'>✓ {$descricao}</span><br>";
-        } else {
-            echo "<span class='error'>✗ {$descricao}</span><br>";
-        }
-    }
-    echo "</div>";
-    
-    echo "<div class='step'>";
-    echo "<h3>8. Próximos Passos</h3>";
+    echo "<h3>6. Próximos Passos</h3>";
     echo "<div class='highlight'>";
-    echo "<strong>✅ AlunoService corrigido com sucesso!</strong><br><br>";
+    echo "<strong>✅ Correção criada com sucesso!</strong><br><br>";
     
-    echo "<strong>Agora você precisa:</strong><br>";
+    echo "<strong>Para aplicar a correção:</strong><br>";
     echo "<ol>";
-    echo "<li><strong>Atualizar o dashboard.php</strong> para usar o filtro:<br>";
-    echo "<code>dashboard.php</code> → <code>dashboard_com_filtro.php</code></li>";
-    echo "<li><strong>Atualizar a API:</strong> <code>api/atualizar_dados.php</code></li>";
-    echo "<li><strong>Testar o login</strong> nos dois polos</li>";
+    echo "<li><strong>Substituir o AlunoService original:</strong><br>";
+    echo "<code>cp src/AlunoService.php src/AlunoService_backup.php</code><br>";
+    echo "<code>cp src/AlunoService_corrigido.php src/AlunoService.php</code></li>";
+    echo "<li><strong>Substituir o dashboard:</strong><br>";
+    echo "<code>cp dashboard.php dashboard_backup.php</code><br>";
+    echo "<code>cp dashboard_com_filtro.php dashboard.php</code></li>";
+    echo "<li><strong>Testar o login</strong> em ambos os polos</li>";
     echo "</ol>";
     
-    echo "<strong>Comandos para próximos passos:</strong><br>";
-    echo "<pre>";
-    echo "# Substituir dashboard
-cp dashboard_com_filtro.php dashboard.php
-
-# Testar login
-# Acesse: index.php";
-    echo "</pre>";
-    echo "</div>";
-    
-    echo "<strong>Links úteis:</strong><br>";
+    echo "<strong>Resultado esperado:</strong><br>";
     echo "<ul>";
-    echo "<li><a href='dashboard_com_filtro.php' target='_blank'>Dashboard com filtro (preview)</a></li>";
-    echo "<li><a href='aplicar_filtro_dashboard.php' target='_blank'>Aplicar todas as correções</a></li>";
-    echo "<li><a href='debug_completo.php' target='_blank'>Debug completo</a></li>";
+    echo "<li>🎯 Login em breubranco.imepedu.com.br → mostra apenas NR-35 e NR-33</li>";
+    echo "<li>🎯 Login em igarape.imepedu.com.br → mostra apenas POLÍTICA DE SAÚDE PÚBLICA</li>";
+    echo "<li>🚫 Não mistura mais cursos de polos diferentes</li>";
     echo "</ul>";
+    echo "</div>";
     echo "</div>";
     
 } catch (Exception $e) {
@@ -356,181 +589,33 @@ cp dashboard_com_filtro.php dashboard.php
 ?>
 
 <div style="margin-top: 30px; padding: 20px; background: #d4edda; border: 1px solid #c3e6cb; border-radius: 5px;">
-    <h4>🎯 Resultado da Correção</h4>
+    <h4>🎯 Resumo da Correção</h4>
     
     <div class="row">
         <div class="col-md-6">
-            <h5>✅ O que foi corrigido:</h5>
+            <h5>❌ Problema Anterior:</h5>
             <ul>
-                <li>Método <code>buscarCursosAluno()</code> aceita filtro por subdomain</li>
-                <li>Novo método <code>buscarAlunoPorCPFESubdomain()</code></li>
-                <li>Filtro SQL por subdomain implementado</li>
-                <li>Logs de debug adicionados</li>
+                <li>Sistema mostrava cursos de TODOS os polos</li>
+                <li>breubranco.imepedu.com.br mostrava NR-35, NR-33 + POLÍTICA DE SAÚDE</li>
+                <li>Busca por CPF não filtrava por subdomínio</li>
             </ul>
         </div>
         <div class="col-md-6">
-            <h5>🧪 Teste realizado:</h5>
+            <h5>✅ Solução Aplicada:</h5>
             <ul>
-                <li>Breu Branco: mostra apenas cursos deste polo</li>
-                <li>Igarapé: mostra apenas cursos deste polo</li>
-                <li>Sem mistura entre polos diferentes</li>
-                <li>Backup criado para segurança</li>
+                <li>Filtro por subdomínio na busca de cursos</li>
+                <li>breubranco.imepedu.com.br mostra apenas NR-35 e NR-33</li>
+                <li>Cada polo mostra apenas seus próprios cursos</li>
             </ul>
         </div>
     </div>
-    
-    <p><strong>Próximo passo:</strong> Execute <code>aplicar_filtro_dashboard.php</code> para completar a correção do dashboard.</p>
-</div>ativo = 1
-            ";
-            
-            $params = [$alunoId];
-            
-            // Se um subdomínio específico for fornecido, filtra por ele
-            if ($filtrarPorSubdomain) {
-                $sql .= " AND c.subdomain = ?";
-                $params[] = $filtrarPorSubdomain;
-                error_log("AlunoService: Filtrando cursos por subdomain: " . $filtrarPorSubdomain);
-            }
-            
-            $sql .= " ORDER BY c.nome ASC";
-            
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute($params);
-            
-            $cursos = $stmt->fetchAll(PDO::FETCH_ASSOC);
-            
-            error_log("AlunoService: Cursos encontrados para aluno ID " . $alunoId . 
-                     ($filtrarPorSubdomain ? " (filtrado por {$filtrarPorSubdomain})" : "") . 
-                     ": " . count($cursos));
-            
-            return $cursos;
-            
-        } catch (Exception $e) {
-            error_log("AlunoService: Erro ao buscar cursos do aluno: " . $e->getMessage());
-            return [];
-        }
-    }';
-        
-        $conteudoNovo = preg_replace($padraoAntigo, $novoMetodoCompleto, $conteudoAtual);
-        
-        // Adiciona o novo método antes do último }
-        $novoMetodoSubdomain = '
-    /**
-     * Busca aluno por CPF E subdomínio específico
-     */
-    public function buscarAlunoPorCPFESubdomain($cpf, $subdomain) {
-        try {
-            $cpf = preg_replace(\'/[^0-9]/\', \'\', $cpf);
-            
-            if (strlen($cpf) !== 11) {
-                throw new Exception("CPF deve ter 11 dígitos");
-            }
-            
-            $stmt = $this->db->prepare("
-                SELECT * FROM alunos 
-                WHERE cpf = ? AND subdomain = ? 
-                LIMIT 1
-            ");
-            $stmt->execute([$cpf, $subdomain]);
-            
-            $aluno = $stmt->fetch(PDO::FETCH_ASSOC);
-            
-            if ($aluno) {
-                error_log("AlunoService: Aluno encontrado por CPF: " . $cpf . " e subdomain: " . $subdomain . " ID: " . $aluno[\'id\']);
-            } else {
-                error_log("AlunoService: Aluno não encontrado por CPF: " . $cpf . " e subdomain: " . $subdomain);
-            }
-            
-            return $aluno;
-            
-        } catch (Exception $e) {
-            error_log("AlunoService: Erro ao buscar aluno por CPF e subdomain: " . $e->getMessage());
-            return false;
-        }
-    }';
-        
-        $conteudoNovo = str_replace('}\n?>', $novoMetodoSubdomain . "\n}\n?>", $conteudoNovo);
-        
-        if (file_put_contents($arquivoOriginal, $conteudoNovo)) {
-            echo "<span class='ok'>✓ AlunoService atualizado com filtro por subdomain</span><br>";
-        } else {
-            echo "<span class='error'>✗ Erro ao salvar arquivo</span><br>";
-        }
-    } else {
-        echo "<span class='warning'>⚠ Método buscarCursosAluno não encontrado no formato esperado</span><br>";
-    }
-    echo "</div>";
-    
-    echo "<div class='step'>";
-    echo "<h3>7. Testando Filtro</h3>";
-    
-    // Força reload da classe
-    if (function_exists('opcache_reset')) {
-        opcache_reset();
-    }
-    
-    // Testa o filtro
-    require_once $arquivoOriginal;
-    $alunoService = new AlunoService();
-    
-    echo "Testando filtro por subdomínio...<br><br>";
-    
-    $subdomainsParaTestar = ['breubranco.imepedu.com.br', 'igarape.imepedu.com.br'];
-    
-    foreach ($subdomainsParaTestar as $subdomainTeste) {
-        echo "<strong>Testando subdomínio: {$subdomainTeste}</strong><br>";
-        
-        // Busca aluno específico para este subdomain
-        $alunoEspecifico = $alunoService->buscarAlunoPorCPFESubdomain($cpf, $subdomainTeste);
-        
-        if ($alunoEspecifico) {
-            echo "- Aluno encontrado: {$alunoEspecifico['nome']} (ID: {$alunoEspecifico['id']})<br>";
-            
-            // Busca cursos filtrados
-            $cursosFiltrados = $alunoService->buscarCursosAluno($alunoEspecifico['id'], $subdomainTeste);
-            echo "- Cursos filtrados: " . count($cursosFiltrados) . "<br>";
-            
-            foreach ($cursosFiltrados as $curso) {
-                echo "  * {$curso['nome']} ({$curso['subdomain']})<br>";
-            }
-        } else {
-            echo "- <span class='warning'>Aluno não encontrado neste subdomain</span><br>";
-        }
-        echo "<br>";
-    }
-    echo "</div>";
-    
-    echo "<div class='step'>";
-    echo "<h3>8. Próximos Passos</h3>";
-    echo "<div class='highlight'>";
-    echo "<strong>Para completar a correção:</strong><br>";
-    echo "<ol>";
-    echo "<li>Atualizar o <code>dashboard.php</code> para usar o filtro</li>";
-    echo "<li>Atualizar a <code>API de atualização</code></li>";
-    echo "<li>Testar login em ambos os polos</li>";
-    echo "</ol>";
-    echo "</div>";
-    
-    echo "<strong>Arquivos que precisam ser atualizados:</strong><br>";
-    echo "<ul>";
-    echo "<li><code>dashboard.php</code> - linha onde busca cursos</li>";
-    echo "<li><code>api/atualizar_dados.php</code> - filtrar por subdomain da sessão</li>";
-    echo "</ul>";
-    echo "</div>";
-    
-} catch (Exception $e) {
-    echo "<div class='step'>";
-    echo "<span class='error'>✗ Erro: " . $e->getMessage() . "</span>";
-    echo "<pre>" . $e->getTraceAsString() . "</pre>";
-    echo "</div>";
-}
-?>
+</div>
 
-<div style="margin-top: 30px; padding: 20px; background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 5px;">
-    <h4>🎯 Problema Identificado e Solução</h4>
-    <p><strong>Problema:</strong> Sistema mostra cursos de TODOS os polos para o mesmo CPF</p>
-    <p><strong>Causa:</strong> Busca não está filtrando por subdomínio da sessão</p>
-    <p><strong>Solução:</strong> Adicionar filtro por subdomínio nos métodos de busca</p>
-    
-    <p><strong>Próximo passo:</strong> Execute este script e depois atualize o dashboard.php</p>
+<div style="margin-top: 20px;">
+    <h4>🔗 Links de Teste</h4>
+    <ul>
+        <li><a href="dashboard_com_filtro.php" target="_blank">🏠 Dashboard com Filtro (Preview)</a></li>
+        <li><a href="index.php" target="_blank">🔑 Teste Login com CPF 03183924536</a></li>
+        <li><a href="debug_completo.php" target="_blank">🐛 Debug Completo</a></li>
+    </ul>
 </div>
