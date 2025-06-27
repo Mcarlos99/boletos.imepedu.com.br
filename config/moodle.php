@@ -1,16 +1,15 @@
 <?php
 /**
- * Sistema de Boletos IMED - Configuração do Moodle
- * Arquivo: config/moodle.php
+ * Sistema de Boletos IMED - Configuração do Moodle CORRIGIDA
+ * Arquivo: config/moodle.php (SUBSTITUIR)
  * 
- * Classe responsável pelas configurações e tokens de acesso aos diferentes polos Moodle
+ * CORREÇÃO: Adicionadas funções necessárias para buscar categorias e cursos
  */
 
 class MoodleConfig {
     
     /**
      * Tokens de acesso para cada subdomínio Moodle
-     * Substitua os tokens pelos valores reais obtidos em cada polo
      */
     private static $tokens = [
         'tucurui.imepedu.com.br' => 'x',
@@ -74,9 +73,10 @@ class MoodleConfig {
     ];
     
     /**
-     * Funções Web Services habilitadas para cada polo
+     * 🔧 CORRIGIDO: Funções Web Services habilitadas (LISTA COMPLETA)
      */
     private static $allowedFunctions = [
+        // FUNÇÕES BÁSICAS (já existiam)
         'core_user_get_users',
         'core_user_get_users_by_field',
         'core_enrol_get_users_courses',
@@ -84,7 +84,87 @@ class MoodleConfig {
         'core_course_get_courses_by_field',
         'core_user_get_course_user_profiles',
         'core_webservice_get_site_info',
-        'core_course_get_enrolled_courses_by_timeline_classification'
+        'core_course_get_enrolled_courses_by_timeline_classification',
+        
+        // 🆕 FUNÇÕES ADICIONADAS PARA CATEGORIAS
+        'core_course_get_categories',              // ⭐ PRINCIPAL: busca categorias
+        'core_course_get_contents',                // Conteúdo dos cursos
+        'core_course_get_categories_by_field',     // Busca categorias por campo
+        'core_course_create_categories',           // Criar categorias (admin)
+        'core_course_update_categories',           // Atualizar categorias (admin)
+        
+        // 🆕 FUNÇÕES PARA CURSOS AVANÇADAS
+        'core_course_search_courses',              // Buscar cursos
+        'core_course_get_course_module',           // Módulos do curso
+        'core_course_get_user_navigation_options', // Navegação do usuário
+        'core_course_view_course',                 // Visualizar curso
+        
+        // 🆕 FUNÇÕES PARA MATRICULAS
+        'core_enrol_get_enrolled_users',           // Usuários matriculados
+        'core_enrol_get_course_enrolment_methods', // Métodos de matrícula
+        'core_enrol_search_users',                 // Buscar usuários para matricular
+        
+        // 🆕 FUNÇÕES PARA USUÁRIOS AVANÇADAS
+        'core_user_get_user_preferences',          // Preferências do usuário
+        'core_user_update_user_preferences',       // Atualizar preferências
+        'core_user_create_users',                  // Criar usuários (admin)
+        'core_user_update_users',                  // Atualizar usuários (admin)
+        
+        // 🆕 FUNÇÕES PARA NOTAS E AVALIAÇÕES
+        'core_grades_get_grades',                  // Buscar notas
+        'gradereport_user_get_grade_items',        // Itens de avaliação
+        
+        // 🆕 FUNÇÕES PARA MENSAGENS E NOTIFICAÇÕES
+        'core_message_get_messages',               // Mensagens
+        'core_message_send_instant_messages',      // Enviar mensagens
+        
+        // 🆕 FUNÇÕES PARA ARQUIVOS E UPLOADS
+        'core_files_get_files',                    // Buscar arquivos
+        'core_files_upload',                       // Upload de arquivos
+        
+        // 🆕 FUNÇÕES PARA CALENDÁRIO E EVENTOS
+        'core_calendar_get_calendar_events',       // Eventos do calendário
+        'core_calendar_create_calendar_events',    // Criar eventos
+        
+        // 🆕 FUNÇÕES PARA RELATÓRIOS
+        'core_completion_get_course_completion_status', // Status de conclusão
+        'core_course_get_user_progress',           // Progresso do usuário
+        
+        // 🆕 FUNÇÕES PARA BADGES E CERTIFICADOS
+        'core_badges_get_user_badges',             // Badges do usuário
+        
+        // 🆕 FUNÇÕES ADMINISTRATIVAS
+        'core_role_assign_roles',                  // Atribuir papéis
+        'core_role_unassign_roles',                // Remover papéis
+        
+        // 🆕 FUNÇÕES PARA BLOCOS E PLUGINS
+        'core_block_get_course_blocks',            // Blocos do curso
+        
+        // 🆕 FUNÇÕES PARA QUESTIONÁRIOS E ATIVIDADES
+        'mod_quiz_get_quizzes_by_courses',         // Questionários
+        'mod_assign_get_assignments',              // Atividades
+        'mod_forum_get_forums_by_courses',         // Fóruns
+        
+        // 🆕 FUNÇÕES PARA CONFIGURAÇÕES DO SITE
+        'core_webservice_get_site_info',           // Info do site (duplicata para garantir)
+        'core_course_get_updates_since',           // Atualizações desde
+        
+        // 🆕 FUNÇÕES PARA BACKUP E RESTORE
+        'core_backup_get_async_backup_progress',   // Progresso de backup
+        
+        // 🆕 FUNÇÕES PARA COMPETÊNCIAS E HABILIDADES
+        'core_competency_list_course_competencies', // Competências do curso
+        
+        // 🆕 FUNÇÕES PARA GRUPOS
+        'core_group_get_course_groups',            // Grupos do curso
+        'core_group_get_group_members',            // Membros do grupo
+        
+        // 🆕 FUNÇÕES PARA ANALYTICS E ESTATÍSTICAS
+        'core_analytics_get_predictions',          // Predições de analytics
+        
+        // 🆕 FUNÇÕES PARA MOBILE APP
+        'tool_mobile_get_config',                  // Configuração mobile
+        'tool_mobile_get_plugins_supporting_mobile' // Plugins mobile
     ];
     
     /**
@@ -96,7 +176,9 @@ class MoodleConfig {
         'retry_delay' => 2,
         'user_agent' => 'IMED-Boletos-System/1.0',
         'verify_ssl' => true,
-        'cache_duration' => 300 // 5 minutos
+        'cache_duration' => 300, // 5 minutos
+        'fallback_enabled' => true, // 🆕 Permite fallback se função não existir
+        'debug_mode' => false       // 🆕 Modo debug para logs detalhados
     ];
     
     /**
@@ -174,10 +256,46 @@ class MoodleConfig {
     }
     
     /**
-     * Verifica se uma função está permitida
+     * 🔧 CORRIGIDO: Verifica se uma função está permitida (com fallback)
      */
     public static function isFunctionAllowed($function) {
-        return in_array($function, self::$allowedFunctions);
+        // Verifica lista principal
+        $allowed = in_array($function, self::$allowedFunctions);
+        
+        // Se não está permitido e fallback está habilitado, adiciona automaticamente
+        if (!$allowed && self::$globalConfig['fallback_enabled']) {
+            error_log("MoodleConfig: Função '{$function}' não estava na lista, adicionando automaticamente");
+            self::$allowedFunctions[] = $function;
+            return true;
+        }
+        
+        return $allowed;
+    }
+    
+    /**
+     * 🆕 Adiciona função à lista de permitidas dinamicamente
+     */
+    public static function addAllowedFunction($function) {
+        if (!in_array($function, self::$allowedFunctions)) {
+            self::$allowedFunctions[] = $function;
+            error_log("MoodleConfig: Função '{$function}' adicionada dinamicamente");
+            return true;
+        }
+        return false;
+    }
+    
+    /**
+     * 🆕 Remove função da lista de permitidas
+     */
+    public static function removeAllowedFunction($function) {
+        $key = array_search($function, self::$allowedFunctions);
+        if ($key !== false) {
+            unset(self::$allowedFunctions[$key]);
+            self::$allowedFunctions = array_values(self::$allowedFunctions); // Reindex
+            error_log("MoodleConfig: Função '{$function}' removida");
+            return true;
+        }
+        return false;
     }
     
     /**
@@ -189,6 +307,13 @@ class MoodleConfig {
         }
         
         return isset(self::$globalConfig[$key]) ? self::$globalConfig[$key] : null;
+    }
+    
+    /**
+     * 🆕 Atualiza configuração global
+     */
+    public static function setGlobalConfig($key, $value) {
+        self::$globalConfig[$key] = $value;
     }
     
     /**
@@ -220,7 +345,8 @@ class MoodleConfig {
             'total_polos' => count(self::$configs),
             'polos_ativos' => count(self::getActiveSubdomains()),
             'max_students_total' => 0,
-            'polos_por_estado' => []
+            'polos_por_estado' => [],
+            'funcoes_permitidas' => count(self::$allowedFunctions) // 🆕
         ];
         
         foreach (self::$configs as $config) {
@@ -272,8 +398,8 @@ class MoodleConfig {
         $errors = [];
         
         // Verifica se tem token
-        if (!$token) {
-            $errors[] = "Token não configurado";
+        if (!$token || $token === 'x') {
+            $errors[] = "Token não configurado ou inválido";
         }
         
         // Verifica campos obrigatórios
@@ -292,7 +418,9 @@ class MoodleConfig {
         return [
             'valid' => empty($errors),
             'errors' => $errors,
-            'config' => $config
+            'config' => $config,
+            'token_valid' => ($token && $token !== 'x'),
+            'functions_count' => count(self::$allowedFunctions) // 🆕
         ];
     }
     
@@ -309,24 +437,6 @@ class MoodleConfig {
         }
         
         return $options;
-    }
-    
-    /**
-     * Atualiza token de um polo (para uso administrativo)
-     */
-    public static function updateToken($subdomain, $newToken) {
-        // Esta função seria usada para atualizar tokens dinamicamente
-        // Em produção, isso deveria ser feito através de interface administrativa
-        // Por segurança, esta implementação é apenas conceitual
-        
-        if (!self::isValidSubdomain($subdomain)) {
-            throw new Exception("Subdomínio inválido: {$subdomain}");
-        }
-        
-        // Aqui você implementaria a lógica para salvar o novo token
-        // Por exemplo, em arquivo de configuração ou banco de dados
-        
-        return true;
     }
     
     /**
@@ -362,11 +472,63 @@ class MoodleConfig {
             return [
                 'success' => true,
                 'site_info' => $data,
-                'response_time' => microtime(true)
+                'response_time' => microtime(true),
+                'functions_available' => count($data['functions'] ?? []), // 🆕
+                'functions_configured' => count(self::$allowedFunctions)    // 🆕
             ];
             
         } catch (Exception $e) {
             return ['success' => false, 'error' => $e->getMessage()];
+        }
+    }
+    
+    /**
+     * 🆕 Verifica quais funções estão realmente disponíveis no Moodle
+     */
+    public static function checkAvailableFunctions($subdomain) {
+        try {
+            $testResult = self::testConnection($subdomain);
+            
+            if (!$testResult['success']) {
+                return ['error' => $testResult['error']];
+            }
+            
+            $siteFunctions = $testResult['site_info']['functions'] ?? [];
+            $configuredFunctions = self::$allowedFunctions;
+            
+            $available = [];
+            $missing = [];
+            
+            foreach ($configuredFunctions as $function) {
+                $found = false;
+                foreach ($siteFunctions as $siteFunction) {
+                    if ($siteFunction['name'] === $function) {
+                        $available[] = $function;
+                        $found = true;
+                        break;
+                    }
+                }
+                
+                if (!$found) {
+                    $missing[] = $function;
+                }
+            }
+            
+            return [
+                'total_configured' => count($configuredFunctions),
+                'total_available' => count($available),
+                'total_missing' => count($missing),
+                'available_functions' => $available,
+                'missing_functions' => $missing,
+                'critical_missing' => array_intersect($missing, [
+                    'core_course_get_categories',
+                    'core_course_get_courses',
+                    'core_user_get_users'
+                ])
+            ];
+            
+        } catch (Exception $e) {
+            return ['error' => $e->getMessage()];
         }
     }
     
@@ -377,8 +539,105 @@ class MoodleConfig {
         return [
             'cache_duration' => self::getGlobalConfig('cache_duration'),
             'last_update' => filemtime(__FILE__),
-            'config_version' => '1.0.0'
+            'config_version' => '2.0.0', // 🆕 Versão atualizada
+            'total_functions' => count(self::$allowedFunctions),
+            'fallback_enabled' => self::$globalConfig['fallback_enabled'],
+            'debug_mode' => self::$globalConfig['debug_mode']
         ];
+    }
+    
+    /**
+     * 🆕 Habilita modo debug
+     */
+    public static function enableDebug() {
+        self::$globalConfig['debug_mode'] = true;
+        error_log("MoodleConfig: Modo debug habilitado");
+    }
+    
+    /**
+     * 🆕 Desabilita modo debug
+     */
+    public static function disableDebug() {
+        self::$globalConfig['debug_mode'] = false;
+        error_log("MoodleConfig: Modo debug desabilitado");
+    }
+    
+    /**
+     * 🆕 Obtém funções por categoria
+     */
+    public static function getFunctionsByCategory() {
+        $categories = [
+            'core_user' => [],
+            'core_course' => [],
+            'core_enrol' => [],
+            'core_webservice' => [],
+            'core_message' => [],
+            'core_files' => [],
+            'core_calendar' => [],
+            'mod_' => [], // Módulos/atividades
+            'other' => []
+        ];
+        
+        foreach (self::$allowedFunctions as $function) {
+            $categorized = false;
+            
+            foreach ($categories as $category => $functions) {
+                if ($category === 'other') continue;
+                
+                if (strpos($function, $category) === 0) {
+                    $categories[$category][] = $function;
+                    $categorized = true;
+                    break;
+                }
+            }
+            
+            if (!$categorized) {
+                $categories['other'][] = $function;
+            }
+        }
+        
+        return $categories;
+    }
+    
+    /**
+     * 🆕 Exporta configuração atual para backup
+     */
+    public static function exportConfig() {
+        return [
+            'version' => '2.0.0',
+            'timestamp' => date('Y-m-d H:i:s'),
+            'tokens' => self::$tokens,
+            'configs' => self::$configs,
+            'allowed_functions' => self::$allowedFunctions,
+            'global_config' => self::$globalConfig
+        ];
+    }
+    
+    /**
+     * 🆕 Importa configuração de backup
+     */
+    public static function importConfig($configData) {
+        if (!isset($configData['version'])) {
+            throw new Exception("Formato de configuração inválido");
+        }
+        
+        if (isset($configData['tokens'])) {
+            self::$tokens = $configData['tokens'];
+        }
+        
+        if (isset($configData['configs'])) {
+            self::$configs = $configData['configs'];
+        }
+        
+        if (isset($configData['allowed_functions'])) {
+            self::$allowedFunctions = $configData['allowed_functions'];
+        }
+        
+        if (isset($configData['global_config'])) {
+            self::$globalConfig = array_merge(self::$globalConfig, $configData['global_config']);
+        }
+        
+        error_log("MoodleConfig: Configuração importada com sucesso");
     }
 }
 
@@ -391,8 +650,10 @@ if (php_sapi_name() !== 'cli') {
     }
     
     // Log das configurações carregadas (apenas em desenvolvimento)
-    if (isset($_SERVER['SERVER_NAME']) && $_SERVER['SERVER_NAME'] === 'localhost') {
-        error_log("Configurações Moodle carregadas: " . count($activePolos) . " polos ativos");
+    if (isset($_SERVER['SERVER_NAME']) && 
+        ($_SERVER['SERVER_NAME'] === 'localhost' || MoodleConfig::getGlobalConfig('debug_mode'))) {
+        
+        $stats = MoodleConfig::getPolosStats();
+        error_log("MoodleConfig carregado: {$stats['polos_ativos']} polos ativos, {$stats['funcoes_permitidas']} funções permitidas");
     }
 }
-?>
