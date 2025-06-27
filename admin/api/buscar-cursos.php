@@ -1,6 +1,6 @@
 <?php
 /**
- * Sistema de Boletos IMED - API para buscar cursos por polo
+ * Sistema de Boletos IMED - API para buscar cursos com suporte a hierarquia
  * Arquivo: admin/api/buscar-cursos.php
  */
 
@@ -16,7 +16,8 @@ if (!isset($_SESSION['admin_id'])) {
 header('Content-Type: application/json');
 
 require_once '../../config/database.php';
-require_once '../../src/AdminService.php';
+require_once '../../config/moodle.php';
+require_once '../../src/MoodleAPI.php';
 
 try {
     $polo = $_GET['polo'] ?? '';
@@ -25,865 +26,195 @@ try {
         throw new Exception('Polo é obrigatório');
     }
     
-    $adminService = new AdminService();
-    $cursos = $adminService->buscarCursosPorPolo($polo);
+    error_log("API buscar-cursos: Iniciando busca para polo: " . $polo);
     
-    echo json_encode([
-        'success' => true,
-        'cursos' => $cursos
-    ]);
-    
-} catch (Exception $e) {
-    http_response_code(400);
-    echo json_encode([
-        'success' => false,
-        'message' => $e->getMessage()
-    ]);
-}
-?>
-
-<?php
-/**
- * Sistema de Boletos IMED - API para marcar boleto como pago
- * Arquivo: admin/api/marcar-pago.php
- */
-
-session_start();
-
-// Verifica se admin está logado
-if (!isset($_SESSION['admin_id'])) {
-    http_response_code(401);
-    echo json_encode(['success' => false, 'message' => 'Não autenticado']);
-    exit;
-}
-
-header('Content-Type: application/json');
-
-require_once '../../config/database.php';
-require_once '../../src/AdminService.php';
-
-try {
-    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-        throw new Exception('Método não permitido');
+    // Verifica configuração do polo
+    if (!MoodleConfig::isValidSubdomain($polo)) {
+        throw new Exception("Polo não configurado: {$polo}");
     }
     
-    $input = json_decode(file_get_contents('php://input'), true);
-    $boletoId = $input['boleto_id'] ?? null;
-    $valorPago = $input['valor_pago'] ?? null;
-    $dataPagamento = $input['data_pagamento'] ?? null;
-    $observacoes = $input['observacoes'] ?? '';
-    
-    if (!$boletoId) {
-        throw new Exception('ID do boleto é obrigatório');
+    if (!MoodleConfig::isActiveSubdomain($polo)) {
+        throw new Exception("Polo não está ativo: {$polo}");
     }
     
-    $adminService = new AdminService();
-    $adminService->marcarBoletoComoPago($boletoId, $valorPago, $dataPagamento, $observacoes);
-    
-    echo json_encode([
-        'success' => true,
-        'message' => 'Boleto marcado como pago com sucesso'
-    ]);
-    
-} catch (Exception $e) {
-    http_response_code(400);
-    echo json_encode([
-        'success' => false,
-        'message' => $e->getMessage()
-    ]);
-}
-?>
-
-<?php
-/**
- * Sistema de Boletos IMED - API para download de boleto
- * Arquivo: admin/api/download-boleto.php
- */
-
-session_start();
-
-// Verifica se admin está logado
-if (!isset($_SESSION['admin_id'])) {
-    header('Location: /admin/login.php');
-    exit;
-}
-
-require_once '../../config/database.php';
-require_once '../../src/BoletoUploadService.php';
-
-try {
-    $boletoId = $_GET['id'] ?? '';
-    
-    if (empty($boletoId)) {
-        throw new Exception('ID do boleto é obrigatório');
+    $token = MoodleConfig::getToken($polo);
+    if (!$token || $token === 'x') {
+        throw new Exception("Token não configurado para polo {$polo}. Configure um token válido no arquivo config/moodle.php");
     }
     
-    $uploadService = new BoletoUploadService();
-    $arquivoInfo = $uploadService->downloadBoleto($boletoId);
+    // Conecta com o Moodle
+    $moodleAPI = new MoodleAPI($polo);
     
-    // Define headers para download
-    header('Content-Type: ' . $arquivoInfo['tipo_mime']);
-    header('Content-Disposition: attachment; filename="' . $arquivoInfo['nome_arquivo'] . '"');
-    header('Content-Length: ' . filesize($arquivoInfo['caminho']));
-    header('Cache-Control: no-cache, must-revalidate');
+    // Testa a conexão
+    $testeConexao = $moodleAPI->testarConexao();
+    if (!$testeConexao['sucesso']) {
+        throw new Exception("Erro ao conectar com Moodle: " . $testeConexao['erro']);
+    }
     
-    // Envia arquivo
-    readfile($arquivoInfo['caminho']);
-    exit;
+    error_log("API buscar-cursos: Conexão OK com {$polo}");
     
-} catch (Exception $e) {
-    http_response_code(404);
-    echo "Erro: " . $e->getMessage();
-}
-?>
-
-<?php
-/**
- * Sistema de Boletos IMED - Login Administrativo
- * Arquivo: admin/login.php
- */
-
-session_start();
-
-// Se já está logado, redireciona
-if (isset($_SESSION['admin_id'])) {
-    header('Location: /admin/dashboard.php');
-    exit;
-}
-
-require_once '../config/database.php';
-require_once '../src/AdminService.php';
-
-$erro = '';
-
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $login = $_POST['login'] ?? '';
-    $senha = $_POST['senha'] ?? '';
+    // Busca cursos com suporte a hierarquia
+    $cursosMoodle = $moodleAPI->listarTodosCursos();
     
-    if (empty($login) || empty($senha)) {
-        $erro = 'Login e senha são obrigatórios';
-    } else {
+    error_log("API buscar-cursos: Encontrados " . count($cursosMoodle) . " cursos/categorias no Moodle");
+    
+    // Processa e salva cursos no banco local
+    $db = (new Database())->getConnection();
+    $cursosProcessados = [];
+    $cursosNovos = 0;
+    $cursosAtualizados = 0;
+    
+    foreach ($cursosMoodle as $curso) {
         try {
-            $adminService = new AdminService();
-            $admin = $adminService->autenticarAdmin($login, $senha);
+            // Determina ID do Moodle baseado no tipo
+            $moodleCourseId = $curso['tipo'] === 'categoria_curso' 
+                ? $curso['categoria_original_id'] 
+                : $curso['id'];
             
-            // Cria sessão
-            $_SESSION['admin_id'] = $admin['id'];
-            $_SESSION['admin_nome'] = $admin['nome'];
-            $_SESSION['admin_nivel'] = $admin['nivel'];
-            $_SESSION['admin_login_time'] = time();
+            // Monta identificador único
+            $identificador = $curso['tipo'] === 'categoria_curso' 
+                ? 'cat_' . $curso['categoria_original_id']
+                : 'course_' . $curso['id'];
             
-            header('Location: /admin/dashboard.php');
-            exit;
+            // Verifica se já existe
+            $stmt = $db->prepare("
+                SELECT id FROM cursos 
+                WHERE (moodle_course_id = ? OR identificador_moodle = ?) 
+                AND subdomain = ?
+            ");
+            $stmt->execute([$moodleCourseId, $identificador, $polo]);
+            $cursoExistente = $stmt->fetch();
+            
+            if ($cursoExistente) {
+                // Atualiza curso existente
+                $stmt = $db->prepare("
+                    UPDATE cursos 
+                    SET nome = ?, nome_curto = ?, tipo_estrutura = ?, 
+                        categoria_pai = ?, ativo = 1, updated_at = NOW()
+                    WHERE id = ?
+                ");
+                $stmt->execute([
+                    $curso['nome'],
+                    $curso['nome_curto'],
+                    $curso['tipo'],
+                    $curso['parent_name'] ?? null,
+                    $cursoExistente['id']
+                ]);
+                $cursoId = $cursoExistente['id'];
+                $cursosAtualizados++;
+                
+            } else {
+                // Cria novo curso
+                $stmt = $db->prepare("
+                    INSERT INTO cursos (
+                        moodle_course_id, identificador_moodle, nome, nome_curto, 
+                        subdomain, tipo_estrutura, categoria_pai, categoria_id,
+                        data_inicio, data_fim, formato, summary, url,
+                        ativo, valor, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0.00, NOW(), NOW())
+                ");
+                $stmt->execute([
+                    $moodleCourseId,
+                    $identificador,
+                    $curso['nome'],
+                    $curso['nome_curto'],
+                    $polo,
+                    $curso['tipo'],
+                    $curso['parent_name'] ?? null,
+                    $curso['categoria_id'] ?? null,
+                    $curso['data_inicio'],
+                    $curso['data_fim'],
+                    $curso['formato'] ?? 'topics',
+                    $curso['summary'] ?? '',
+                    $curso['url'] ?? null
+                ]);
+                $cursoId = $db->lastInsertId();
+                $cursosNovos++;
+            }
+            
+            // Adiciona à lista de retorno
+            $cursosProcessados[] = [
+                'id' => $cursoId,
+                'moodle_course_id' => $moodleCourseId,
+                'identificador_moodle' => $identificador,
+                'nome' => $curso['nome'],
+                'nome_curto' => $curso['nome_curto'],
+                'subdomain' => $polo,
+                'tipo_estrutura' => $curso['tipo'],
+                'categoria_pai' => $curso['parent_name'] ?? null,
+                'total_alunos' => $curso['total_alunos'] ?? 0,
+                'visivel' => $curso['visivel'] ?? true,
+                'url' => $curso['url'] ?? null
+            ];
             
         } catch (Exception $e) {
-            $erro = $e->getMessage();
+            error_log("Erro ao processar curso/categoria {$curso['nome']}: " . $e->getMessage());
+            continue;
         }
     }
-}
-?>
-
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login Administrativo - Sistema de Boletos IMED</title>
     
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    // Ordena por nome
+    usort($cursosProcessados, function($a, $b) {
+        return strcmp($a['nome'], $b['nome']);
+    });
     
-    <style>
-        body {
-            background: linear-gradient(135deg, #0066cc, #004499);
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    error_log("API buscar-cursos: Processamento concluído - {$cursosNovos} novos, {$cursosAtualizados} atualizados");
+    
+    // Detecta estrutura do polo para informação
+    $estruturaDetectada = 'mista';
+    $tiposCursos = array_column($cursosProcessados, 'tipo_estrutura');
+    $contadorTipos = array_count_values($tiposCursos);
+    
+    if (isset($contadorTipos['categoria_curso']) && $contadorTipos['categoria_curso'] > 0) {
+        if (!isset($contadorTipos['curso']) || $contadorTipos['categoria_curso'] > $contadorTipos['curso']) {
+            $estruturaDetectada = 'hierarquica';
         }
-        
-        .login-container {
-            width: 100%;
-            max-width: 400px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-        
-        .login-card {
-            background: white;
-            border-radius: 20px;
-            box-shadow: 0 15px 35px rgba(0,0,0,0.1);
-            overflow: hidden;
-            animation: slideUp 0.6s ease-out;
-        }
-        
-        @keyframes slideUp {
-            from { opacity: 0; transform: translateY(30px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        
-        .login-header {
-            background: linear-gradient(135deg, #0066cc, #004499);
-            color: white;
-            padding: 30px;
-            text-align: center;
-        }
-        
-        .login-body {
-            padding: 30px;
-        }
-        
-        .form-control {
-            border: 2px solid #e9ecef;
-            border-radius: 10px;
-            padding: 15px;
-            font-size: 16px;
-            transition: all 0.3s ease;
-        }
-        
-        .form-control:focus {
-            border-color: #0066cc;
-            box-shadow: 0 0 0 0.2rem rgba(0,102,204,0.25);
-        }
-        
-        .btn-login {
-            background: linear-gradient(135deg, #0066cc, #004499);
-            border: none;
-            border-radius: 10px;
-            padding: 15px;
-            font-size: 16px;
-            font-weight: 600;
-            color: white;
-            width: 100%;
-            transition: all 0.3s ease;
-        }
-        
-        .btn-login:hover:not(:disabled) {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 20px rgba(0,102,204,0.3);
-            color: white;
-        }
-        
-        .alert {
-            border-radius: 10px;
-            margin-bottom: 20px;
-            border: none;
-        }
-    </style>
-</head>
-<body>
-    <div class="login-container">
-        <div class="login-card">
-            <div class="login-header">
-                <h2><i class="fas fa-shield-alt"></i> Área Administrativa</h2>
-                <p>Sistema de Boletos IMED</p>
-            </div>
-            
-            <div class="login-body">
-                <?php if ($erro): ?>
-                    <div class="alert alert-danger">
-                        <i class="fas fa-exclamation-triangle"></i> <?= htmlspecialchars($erro) ?>
-                    </div>
-                <?php endif; ?>
-                
-                <form method="POST" id="loginForm">
-                    <div class="mb-3">
-                        <label for="login" class="form-label">
-                            <i class="fas fa-user"></i> Login
-                        </label>
-                        <input type="text" class="form-control" id="login" name="login" 
-                               value="<?= htmlspecialchars($_POST['login'] ?? '') ?>" required>
-                    </div>
-                    
-                    <div class="mb-4">
-                        <label for="senha" class="form-label">
-                            <i class="fas fa-lock"></i> Senha
-                        </label>
-                        <input type="password" class="form-control" id="senha" name="senha" required>
-                    </div>
-                    
-                    <button type="submit" class="btn btn-login">
-                        <i class="fas fa-sign-in-alt"></i> Entrar no Sistema
-                    </button>
-                </form>
-            </div>
-        </div>
-        
-        <div class="text-center mt-4">
-            <small class="text-white-50">
-                <i class="fas fa-shield-alt"></i> Acesso restrito a administradores
-            </small>
-        </div>
-    </div>
-
-    <script>
-        // Foco automático no campo login
-        document.getElementById('login').focus();
-        
-        // Validação do formulário
-        document.getElementById('loginForm').addEventListener('submit', function(e) {
-            const login = document.getElementById('login').value.trim();
-            const senha = document.getElementById('senha').value.trim();
-            
-            if (!login || !senha) {
-                e.preventDefault();
-                alert('Preencha todos os campos');
-                return;
-            }
-            
-            // Mostra loading
-            const submitBtn = this.querySelector('button[type="submit"]');
-            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Entrando...';
-            submitBtn.disabled = true;
-        });
-    </script>
-</body>
-</html>
-
-<?php
-/**
- * Sistema de Boletos IMED - Logout Administrativo
- * Arquivo: admin/logout.php
- */
-
-session_start();
-
-// Log do logout se admin estiver logado
-if (isset($_SESSION['admin_id'])) {
-    try {
-        require_once '../config/database.php';
-        require_once '../src/AdminService.php';
-        
-        $adminService = new AdminService();
-        // O log será registrado automaticamente pelo AdminService
-        
-    } catch (Exception $e) {
-        // Ignora erros de log
+    } elseif (isset($contadorTipos['curso'])) {
+        $estruturaDetectada = 'tradicional';
     }
+    
+    echo json_encode([
+        'success' => true,
+        'cursos' => $cursosProcessados,
+        'total' => count($cursosProcessados),
+        'polo' => $polo,
+        'estrutura_detectada' => $estruturaDetectada,
+        'estatisticas' => [
+            'novos' => $cursosNovos,
+            'atualizados' => $cursosAtualizados,
+            'total_processados' => count($cursosProcessados),
+            'tipos' => $contadorTipos
+        ],
+        'moodle_info' => [
+            'site' => $testeConexao['nome_site'] ?? '',
+            'versao' => $testeConexao['versao'] ?? '',
+            'url' => $testeConexao['url'] ?? ''
+        ],
+        'debug' => [
+            'token_configurado' => !empty($token) && $token !== 'x',
+            'polo_ativo' => true,
+            'conexao_moodle' => $testeConexao['sucesso'],
+            'timestamp' => date('Y-m-d H:i:s')
+        ]
+    ]);
+    
+} catch (Exception $e) {
+    error_log("Erro na API buscar-cursos: " . $e->getMessage());
+    error_log("Stack trace: " . $e->getTraceAsString());
+    
+    http_response_code(400);
+    echo json_encode([
+        'success' => false,
+        'message' => $e->getMessage(),
+        'polo' => $polo ?? 'não informado',
+        'debug' => [
+            'file' => __FILE__,
+            'line' => __LINE__,
+            'token_configurado' => !empty(MoodleConfig::getToken($polo ?? '')) && MoodleConfig::getToken($polo ?? '') !== 'x',
+            'polo_ativo' => MoodleConfig::isActiveSubdomain($polo ?? ''),
+            'erro_detalhado' => $e->getMessage(),
+            'trace' => $e->getTraceAsString()
+        ]
+    ]);
 }
-
-// Destrói a sessão
-session_destroy();
-
-// Remove cookies de sessão
-if (isset($_COOKIE[session_name()])) {
-    setcookie(session_name(), '', time() - 3600, '/');
-}
-
-// Redireciona para login
-header('Location: /admin/login.php');
-exit;
 ?>
-
-<?php
-/**
- * Sistema de Boletos IMED - Gerenciamento de Boletos
- * Arquivo: admin/boletos.php
- */
-
-session_start();
-
-if (!isset($_SESSION['admin_id'])) {
-    header('Location: /admin/login.php');
-    exit;
-}
-
-require_once '../config/database.php';
-require_once '../config/moodle.php';
-require_once '../src/AdminService.php';
-require_once '../src/BoletoUploadService.php';
-
-$adminService = new AdminService();
-$uploadService = new BoletoUploadService();
-
-// Processa filtros
-$filtros = [];
-$pagina = intval($_GET['pagina'] ?? 1);
-
-if (!empty($_GET['polo'])) $filtros['polo'] = $_GET['polo'];
-if (!empty($_GET['curso_id'])) $filtros['curso_id'] = $_GET['curso_id'];
-if (!empty($_GET['status'])) $filtros['status'] = $_GET['status'];
-if (!empty($_GET['data_inicio'])) $filtros['data_inicio'] = $_GET['data_inicio'];
-if (!empty($_GET['data_fim'])) $filtros['data_fim'] = $_GET['data_fim'];
-if (!empty($_GET['busca'])) $filtros['busca'] = $_GET['busca'];
-
-// Busca boletos
-$resultado = $uploadService->listarBoletos($filtros, $pagina, 20);
-$polosAtivos = MoodleConfig::getActiveSubdomains();
-?>
-
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gerenciar Boletos - Administração IMED</title>
-    
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <link href="https://cdn.datatables.net/1.11.5/css/dataTables.bootstrap5.min.css" rel="stylesheet">
-    
-    <!-- CSS comum do admin -->
-    <style>
-        /* Mesmos estilos do dashboard.php */
-        :root {
-            --primary-color: #0066cc;
-            --secondary-color: #004499;
-            --sidebar-width: 260px;
-        }
-        
-        body {
-            background-color: #f8f9fa;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        }
-        
-        .sidebar {
-            position: fixed;
-            top: 0;
-            left: 0;
-            height: 100vh;
-            width: var(--sidebar-width);
-            background: linear-gradient(180deg, var(--primary-color), var(--secondary-color));
-            color: white;
-            z-index: 1000;
-            transition: all 0.3s ease;
-            overflow-y: auto;
-        }
-        
-        .main-content {
-            margin-left: var(--sidebar-width);
-            min-height: 100vh;
-            padding: 2rem;
-        }
-        
-        .card {
-            border: none;
-            border-radius: 12px;
-            box-shadow: 0 3px 10px rgba(0,0,0,0.1);
-            margin-bottom: 2rem;
-        }
-        
-        .badge-status {
-            padding: 0.5rem 0.75rem;
-            border-radius: 20px;
-            font-size: 0.75rem;
-            font-weight: 600;
-            text-transform: uppercase;
-        }
-        
-        .badge-pago { background: rgba(40,167,69,0.1); color: #28a745; }
-        .badge-pendente { background: rgba(255,193,7,0.1); color: #856404; }
-        .badge-vencido { background: rgba(220,53,69,0.1); color: #dc3545; }
-        .badge-cancelado { background: rgba(108,117,125,0.1); color: #6c757d; }
-    </style>
-</head>
-<body>
-    <!-- Sidebar (mesma do dashboard) -->
-    <div class="sidebar">
-        <!-- Conteúdo da sidebar -->
-    </div>
-    
-    <!-- Main Content -->
-    <div class="main-content">
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <div>
-                <h3>Gerenciar Boletos</h3>
-                <small class="text-muted">Total: <?= $resultado['total'] ?> boletos</small>
-            </div>
-            <a href="/admin/upload-boletos.php" class="btn btn-primary">
-                <i class="fas fa-plus"></i> Novo Boleto
-            </a>
-        </div>
-        
-        <!-- Filtros -->
-        <div class="card mb-4">
-            <div class="card-body">
-                <form method="GET" class="row g-3">
-                    <div class="col-md-3">
-                        <label class="form-label">Polo</label>
-                        <select name="polo" class="form-select">
-                            <option value="">Todos os polos</option>
-                            <?php foreach ($polosAtivos as $polo): ?>
-                                <?php $config = MoodleConfig::getConfig($polo); ?>
-                                <option value="<?= $polo ?>" <?= ($_GET['polo'] ?? '') == $polo ? 'selected' : '' ?>>
-                                    <?= htmlspecialchars($config['name'] ?? $polo) ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                    
-                    <div class="col-md-2">
-                        <label class="form-label">Status</label>
-                        <select name="status" class="form-select">
-                            <option value="">Todos</option>
-                            <option value="pendente" <?= ($_GET['status'] ?? '') == 'pendente' ? 'selected' : '' ?>>Pendente</option>
-                            <option value="pago" <?= ($_GET['status'] ?? '') == 'pago' ? 'selected' : '' ?>>Pago</option>
-                            <option value="vencido" <?= ($_GET['status'] ?? '') == 'vencido' ? 'selected' : '' ?>>Vencido</option>
-                            <option value="cancelado" <?= ($_GET['status'] ?? '') == 'cancelado' ? 'selected' : '' ?>>Cancelado</option>
-                        </select>
-                    </div>
-                    
-                    <div class="col-md-2">
-                        <label class="form-label">Data Início</label>
-                        <input type="date" name="data_inicio" class="form-control" value="<?= $_GET['data_inicio'] ?? '' ?>">
-                    </div>
-                    
-                    <div class="col-md-2">
-                        <label class="form-label">Data Fim</label>
-                        <input type="date" name="data_fim" class="form-control" value="<?= $_GET['data_fim'] ?? '' ?>">
-                    </div>
-                    
-                    <div class="col-md-2">
-                        <label class="form-label">Buscar</label>
-                        <input type="text" name="busca" class="form-control" placeholder="Nome, CPF, número..." value="<?= htmlspecialchars($_GET['busca'] ?? '') ?>">
-                    </div>
-                    
-                    <div class="col-md-1">
-                        <label class="form-label">&nbsp;</label>
-                        <button type="submit" class="btn btn-primary w-100">
-                            <i class="fas fa-search"></i>
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
-        
-        <!-- Tabela de Boletos -->
-        <div class="card">
-            <div class="card-body">
-                <div class="table-responsive">
-                    <table class="table table-hover" id="boletosTable">
-                        <thead>
-                            <tr>
-                                <th>Número</th>
-                                <th>Aluno</th>
-                                <th>Curso</th>
-                                <th>Valor</th>
-                                <th>Vencimento</th>
-                                <th>Status</th>
-                                <th>Criado</th>
-                                <th>Ações</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($resultado['boletos'] as $boleto): ?>
-                                <tr>
-                                    <td>
-                                        <strong>#<?= $boleto['numero_boleto'] ?></strong>
-                                        <?php if (!empty($boleto['arquivo_pdf'])): ?>
-                                            <br><small class="text-success">
-                                                <i class="fas fa-file-pdf"></i> PDF
-                                            </small>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td>
-                                        <div>
-                                            <strong><?= htmlspecialchars($boleto['aluno_nome']) ?></strong>
-                                            <br><small class="text-muted"><?= $boleto['cpf'] ?></small>
-                                        </div>
-                                    </td>
-                                    <td>
-                                        <div>
-                                            <?= htmlspecialchars($boleto['curso_nome']) ?>
-                                            <br><small class="text-muted"><?= $boleto['subdomain'] ?></small>
-                                        </div>
-                                    </td>
-                                    <td>
-                                        <strong>R$ <?= number_format($boleto['valor'], 2, ',', '.') ?></strong>
-                                        <?php if ($boleto['status'] == 'pago' && $boleto['valor_pago']): ?>
-                                            <br><small class="text-success">
-                                                Pago: R$ <?= number_format($boleto['valor_pago'], 2, ',', '.') ?>
-                                            </small>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td>
-                                        <?= date('d/m/Y', strtotime($boleto['vencimento'])) ?>
-                                        <?php
-                                        $dias = (strtotime($boleto['vencimento']) - strtotime(date('Y-m-d'))) / (60*60*24);
-                                        if ($dias < 0 && $boleto['status'] != 'pago'):
-                                        ?>
-                                            <br><small class="text-danger">
-                                                <?= abs(floor($dias)) ?> dias em atraso
-                                            </small>
-                                        <?php elseif ($dias <= 5 && $boleto['status'] != 'pago'): ?>
-                                            <br><small class="text-warning">
-                                                Vence em <?= ceil($dias) ?> dias
-                                            </small>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td>
-                                        <span class="badge-status badge-<?= $boleto['status'] ?>">
-                                            <?= ucfirst($boleto['status']) ?>
-                                        </span>
-                                        <?php if ($boleto['status'] == 'pago' && $boleto['data_pagamento']): ?>
-                                            <br><small class="text-muted">
-                                                <?= date('d/m/Y', strtotime($boleto['data_pagamento'])) ?>
-                                            </small>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td>
-                                        <?= date('d/m/Y H:i', strtotime($boleto['created_at'])) ?>
-                                        <?php if ($boleto['admin_nome']): ?>
-                                            <br><small class="text-muted">
-                                                por <?= htmlspecialchars($boleto['admin_nome']) ?>
-                                            </small>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td>
-                                        <div class="btn-group btn-group-sm">
-                                            <a href="/admin/boleto-detalhes.php?id=<?= $boleto['id'] ?>" 
-                                               class="btn btn-outline-primary btn-sm" title="Ver detalhes">
-                                                <i class="fas fa-eye"></i>
-                                            </a>
-                                            
-                                            <?php if ($boleto['status'] == 'pendente' || $boleto['status'] == 'vencido'): ?>
-                                                <button class="btn btn-outline-success btn-sm" 
-                                                        onclick="marcarComoPago(<?= $boleto['id'] ?>)" 
-                                                        title="Marcar como pago">
-                                                    <i class="fas fa-check"></i>
-                                                </button>
-                                                <button class="btn btn-outline-warning btn-sm" 
-                                                        onclick="cancelarBoleto(<?= $boleto['id'] ?>)" 
-                                                        title="Cancelar">
-                                                    <i class="fas fa-times"></i>
-                                                </button>
-                                            <?php endif; ?>
-                                            
-                                            <?php if (!empty($boleto['arquivo_pdf'])): ?>
-                                                <a href="/admin/api/download-boleto.php?id=<?= $boleto['id'] ?>" 
-                                                   class="btn btn-outline-info btn-sm" title="Download PDF">
-                                                    <i class="fas fa-download"></i>
-                                                </a>
-                                            <?php endif; ?>
-                                            
-                                            <button class="btn btn-outline-danger btn-sm" 
-                                                    onclick="removerBoleto(<?= $boleto['id'] ?>)" 
-                                                    title="Remover">
-                                                <i class="fas fa-trash"></i>
-                                            </button>
-                                        </div>
-                                    </td>
-                                </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
-                
-                <!-- Paginação -->
-                <?php if ($resultado['total_paginas'] > 1): ?>
-                    <nav aria-label="Paginação">
-                        <ul class="pagination justify-content-center">
-                            <?php for ($i = 1; $i <= $resultado['total_paginas']; $i++): ?>
-                                <li class="page-item <?= $i == $resultado['pagina'] ? 'active' : '' ?>">
-                                    <a class="page-link" href="?<?= http_build_query(array_merge($_GET, ['pagina' => $i])) ?>">
-                                        <?= $i ?>
-                                    </a>
-                                </li>
-                            <?php endfor; ?>
-                        </ul>
-                    </nav>
-                <?php endif; ?>
-            </div>
-        </div>
-    </div>
-    
-    <!-- Modal para marcar como pago -->
-    <div class="modal fade" id="pagoModal" tabindex="-1">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Marcar como Pago</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <form id="pagoForm">
-                        <input type="hidden" id="pago_boleto_id">
-                        
-                        <div class="mb-3">
-                            <label for="valor_pago" class="form-label">Valor Pago</label>
-                            <input type="number" class="form-control" id="valor_pago" step="0.01" required>
-                        </div>
-                        
-                        <div class="mb-3">
-                            <label for="data_pagamento" class="form-label">Data do Pagamento</label>
-                            <input type="date" class="form-control" id="data_pagamento" required>
-                        </div>
-                        
-                        <div class="mb-3">
-                            <label for="observacoes_pago" class="form-label">Observações</label>
-                            <textarea class="form-control" id="observacoes_pago" rows="3"></textarea>
-                        </div>
-                    </form>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                    <button type="button" class="btn btn-success" onclick="confirmarPagamento()">
-                        <i class="fas fa-check"></i> Confirmar Pagamento
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-    
-    <!-- Scripts -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-    
-    <script>
-        // Função para marcar boleto como pago
-        function marcarComoPago(boletoId) {
-            document.getElementById('pago_boleto_id').value = boletoId;
-            document.getElementById('data_pagamento').value = new Date().toISOString().split('T')[0];
-            
-            const modal = new bootstrap.Modal(document.getElementById('pagoModal'));
-            modal.show();
-        }
-        
-        // Confirma pagamento
-        function confirmarPagamento() {
-            const boletoId = document.getElementById('pago_boleto_id').value;
-            const valorPago = document.getElementById('valor_pago').value;
-            const dataPagamento = document.getElementById('data_pagamento').value;
-            const observacoes = document.getElementById('observacoes_pago').value;
-            
-            if (!valorPago || !dataPagamento) {
-                alert('Preencha todos os campos obrigatórios');
-                return;
-            }
-            
-            fetch('/admin/api/marcar-pago.php', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    boleto_id: boletoId,
-                    valor_pago: parseFloat(valorPago),
-                    data_pagamento: dataPagamento,
-                    observacoes: observacoes
-                })
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    showToast('Boleto marcado como pago!', 'success');
-                    setTimeout(() => location.reload(), 1500);
-                } else {
-                    showToast('Erro: ' + data.message, 'error');
-                }
-                
-                bootstrap.Modal.getInstance(document.getElementById('pagoModal')).hide();
-            })
-            .catch(error => {
-                showToast('Erro de conexão', 'error');
-            });
-        }
-        
-        // Função para cancelar boleto
-        function cancelarBoleto(boletoId) {
-            const motivo = prompt('Motivo do cancelamento:');
-            if (motivo === null) return;
-            
-            if (confirm('Tem certeza que deseja cancelar este boleto?')) {
-                fetch('/admin/api/cancelar-boleto.php', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        boleto_id: boletoId,
-                        motivo: motivo
-                    })
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        showToast('Boleto cancelado!', 'success');
-                        setTimeout(() => location.reload(), 1500);
-                    } else {
-                        showToast('Erro: ' + data.message, 'error');
-                    }
-                })
-                .catch(error => {
-                    showToast('Erro de conexão', 'error');
-                });
-            }
-        }
-        
-        // Função para remover boleto
-        function removerBoleto(boletoId) {
-            if (confirm('Tem certeza que deseja remover este boleto? Esta ação não pode ser desfeita.')) {
-                const motivo = prompt('Motivo da remoção:') || 'Removido pelo administrador';
-                
-                fetch('/admin/api/remover-boleto.php', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        boleto_id: boletoId,
-                        motivo: motivo
-                    })
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        showToast('Boleto removido!', 'success');
-                        setTimeout(() => location.reload(), 1500);
-                    } else {
-                        showToast('Erro: ' + data.message, 'error');
-                    }
-                })
-                .catch(error => {
-                    showToast('Erro de conexão', 'error');
-                });
-            }
-        }
-        
-        // Sistema de notificações
-        function showToast(message, type = 'info') {
-            const existingToasts = document.querySelectorAll('.toast-custom');
-            existingToasts.forEach(toast => toast.remove());
-            
-            const toast = document.createElement('div');
-            toast.className = `toast-custom alert alert-${type === 'error' ? 'danger' : type === 'success' ? 'success' : 'info'} position-fixed`;
-            toast.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px; animation: slideInRight 0.3s ease;';
-            
-            const icon = type === 'error' ? 'fa-exclamation-triangle' : 
-                        type === 'success' ? 'fa-check-circle' : 'fa-info-circle';
-            
-            toast.innerHTML = `
-                <div class="d-flex align-items-center">
-                    <i class="fas ${icon} me-2"></i>
-                    <span>${message}</span>
-                    <button type="button" class="btn-close ms-auto" onclick="this.parentElement.parentElement.remove()"></button>
-                </div>
-            `;
-            
-            document.body.appendChild(toast);
-            
-            setTimeout(() => {
-                if (toast.parentElement) {
-                    toast.style.animation = 'slideOutRight 0.3s ease';
-                    setTimeout(() => toast.remove(), 300);
-                }
-            }, 5000);
-        }
-        
-        // Adiciona estilos para animações
-        const style = document.createElement('style');
-        style.textContent = `
-            @keyframes slideInRight {
-                from { transform: translateX(100%); opacity: 0; }
-                to { transform: translateX(0); opacity: 1; }
-            }
-            
-            @keyframes slideOutRight {
-                from { transform: translateX(0); opacity: 1; }
-                to { transform: translateX(100%); opacity: 0; }
-            }
-        `;
-        document.head.appendChild(style);
-    </script>
-</body>
-</html>
