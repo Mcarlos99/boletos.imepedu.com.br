@@ -1,5 +1,5 @@
 /**
- * Sistema de Boletos IMED - Service Worker PWA
+ * Sistema de Boletos IMED - Service Worker PWA CORRIGIDO
  * Arquivo: sw.js
  * 
  * Service Worker completo com cache inteligente, funcionamento offline,
@@ -90,30 +90,52 @@ self.addEventListener('install', event => {
             try {
                 // Cache estático inicial
                 const staticCache = await caches.open(CACHE_NAME);
-                await staticCache.addAll(STATIC_CACHE_URLS);
+                
+                // Faz cache dos recursos essenciais primeiro
+                const essentialUrls = [
+                    '/',
+                    '/dashboard.php',
+                    '/login.php'
+                ];
+                
+                try {
+                    await staticCache.addAll(essentialUrls);
+                    console.log('[SW] Cache essencial criado');
+                } catch (error) {
+                    console.log('[SW] Erro no cache essencial, tentando individuais');
+                    // Tenta cache individual se falhar em lote
+                    for (const url of essentialUrls) {
+                        try {
+                            await staticCache.add(url);
+                        } catch (urlError) {
+                            console.log('[SW] Erro ao cachear:', url);
+                        }
+                    }
+                }
+                
+                // Tenta cachear recursos externos opcionais
+                const externalUrls = STATIC_CACHE_URLS.filter(url => 
+                    url.startsWith('http') || !essentialUrls.includes(url)
+                );
+                
+                for (const url of externalUrls) {
+                    try {
+                        await staticCache.add(url);
+                    } catch (error) {
+                        console.log('[SW] Falha ao cachear recurso opcional:', url);
+                    }
+                }
                 
                 // Cache de dados
-                const dataCache = await caches.open(DATA_CACHE_NAME);
+                await caches.open(DATA_CACHE_NAME);
                 
-                console.log('[SW] Cache inicial criado com sucesso');
+                console.log('[SW] Instalação concluída');
                 
                 // Força atualização imediata
                 await self.skipWaiting();
                 
             } catch (error) {
                 console.error('[SW] Erro durante instalação:', error);
-                
-                // Cache essencial mesmo se houver erros
-                try {
-                    const essentialCache = await caches.open(CACHE_NAME);
-                    await essentialCache.addAll([
-                        '/',
-                        '/dashboard.php',
-                        '/offline.html'
-                    ]);
-                } catch (essentialError) {
-                    console.error('[SW] Erro no cache essencial:', essentialError);
-                }
             }
         })()
     );
@@ -172,6 +194,11 @@ self.addEventListener('fetch', event => {
         return;
     }
     
+    // Ignora requisições POST de API para evitar cache de modificações
+    if (request.method !== 'GET' && isAPIRequest(url)) {
+        return;
+    }
+    
     // Estratégia baseada no tipo de recurso
     if (isStaticResource(url)) {
         event.respondWith(handleStaticResource(request));
@@ -209,7 +236,18 @@ self.addEventListener('push', event => {
         icon: '/icons/icon-192x192.png',
         badge: '/icons/badge-72x72.png',
         tag: 'boletos-notification',
-        data: {}
+        data: {},
+        actions: [
+            {
+                action: 'view',
+                title: 'Ver Boletos',
+                icon: '/icons/action-view.png'
+            },
+            {
+                action: 'close',
+                title: 'Fechar'
+            }
+        ]
     };
     
     if (event.data) {
@@ -235,6 +273,10 @@ self.addEventListener('notificationclick', event => {
     
     event.notification.close();
     
+    if (event.action === 'close') {
+        return; // Apenas fecha a notificação
+    }
+    
     // Determina a URL baseada no tipo de notificação
     let targetUrl = '/dashboard.php';
     const data = event.notification.data;
@@ -247,22 +289,26 @@ self.addEventListener('notificationclick', event => {
     
     event.waitUntil(
         (async () => {
-            // Busca uma aba aberta do app
-            const clients = await self.clients.matchAll({
-                type: 'window',
-                includeUncontrolled: true
-            });
-            
-            // Se há uma aba aberta, foca nela
-            for (const client of clients) {
-                if (client.url.includes(targetUrl) && 'focus' in client) {
-                    return client.focus();
+            try {
+                // Busca uma aba aberta do app
+                const clients = await self.clients.matchAll({
+                    type: 'window',
+                    includeUncontrolled: true
+                });
+                
+                // Se há uma aba aberta, foca nela
+                for (const client of clients) {
+                    if (client.url.includes('dashboard.php') && 'focus' in client) {
+                        return client.focus();
+                    }
                 }
-            }
-            
-            // Senão, abre nova aba
-            if (self.clients.openWindow) {
-                return self.clients.openWindow(targetUrl);
+                
+                // Senão, abre nova aba
+                if (self.clients.openWindow) {
+                    return self.clients.openWindow(targetUrl);
+                }
+            } catch (error) {
+                console.error('[SW] Erro ao abrir notificação:', error);
             }
         })()
     );
@@ -338,7 +384,7 @@ async function handleStaticResource(request) {
         
         // Fallback final para recursos críticos
         if (request.url.includes('dashboard.php')) {
-            return caches.match('/offline.html');
+            return caches.match('/offline.html') || createOfflinePage();
         }
         
         throw error;
@@ -449,16 +495,7 @@ async function handleImageRequest(request) {
         }
         
         // Imagem placeholder para offline
-        return new Response(
-            '<svg width="200" height="150" xmlns="http://www.w3.org/2000/svg"><rect width="200" height="150" fill="#f0f0f0"/><text x="100" y="75" text-anchor="middle" fill="#999">Imagem indisponível</text></svg>',
-            {
-                status: 200,
-                headers: {
-                    'Content-Type': 'image/svg+xml',
-                    'Cache-Control': 'max-age=86400'
-                }
-            }
-        );
+        return createImagePlaceholder();
     }
 }
 
@@ -576,9 +613,6 @@ async function syncPendingData() {
             });
         });
         
-        // Aqui você pode implementar lógica específica de sincronização
-        // Por exemplo, reenviar formulários, atualizar dados, etc.
-        
         console.log('[SW] Sincronização concluída');
         
     } catch (error) {
@@ -591,11 +625,15 @@ async function syncPendingData() {
  * Notifica todos os clientes
  */
 async function notifyClients(data) {
-    const clients = await self.clients.matchAll();
-    
-    clients.forEach(client => {
-        client.postMessage(data);
-    });
+    try {
+        const clients = await self.clients.matchAll();
+        
+        clients.forEach(client => {
+            client.postMessage(data);
+        });
+    } catch (error) {
+        console.error('[SW] Erro ao notificar clientes:', error);
+    }
 }
 
 /**
@@ -657,7 +695,7 @@ function createOfflinePage() {
             
             <script>
                 // Verifica conexão automaticamente
-                window.addEventListener('online', () => {
+                addEventListener('online', () => {
                     location.reload();
                 });
             </script>
@@ -670,6 +708,28 @@ function createOfflinePage() {
         headers: {
             'Content-Type': 'text/html; charset=utf-8',
             'Cache-Control': 'no-cache'
+        }
+    });
+}
+
+/**
+ * Cria placeholder para imagens
+ */
+function createImagePlaceholder() {
+    const svg = `
+        <svg width="200" height="150" xmlns="http://www.w3.org/2000/svg">
+            <rect width="200" height="150" fill="#f0f0f0"/>
+            <text x="100" y="75" text-anchor="middle" fill="#999" font-family="Arial, sans-serif" font-size="12">
+                Imagem indisponível
+            </text>
+        </svg>
+    `;
+    
+    return new Response(svg, {
+        status: 200,
+        headers: {
+            'Content-Type': 'image/svg+xml',
+            'Cache-Control': 'max-age=86400'
         }
     });
 }
@@ -720,17 +780,7 @@ setInterval(cleanupCaches, 6 * 60 * 60 * 1000); // A cada 6 horas
 console.log('[SW] Service Worker carregado - IMED Boletos PWA v' + CACHE_NAME);
 console.log('[SW] Configurações:', CONFIG);
 
-// Testa capacidades do navegador
-if ('serviceWorker' in navigator) {
-    console.log('[SW] Service Worker suportado');
-}
-
-if ('PushManager' in window) {
-    console.log('[SW] Push Notifications suportadas');
-}
-
-if ('BackgroundSync' in window) {
-    console.log('[SW] Background Sync suportado');
-} else {
-    console.log('[SW] Background Sync não suportado');
-}
+// Detecção de capacidades (sem usar window)
+console.log('[SW] Service Worker inicializado com sucesso');
+console.log('[SW] Background Sync suportado:', 'sync' in self.registration);
+console.log('[SW] Push Notifications suportadas:', 'showNotification' in self.registration);

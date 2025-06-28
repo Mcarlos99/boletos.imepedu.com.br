@@ -1,20 +1,20 @@
 <?php
 /**
- * Sistema de Boletos IMED - Dashboard Mobile-First Responsivo
+ * Sistema de Boletos IMED - Dashboard Mobile-First ATUALIZADO
  * Arquivo: dashboard.php
  * 
- * Versão otimizada para dispositivos móveis com agrupamento de boletos por período
+ * Versão com integração completa às APIs de download e PIX
  */
 
 session_start();
 
 // Habilita logs de debug
 ini_set('log_errors', 1);
-error_log("Dashboard Mobile: Iniciando para sessão: " . session_id());
+error_log("Dashboard: Iniciando para sessão: " . session_id());
 
 // Verifica se usuário está logado
 if (!isset($_SESSION['aluno_cpf'])) {
-    error_log("Dashboard Mobile: Usuário não logado, redirecionando para login");
+    error_log("Dashboard: Usuário não logado, redirecionando para login");
     header('Location: /login.php');
     exit;
 }
@@ -26,7 +26,7 @@ require_once 'src/AlunoService.php';
 require_once 'src/BoletoService.php';
 
 // Log dos dados da sessão
-error_log("Dashboard Mobile: CPF: " . $_SESSION['aluno_cpf'] . ", Polo: " . ($_SESSION['subdomain'] ?? 'não definido'));
+error_log("Dashboard: CPF: " . $_SESSION['aluno_cpf'] . ", Polo: " . ($_SESSION['subdomain'] ?? 'não definido'));
 
 // Inicializa serviços
 $alunoService = new AlunoService();
@@ -35,17 +35,17 @@ $boletoService = new BoletoService();
 // Busca dados do aluno específico do polo atual
 $aluno = $alunoService->buscarAlunoPorCPFESubdomain($_SESSION['aluno_cpf'], $_SESSION['subdomain']);
 if (!$aluno) {
-    error_log("Dashboard Mobile: Aluno não encontrado");
+    error_log("Dashboard: Aluno não encontrado");
     session_destroy();
     header('Location: /login.php');
     exit;
 }
 
-error_log("Dashboard Mobile: Aluno encontrado - ID: {$aluno['id']}, Nome: {$aluno['nome']}");
+error_log("Dashboard: Aluno encontrado - ID: {$aluno['id']}, Nome: {$aluno['nome']}");
 
 // Busca cursos do aluno apenas do polo atual
 $cursos = $alunoService->buscarCursosAlunoPorSubdomain($aluno['id'], $_SESSION['subdomain']);
-error_log("Dashboard Mobile: Cursos encontrados: " . count($cursos));
+error_log("Dashboard: Cursos encontrados: " . count($cursos));
 
 // Busca TODOS os boletos do aluno no polo atual
 $dadosBoletos = [];
@@ -74,7 +74,7 @@ try {
     $stmt->execute([$aluno['id'], $_SESSION['subdomain']]);
     $todosBoletos = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
-    error_log("Dashboard Mobile: Total boletos encontrados: " . count($todosBoletos));
+    error_log("Dashboard: Total boletos encontrados: " . count($todosBoletos));
     
     if (!empty($todosBoletos)) {
         // Agrupa boletos por período para melhor visualização mobile
@@ -146,18 +146,18 @@ try {
         }
         
         $dadosBoletos = $boletosPorPeriodo;
-        error_log("Dashboard Mobile: Agrupamento concluído");
+        error_log("Dashboard: Agrupamento concluído");
     }
     
 } catch (Exception $e) {
-    error_log("Dashboard Mobile: ERRO ao buscar boletos: " . $e->getMessage());
+    error_log("Dashboard: ERRO ao buscar boletos: " . $e->getMessage());
     $dadosBoletos = [];
 }
 
 // Configura polo
 $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
 
-error_log("Dashboard Mobile: Resumo final - Polo: {$_SESSION['subdomain']}, Total: " . $resumoGeral['total_boletos']);
+error_log("Dashboard: Resumo final - Polo: {$_SESSION['subdomain']}, Total: " . $resumoGeral['total_boletos']);
 ?>
 
 <!DOCTYPE html>
@@ -172,6 +172,9 @@ error_log("Dashboard Mobile: Resumo final - Polo: {$_SESSION['subdomain']}, Tota
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="mobile-web-app-capable" content="yes">
+    
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="/manifest.json">
     
     <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -190,6 +193,7 @@ error_log("Dashboard Mobile: Resumo final - Polo: {$_SESSION['subdomain']}, Tota
             --info-color: #17a2b8;
             --dark-color: #343a40;
             --light-color: #f8f9fa;
+            --pix-color: #32BCAD;
             
             /* Mobile spacing */
             --mobile-padding: 16px;
@@ -360,6 +364,7 @@ error_log("Dashboard Mobile: Resumo final - Polo: {$_SESSION['subdomain']}, Tota
             overflow: hidden;
             transition: all 0.2s;
             border-left: 4px solid;
+            cursor: pointer;
         }
         
         .boleto-card:active {
@@ -468,6 +473,7 @@ error_log("Dashboard Mobile: Resumo final - Polo: {$_SESSION['subdomain']}, Tota
             text-align: center;
             transition: all 0.2s;
             border: none;
+            cursor: pointer;
         }
         
         .btn-action:active {
@@ -485,13 +491,19 @@ error_log("Dashboard Mobile: Resumo final - Polo: {$_SESSION['subdomain']}, Tota
         }
         
         .btn-pix {
-            background: #32BCAD;
+            background: var(--pix-color);
             color: white;
         }
         
         .btn-pix:hover, .btn-pix:active {
             background: #2a9d91;
             color: white;
+        }
+        
+        .btn-disabled {
+            background: #e9ecef;
+            color: #6c757d;
+            cursor: not-allowed;
         }
         
         /* Estado vazio */
@@ -518,8 +530,8 @@ error_log("Dashboard Mobile: Resumo final - Polo: {$_SESSION['subdomain']}, Tota
             line-height: 1.4;
         }
         
-        /* Bottom Sheet Modal */
-        .bottom-sheet {
+        /* Modal Bottom Sheet */
+        .modal-bottom {
             position: fixed;
             bottom: 0;
             left: 0;
@@ -530,23 +542,24 @@ error_log("Dashboard Mobile: Resumo final - Polo: {$_SESSION['subdomain']}, Tota
             transform: translateY(100%);
             transition: transform 0.3s ease;
             z-index: 2000;
-            max-height: 80vh;
+            max-height: 90vh;
             overflow-y: auto;
         }
         
-        .bottom-sheet.show {
+        .modal-bottom.show {
             transform: translateY(0);
         }
         
-        .bottom-sheet-header {
+        .modal-header-custom {
             padding: 16px;
             border-bottom: 1px solid #f0f0f0;
             position: sticky;
             top: 0;
             background: white;
+            z-index: 1;
         }
         
-        .bottom-sheet-handle {
+        .modal-handle {
             width: 40px;
             height: 4px;
             background: #ddd;
@@ -554,7 +567,7 @@ error_log("Dashboard Mobile: Resumo final - Polo: {$_SESSION['subdomain']}, Tota
             margin: 0 auto 12px auto;
         }
         
-        .bottom-sheet-body {
+        .modal-body-custom {
             padding: 16px;
         }
         
@@ -577,43 +590,69 @@ error_log("Dashboard Mobile: Resumo final - Polo: {$_SESSION['subdomain']}, Tota
             visibility: visible;
         }
         
-        /* Floating Action Button */
-        .fab {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            width: 56px;
-            height: 56px;
-            background: var(--primary-color);
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            text-decoration: none;
-            box-shadow: 0 4px 12px rgba(0,102,204,0.3);
-            transition: all 0.2s;
-            z-index: 1000;
+        /* PIX Modal específico */
+        .pix-container {
+            text-align: center;
+            padding: 20px 0;
         }
         
-        .fab:hover, .fab:active {
-            background: var(--secondary-color);
-            color: white;
-            transform: scale(0.95);
+        .pix-qr-code {
+            max-width: 280px;
+            height: auto;
+            margin: 20px auto;
+            border: 4px solid #f0f0f0;
+            border-radius: 12px;
+        }
+        
+        .pix-code-input {
+            font-family: 'Courier New', monospace;
+            font-size: 0.75rem;
+            word-break: break-all;
+            line-height: 1.4;
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 12px;
+            margin: 16px 0;
+        }
+        
+        .pix-instructions {
+            background: #e7f3ff;
+            border-radius: 8px;
+            padding: 16px;
+            margin: 16px 0;
+            text-align: left;
+        }
+        
+        .pix-instructions h6 {
+            color: var(--primary-color);
+            margin-bottom: 12px;
+        }
+        
+        .pix-instructions ol {
+            margin: 0;
+            padding-left: 20px;
+        }
+        
+        .pix-instructions li {
+            margin-bottom: 8px;
+            font-size: 0.9rem;
         }
         
         /* Loading spinner */
         .loading-spinner {
-            display: inline-flex;
+            display: flex;
             align-items: center;
-            gap: 8px;
+            justify-content: center;
+            gap: 12px;
+            padding: 20px;
             font-size: 0.9rem;
             color: #666;
         }
         
         .spinner {
-            width: 16px;
-            height: 16px;
+            width: 20px;
+            height: 20px;
             border: 2px solid #f3f3f3;
             border-top: 2px solid var(--primary-color);
             border-radius: 50%;
@@ -632,6 +671,8 @@ error_log("Dashboard Mobile: Resumo final - Polo: {$_SESSION['subdomain']}, Tota
             left: 50%;
             transform: translateX(-50%);
             z-index: 2001;
+            min-width: 280px;
+            max-width: 90vw;
         }
         
         .toast-custom {
@@ -643,16 +684,46 @@ error_log("Dashboard Mobile: Resumo final - Polo: {$_SESSION['subdomain']}, Tota
             display: flex;
             align-items: center;
             gap: 8px;
-            min-width: 200px;
             animation: slideDown 0.3s ease;
         }
+        
+        .toast-success { border-left: 4px solid var(--success-color); }
+        .toast-error { border-left: 4px solid var(--danger-color); }
+        .toast-warning { border-left: 4px solid var(--warning-color); }
+        .toast-info { border-left: 4px solid var(--info-color); }
         
         @keyframes slideDown {
             from { transform: translateY(-100%); opacity: 0; }
             to { transform: translateY(0); opacity: 1; }
         }
         
-        /* Tablet e Desktop ajustes */
+        /* Floating Action Button */
+        .fab {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 56px;
+            height: 56px;
+            background: var(--primary-color);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            text-decoration: none;
+            box-shadow: 0 4px 12px rgba(0,102,204,0.3);
+            transition: all 0.2s;
+            z-index: 1000;
+            border: none;
+        }
+        
+        .fab:hover, .fab:active {
+            background: var(--secondary-color);
+            color: white;
+            transform: scale(0.95);
+        }
+        
+        /* Responsividade */
         @media (min-width: 768px) {
             .main-container {
                 max-width: 600px;
@@ -668,25 +739,11 @@ error_log("Dashboard Mobile: Resumo final - Polo: {$_SESSION['subdomain']}, Tota
             .mobile-header {
                 padding: 20px 24px;
             }
-            
-            .fab {
-                bottom: 30px;
-                right: 30px;
-            }
         }
         
         @media (min-width: 1024px) {
             .main-container {
                 max-width: 800px;
-            }
-        }
-        
-        /* Melhorias de acessibilidade */
-        @media (prefers-reduced-motion: reduce) {
-            * {
-                animation-duration: 0.01ms !important;
-                animation-iteration-count: 1 !important;
-                transition-duration: 0.01ms !important;
             }
         }
         
@@ -702,7 +759,7 @@ error_log("Dashboard Mobile: Resumo final - Polo: {$_SESSION['subdomain']}, Tota
                 color: #ffffff;
             }
             
-            .summary-card, .boleto-card, .bottom-sheet {
+            .summary-card, .boleto-card, .modal-bottom {
                 background: #2d2d2d;
                 color: #ffffff;
             }
@@ -713,17 +770,6 @@ error_log("Dashboard Mobile: Resumo final - Polo: {$_SESSION['subdomain']}, Tota
             
             .section-title {
                 color: #ffffff;
-            }
-        }
-        
-        /* iOS Safari specific fixes */
-        @supports (-webkit-touch-callout: none) {
-            .mobile-header {
-                padding-top: max(16px, env(safe-area-inset-top));
-            }
-            
-            .main-container {
-                padding-bottom: max(80px, env(safe-area-inset-bottom));
             }
         }
     </style>
@@ -886,18 +932,18 @@ error_log("Dashboard Mobile: Resumo final - Polo: {$_SESSION['subdomain']}, Tota
     </main>
 
     <!-- Floating Action Button -->
-    <a href="javascript:void(0)" class="fab" onclick="mostrarAcoesRapidas()" title="Ações rápidas">
+    <button class="fab" onclick="mostrarAcoesRapidas()" title="Ações rápidas">
         <i class="fas fa-plus"></i>
-    </a>
+    </button>
 
-    <!-- Bottom Sheet - Menu -->
+    <!-- Modal - Menu Principal -->
     <div class="overlay" id="menuOverlay" onclick="fecharMenu()"></div>
-    <div class="bottom-sheet" id="menuSheet">
-        <div class="bottom-sheet-header">
-            <div class="bottom-sheet-handle"></div>
+    <div class="modal-bottom" id="menuModal">
+        <div class="modal-header-custom">
+            <div class="modal-handle"></div>
             <h3 class="mb-0">Menu</h3>
         </div>
-        <div class="bottom-sheet-body">
+        <div class="modal-body-custom">
             <div class="list-group list-group-flush">
                 <button class="list-group-item list-group-item-action" onclick="atualizarDados()">
                     <i class="fas fa-sync text-primary me-3"></i>
@@ -927,14 +973,14 @@ error_log("Dashboard Mobile: Resumo final - Polo: {$_SESSION['subdomain']}, Tota
         </div>
     </div>
 
-    <!-- Bottom Sheet - Ações Rápidas -->
+    <!-- Modal - Ações Rápidas -->
     <div class="overlay" id="acoesOverlay" onclick="fecharAcoes()"></div>
-    <div class="bottom-sheet" id="acoesSheet">
-        <div class="bottom-sheet-header">
-            <div class="bottom-sheet-handle"></div>
+    <div class="modal-bottom" id="acoesModal">
+        <div class="modal-header-custom">
+            <div class="modal-handle"></div>
             <h3 class="mb-0">Ações Rápidas</h3>
         </div>
-        <div class="bottom-sheet-body">
+        <div class="modal-body-custom">
             <div class="row g-3">
                 <div class="col-6">
                     <button class="btn btn-outline-primary w-100" onclick="atualizarDados(); fecharAcoes();">
@@ -964,17 +1010,35 @@ error_log("Dashboard Mobile: Resumo final - Polo: {$_SESSION['subdomain']}, Tota
         </div>
     </div>
 
-    <!-- Bottom Sheet - Detalhes do Boleto -->
+    <!-- Modal - Detalhes do Boleto -->
     <div class="overlay" id="boletoOverlay" onclick="fecharDetalhes()"></div>
-    <div class="bottom-sheet" id="boletoSheet">
-        <div class="bottom-sheet-header">
-            <div class="bottom-sheet-handle"></div>
+    <div class="modal-bottom" id="boletoModal">
+        <div class="modal-header-custom">
+            <div class="modal-handle"></div>
             <h3 class="mb-0">Detalhes do Boleto</h3>
         </div>
-        <div class="bottom-sheet-body" id="boletoDetalhes">
+        <div class="modal-body-custom" id="boletoDetalhes">
             <div class="loading-spinner">
                 <div class="spinner"></div>
                 Carregando...
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal - PIX -->
+    <div class="overlay" id="pixOverlay" onclick="fecharPix()"></div>
+    <div class="modal-bottom" id="pixModal">
+        <div class="modal-header-custom">
+            <div class="modal-handle"></div>
+            <h3 class="mb-0">
+                <i class="fas fa-qrcode text-success me-2"></i>
+                Pagamento PIX
+            </h3>
+        </div>
+        <div class="modal-body-custom" id="pixConteudo">
+            <div class="loading-spinner">
+                <div class="spinner"></div>
+                Gerando código PIX...
             </div>
         </div>
     </div>
@@ -990,20 +1054,44 @@ error_log("Dashboard Mobile: Resumo final - Polo: {$_SESSION['subdomain']}, Tota
         let isUpdating = false;
         let swipeStartY = 0;
         let swipeStartTime = 0;
+        let currentBoletoId = null;
         
         // Inicialização
         document.addEventListener('DOMContentLoaded', function() {
             console.log('Dashboard Mobile inicializado');
             
+            // Registra Service Worker para PWA
+            registerServiceWorker();
+            
             // Configura listeners para gestos
             setupSwipeGestures();
             
-            // Configura PWA
-            setupPWA();
-            
             // Verifica se precisa atualizar automaticamente
             checkAutoUpdate();
+            
+            // Configura listeners de conectividade
+            setupConnectivityListeners();
         });
+        
+        // Registra Service Worker
+        function registerServiceWorker() {
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register('/sw.js')
+                    .then(registration => {
+                        console.log('Service Worker registrado:', registration);
+                        
+                        // Escuta mensagens do Service Worker
+                        navigator.serviceWorker.addEventListener('message', event => {
+                            if (event.data.type === 'SW_ACTIVATED') {
+                                showToast(event.data.message, 'info');
+                            }
+                        });
+                    })
+                    .catch(error => {
+                        console.log('Erro ao registrar Service Worker:', error);
+                    });
+            }
+        }
         
         // Configuração de gestos de deslizar
         function setupSwipeGestures() {
@@ -1024,27 +1112,15 @@ error_log("Dashboard Mobile: Resumo final - Polo: {$_SESSION['subdomain']}, Tota
             }, { passive: true });
         }
         
-        // Configuração PWA
-        function setupPWA() {
-            // Service Worker
-            if ('serviceWorker' in navigator) {
-                navigator.serviceWorker.register('/sw.js').catch(function(error) {
-                    console.log('Service Worker registration failed:', error);
-                });
-            }
+        // Configuração de listeners de conectividade
+        function setupConnectivityListeners() {
+            window.addEventListener('online', function() {
+                showToast('Conexão restaurada!', 'success');
+                setTimeout(() => atualizarDados(true), 1000);
+            });
             
-            // Add to Home Screen
-            let deferredPrompt;
-            window.addEventListener('beforeinstallprompt', function(e) {
-                e.preventDefault();
-                deferredPrompt = e;
-                
-                // Mostra opção de instalar após 30 segundos
-                setTimeout(() => {
-                    if (deferredPrompt) {
-                        showInstallPrompt();
-                    }
-                }, 30000);
+            window.addEventListener('offline', function() {
+                showToast('Você está offline', 'warning');
             });
         }
         
@@ -1061,28 +1137,345 @@ error_log("Dashboard Mobile: Resumo final - Polo: {$_SESSION['subdomain']}, Tota
             }
         }
         
-        // Funções de menu
+        // ========== FUNÇÕES DE MENU ==========
+        
         function mostrarMenu() {
             document.getElementById('menuOverlay').classList.add('show');
-            document.getElementById('menuSheet').classList.add('show');
+            document.getElementById('menuModal').classList.add('show');
             document.body.style.overflow = 'hidden';
         }
         
         function fecharMenu() {
             document.getElementById('menuOverlay').classList.remove('show');
-            document.getElementById('menuSheet').classList.remove('show');
+            document.getElementById('menuModal').classList.remove('show');
             document.body.style.overflow = '';
         }
         
         function mostrarAcoesRapidas() {
             document.getElementById('acoesOverlay').classList.add('show');
-            document.getElementById('acoesSheet').classList.add('show');
+            document.getElementById('acoesModal').classList.add('show');
             document.body.style.overflow = 'hidden';
         }
         
         function fecharAcoes() {
             document.getElementById('acoesOverlay').classList.remove('show');
-            document.getElementById('acoesSheet').classList.remove('show');
+            document.getElementById('acoesModal').classList.remove('show');
+            document.body.style.overflow = '';
+        }
+        
+        // ========== FUNÇÕES DE BOLETOS ==========
+        
+        // Download de boleto com integração à API real
+        function downloadBoleto(boletoId) {
+            console.log('Iniciando download do boleto:', boletoId);
+            
+            showToast('Preparando download...', 'info');
+            
+            // Cria link temporário para download
+            const link = document.createElement('a');
+            link.href = `/api/download-boleto.php?id=${boletoId}`;
+            link.download = `Boleto_${boletoId}.pdf`;
+            link.target = '_blank';
+            
+            // Simula clique para iniciar download
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            // Feedback para o usuário
+            setTimeout(() => {
+                showToast('Download iniciado!', 'success');
+            }, 500);
+            
+            // Log de analytics
+            logUserAction('download_boleto', { boleto_id: boletoId });
+        }
+        
+        // Gerar PIX com integração à API real
+        function mostrarPix(boletoId) {
+            console.log('Gerando PIX para boleto:', boletoId);
+            
+            currentBoletoId = boletoId;
+            
+            // Mostra modal
+            document.getElementById('pixOverlay').classList.add('show');
+            document.getElementById('pixModal').classList.add('show');
+            document.body.style.overflow = 'hidden';
+            
+            // Reset conteúdo
+            document.getElementById('pixConteudo').innerHTML = `
+                <div class="loading-spinner">
+                    <div class="spinner"></div>
+                    Gerando código PIX...
+                </div>
+            `;
+            
+            // Chama API para gerar PIX
+            fetch('/api/gerar-pix.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    boleto_id: boletoId
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    exibirPixGerado(data);
+                    showToast('Código PIX gerado!', 'success');
+                } else {
+                    exibirErroPix(data.message);
+                    showToast('Erro: ' + data.message, 'error');
+                }
+            })
+            .catch(error => {
+                console.error('Erro ao gerar PIX:', error);
+                exibirErroPix('Erro de conexão. Tente novamente.');
+                showToast('Erro de conexão', 'error');
+            });
+            
+            // Log de analytics
+            logUserAction('gerar_pix', { boleto_id: boletoId });
+        }
+        
+        // Exibe PIX gerado com sucesso
+        function exibirPixGerado(data) {
+            const { boleto, pix, instrucoes } = data;
+            
+            const html = `
+                <div class="pix-container">
+                    <div class="mb-3">
+                        <h5 class="text-primary">
+                            <i class="fas fa-receipt me-2"></i>
+                            Boleto #${boleto.numero}
+                        </h5>
+                        <p class="mb-1"><strong>Valor:</strong> ${boleto.valor_formatado}</p>
+                        <p class="mb-1"><strong>Vencimento:</strong> ${boleto.vencimento_formatado}</p>
+                        <p class="mb-0"><strong>Beneficiário:</strong> ${pix.beneficiario}</p>
+                    </div>
+                    
+                    <div class="text-center mb-4">
+                        <img src="${pix.qr_code_base64}" alt="QR Code PIX" class="pix-qr-code">
+                        <p class="mt-2 text-muted">
+                            <i class="fas fa-mobile-alt me-1"></i>
+                            Escaneie com o app do seu banco
+                        </p>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">
+                            <i class="fas fa-copy me-1"></i>
+                            PIX Copia e Cola:
+                        </label>
+                        <div class="pix-code-input" id="pixCodigoTexto">
+                            ${pix.pix_copia_cola}
+                        </div>
+                        <button class="btn btn-outline-primary btn-sm w-100" onclick="copiarCodigoPix()">
+                            <i class="fas fa-copy me-1"></i>
+                            Copiar Código PIX
+                        </button>
+                    </div>
+                    
+                    <div class="pix-instructions">
+                        <h6><i class="fas fa-info-circle me-1"></i> Como pagar:</h6>
+                        <ol>
+                            ${instrucoes.como_pagar.map(passo => `<li>${passo}</li>`).join('')}
+                        </ol>
+                        
+                        <div class="mt-3">
+                            <small class="text-muted">
+                                <i class="fas fa-clock me-1"></i>
+                                <strong>Válido até:</strong> ${pix.validade_formatada}
+                            </small>
+                        </div>
+                    </div>
+                    
+                    <div class="d-grid gap-2">
+                        <button class="btn btn-success" onclick="compartilharPix()">
+                            <i class="fas fa-share me-1"></i>
+                            Compartilhar PIX
+                        </button>
+                        <button class="btn btn-outline-secondary" onclick="fecharPix()">
+                            Fechar
+                        </button>
+                    </div>
+                </div>
+            `;
+            
+            document.getElementById('pixConteudo').innerHTML = html;
+        }
+        
+        // Exibe erro na geração do PIX
+        function exibirErroPix(mensagem) {
+            const html = `
+                <div class="text-center p-4">
+                    <i class="fas fa-exclamation-triangle fa-3x text-warning mb-3"></i>
+                    <h5>Erro ao Gerar PIX</h5>
+                    <p class="text-muted mb-4">${mensagem}</p>
+                    <div class="d-grid gap-2">
+                        <button class="btn btn-primary" onclick="mostrarPix(${currentBoletoId})">
+                            <i class="fas fa-redo me-1"></i>
+                            Tentar Novamente
+                        </button>
+                        <button class="btn btn-outline-secondary" onclick="fecharPix()">
+                            Fechar
+                        </button>
+                    </div>
+                </div>
+            `;
+            
+            document.getElementById('pixConteudo').innerHTML = html;
+        }
+        
+        // Copia código PIX para área de transferência
+        function copiarCodigoPix() {
+            const codigo = document.getElementById('pixCodigoTexto').textContent.trim();
+            
+            navigator.clipboard.writeText(codigo).then(() => {
+                showToast('Código PIX copiado!', 'success');
+                
+                // Visual feedback
+                const btn = event.target;
+                const originalText = btn.innerHTML;
+                btn.innerHTML = '<i class="fas fa-check me-1"></i> Copiado!';
+                btn.classList.remove('btn-outline-primary');
+                btn.classList.add('btn-success');
+                
+                setTimeout(() => {
+                    btn.innerHTML = originalText;
+                    btn.classList.remove('btn-success');
+                    btn.classList.add('btn-outline-primary');
+                }, 2000);
+                
+            }).catch(() => {
+                // Fallback para navegadores mais antigos
+                const textArea = document.createElement('textarea');
+                textArea.value = codigo;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                
+                showToast('Código PIX copiado!', 'success');
+            });
+        }
+        
+        // Compartilha PIX
+        function compartilharPix() {
+            if (navigator.share) {
+                const codigo = document.getElementById('pixCodigoTexto').textContent.trim();
+                
+                navigator.share({
+                    title: 'Pagamento PIX - IMED Boletos',
+                    text: `Código PIX para pagamento:\n\n${codigo}`,
+                }).catch(error => {
+                    console.log('Erro ao compartilhar:', error);
+                });
+            } else {
+                copiarCodigoPix();
+                showToast('Código copiado! Cole onde desejar compartilhar.', 'info');
+            }
+        }
+        
+        // Fecha modal PIX
+        function fecharPix() {
+            document.getElementById('pixOverlay').classList.remove('show');
+            document.getElementById('pixModal').classList.remove('show');
+            document.body.style.overflow = '';
+            currentBoletoId = null;
+        }
+        
+        // ========== OUTRAS FUNÇÕES ==========
+        
+        // Mostrar detalhes do boleto
+        function mostrarDetalhes(boletoId) {
+            document.getElementById('boletoOverlay').classList.add('show');
+            document.getElementById('boletoModal').classList.add('show');
+            document.body.style.overflow = 'hidden';
+            
+            const detalhesDiv = document.getElementById('boletoDetalhes');
+            detalhesDiv.innerHTML = `
+                <div class="loading-spinner">
+                    <div class="spinner"></div>
+                    Carregando detalhes...
+                </div>
+            `;
+            
+            // Busca detalhes via API
+            fetch(`/api/boleto-detalhes.php?id=${boletoId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        exibirDetalhesBoleto(data.boleto);
+                    } else {
+                        exibirErroDetalhes(data.message);
+                    }
+                })
+                .catch(error => {
+                    console.error('Erro ao buscar detalhes:', error);
+                    exibirErroDetalhes('Erro de conexão');
+                });
+        }
+        
+        // Exibe detalhes do boleto
+        function exibirDetalhesBoleto(boleto) {
+            const html = `
+                <div class="mb-3">
+                    <h5>Informações do Boleto</h5>
+                    <p><strong>Número:</strong> #${boleto.numero_boleto}</p>
+                    <p><strong>Valor:</strong> R$ ${parseFloat(boleto.valor).toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p>
+                    <p><strong>Vencimento:</strong> ${new Date(boleto.vencimento).toLocaleDateString('pt-BR')}</p>
+                    <p><strong>Status:</strong> <span class="status-${boleto.status}">${boleto.status.charAt(0).toUpperCase() + boleto.status.slice(1)}</span></p>
+                    ${boleto.descricao ? `<p><strong>Descrição:</strong> ${boleto.descricao}</p>` : ''}
+                </div>
+                <div class="mb-3">
+                    <h5>Informações do Curso</h5>
+                    <p><strong>Curso:</strong> ${boleto.curso_nome}</p>
+                    <p><strong>Polo:</strong> ${boleto.subdomain.replace('.imepedu.com.br', '')}</p>
+                </div>
+                <div class="d-grid gap-2">
+                    ${boleto.status !== 'pago' ? `
+                        <button class="btn btn-primary" onclick="downloadBoleto(${boleto.id}); fecharDetalhes();">
+                            <i class="fas fa-download"></i> Download PDF
+                        </button>
+                        <button class="btn btn-success" onclick="mostrarPix(${boleto.id}); fecharDetalhes();">
+                            <i class="fas fa-qrcode"></i> Código PIX
+                        </button>
+                    ` : `
+                        <div class="alert alert-success">
+                            <i class="fas fa-check-circle me-2"></i>
+                            Este boleto já foi pago!
+                        </div>
+                    `}
+                    <button class="btn btn-outline-secondary" onclick="fecharDetalhes()">
+                        Fechar
+                    </button>
+                </div>
+            `;
+            
+            document.getElementById('boletoDetalhes').innerHTML = html;
+        }
+        
+        // Exibe erro nos detalhes
+        function exibirErroDetalhes(mensagem) {
+            const html = `
+                <div class="text-center p-4">
+                    <i class="fas fa-exclamation-triangle fa-2x text-warning mb-3"></i>
+                    <p>${mensagem}</p>
+                    <button class="btn btn-outline-secondary" onclick="fecharDetalhes()">
+                        Fechar
+                    </button>
+                </div>
+            `;
+            
+            document.getElementById('boletoDetalhes').innerHTML = html;
+        }
+        
+        function fecharDetalhes() {
+            document.getElementById('boletoOverlay').classList.remove('show');
+            document.getElementById('boletoModal').classList.remove('show');
             document.body.style.overflow = '';
         }
         
@@ -1131,68 +1524,6 @@ error_log("Dashboard Mobile: Resumo final - Polo: {$_SESSION['subdomain']}, Tota
             });
         }
         
-        // Função para baixar boleto
-        function downloadBoleto(boletoId) {
-            showToast('Preparando download...', 'info');
-            
-            // Simula download - implementar com backend real
-            setTimeout(() => {
-                showToast('PDF será implementado em breve', 'warning');
-            }, 1000);
-        }
-        
-        // Função para mostrar código PIX
-        function mostrarPix(boletoId) {
-            showToast('Código PIX será implementado em breve', 'info');
-        }
-        
-        // Função para mostrar detalhes do boleto
-        function mostrarDetalhes(boletoId) {
-            document.getElementById('boletoOverlay').classList.add('show');
-            document.getElementById('boletoSheet').classList.add('show');
-            document.body.style.overflow = 'hidden';
-            
-            const detalhesDiv = document.getElementById('boletoDetalhes');
-            detalhesDiv.innerHTML = `
-                <div class="loading-spinner">
-                    <div class="spinner"></div>
-                    Carregando detalhes...
-                </div>
-            `;
-            
-            // Simula busca de detalhes
-            setTimeout(() => {
-                detalhesDiv.innerHTML = `
-                    <div class="mb-3">
-                        <h5>Informações do Boleto</h5>
-                        <p><strong>Número:</strong> #${boletoId}</p>
-                        <p><strong>Valor:</strong> R$ 150,00</p>
-                        <p><strong>Vencimento:</strong> 15/01/2024</p>
-                        <p><strong>Status:</strong> <span class="status-pendente">Pendente</span></p>
-                    </div>
-                    <div class="mb-3">
-                        <h5>Informações do Curso</h5>
-                        <p><strong>Curso:</strong> Técnico em Enfermagem</p>
-                        <p><strong>Polo:</strong> ${document.querySelector('.user-details').textContent.split('•')[0].trim()}</p>
-                    </div>
-                    <div class="d-grid gap-2">
-                        <button class="btn btn-primary" onclick="downloadBoleto(${boletoId})">
-                            <i class="fas fa-download"></i> Download PDF
-                        </button>
-                        <button class="btn btn-success" onclick="mostrarPix(${boletoId})">
-                            <i class="fas fa-qrcode"></i> Código PIX
-                        </button>
-                    </div>
-                `;
-            }, 1000);
-        }
-        
-        function fecharDetalhes() {
-            document.getElementById('boletoOverlay').classList.remove('show');
-            document.getElementById('boletoSheet').classList.remove('show');
-            document.body.style.overflow = '';
-        }
-        
         // Função para baixar todos os boletos pendentes
         function baixarTodosPendentes() {
             const pendentes = document.querySelectorAll('.boleto-card.pendente, .boleto-card.vencido').length;
@@ -1205,13 +1536,30 @@ error_log("Dashboard Mobile: Resumo final - Polo: {$_SESSION['subdomain']}, Tota
             if (confirm(`Deseja baixar todos os ${pendentes} boletos pendentes?`)) {
                 showToast('Preparando downloads...', 'info');
                 
-                setTimeout(() => {
-                    showToast('Download em lote será implementado em breve', 'warning');
-                }, 1000);
+                // Coleta IDs dos boletos pendentes
+                const boletos = [];
+                document.querySelectorAll('.boleto-card.pendente, .boleto-card.vencido').forEach(card => {
+                    const downloadBtn = card.querySelector('[onclick*="downloadBoleto"]');
+                    if (downloadBtn) {
+                        const match = downloadBtn.getAttribute('onclick').match(/downloadBoleto\((\d+)\)/);
+                        if (match) {
+                            boletos.push(match[1]);
+                        }
+                    }
+                });
+                
+                // Inicia downloads com delay para não sobrecarregar
+                boletos.forEach((boletoId, index) => {
+                    setTimeout(() => {
+                        downloadBoleto(boletoId);
+                    }, index * 1000); // 1 segundo entre downloads
+                });
+                
+                showToast(`Iniciando download de ${boletos.length} boletos...`, 'success');
             }
         }
         
-        // Função para mostrar outros polos
+        // Outras funções auxiliares
         function mostrarOutrosPolos() {
             const polos = [
                 { nome: 'Tucuruí', url: 'https://tucurui.imepedu.com.br/boletos' },
@@ -1223,7 +1571,7 @@ error_log("Dashboard Mobile: Resumo final - Polo: {$_SESSION['subdomain']}, Tota
             let html = '<div class="list-group">';
             polos.forEach(polo => {
                 html += `
-                    <a href="${polo.url}" class="list-group-item list-group-item-action">
+                    <a href="${polo.url}" class="list-group-item list-group-item-action" target="_blank">
                         <i class="fas fa-building me-2"></i>
                         ${polo.nome}
                         <small class="d-block text-muted">Acesse boletos deste polo</small>
@@ -1234,26 +1582,26 @@ error_log("Dashboard Mobile: Resumo final - Polo: {$_SESSION['subdomain']}, Tota
             
             document.getElementById('boletoDetalhes').innerHTML = html;
             document.getElementById('boletoOverlay').classList.add('show');
-            document.getElementById('boletoSheet').classList.add('show');
+            document.getElementById('boletoModal').classList.add('show');
             document.body.style.overflow = 'hidden';
         }
         
-        // Função para mostrar informações
         function mostrarInformacoes() {
             const info = `
                 <div class="mb-3">
                     <h5>Sistema de Boletos IMED</h5>
-                    <p>Versão: 2.0 Mobile</p>
+                    <p>Versão: 2.1 PWA</p>
                     <p>Última atualização: ${new Date().toLocaleDateString('pt-BR')}</p>
                 </div>
                 <div class="mb-3">
                     <h6>Funcionalidades:</h6>
                     <ul class="list-unstyled">
                         <li><i class="fas fa-check text-success me-2"></i> Visualização de boletos</li>
+                        <li><i class="fas fa-check text-success me-2"></i> Download de PDFs</li>
+                        <li><i class="fas fa-check text-success me-2"></i> Códigos PIX</li>
                         <li><i class="fas fa-check text-success me-2"></i> Sincronização automática</li>
                         <li><i class="fas fa-check text-success me-2"></i> Interface mobile-first</li>
-                        <li><i class="fas fa-clock text-warning me-2"></i> Download de PDFs</li>
-                        <li><i class="fas fa-clock text-warning me-2"></i> Códigos PIX</li>
+                        <li><i class="fas fa-check text-success me-2"></i> Funcionamento offline</li>
                     </ul>
                 </div>
                 <div class="text-center">
@@ -1263,11 +1611,10 @@ error_log("Dashboard Mobile: Resumo final - Polo: {$_SESSION['subdomain']}, Tota
             
             document.getElementById('boletoDetalhes').innerHTML = info;
             document.getElementById('boletoOverlay').classList.add('show');
-            document.getElementById('boletoSheet').classList.add('show');
+            document.getElementById('boletoModal').classList.add('show');
             document.body.style.overflow = 'hidden';
         }
         
-        // Função para compartilhar app
         function compartilharApp() {
             if (navigator.share) {
                 navigator.share({
@@ -1276,7 +1623,6 @@ error_log("Dashboard Mobile: Resumo final - Polo: {$_SESSION['subdomain']}, Tota
                     url: window.location.href
                 });
             } else {
-                // Fallback para browsers que não suportam Web Share API
                 const url = window.location.href;
                 navigator.clipboard.writeText(url).then(() => {
                     showToast('Link copiado para área de transferência!', 'success');
@@ -1290,8 +1636,12 @@ error_log("Dashboard Mobile: Resumo final - Polo: {$_SESSION['subdomain']}, Tota
         function showToast(message, type = 'info') {
             const container = document.getElementById('toastContainer');
             
+            // Remove toasts existentes do mesmo tipo
+            const existingToasts = container.querySelectorAll(`.toast-${type}`);
+            existingToasts.forEach(toast => toast.remove());
+            
             const toast = document.createElement('div');
-            toast.className = `toast-custom alert-${type === 'error' ? 'danger' : type === 'success' ? 'success' : 'info'}`;
+            toast.className = `toast-custom toast-${type}`;
             
             const icon = type === 'error' ? 'fa-exclamation-triangle' : 
                         type === 'success' ? 'fa-check-circle' : 
@@ -1300,66 +1650,54 @@ error_log("Dashboard Mobile: Resumo final - Polo: {$_SESSION['subdomain']}, Tota
             toast.innerHTML = `
                 <i class="fas ${icon}"></i>
                 <span>${message}</span>
+                <button type="button" class="btn-close ms-auto" onclick="this.parentElement.remove()"></button>
             `;
             
             container.appendChild(toast);
             
-            // Remove automaticamente após 4 segundos
+            // Remove automaticamente após 5 segundos
             setTimeout(() => {
-                toast.style.animation = 'slideDown 0.3s ease reverse';
-                setTimeout(() => {
-                    if (toast.parentNode) {
-                        container.removeChild(toast);
-                    }
-                }, 300);
-            }, 4000);
+                if (toast.parentNode) {
+                    toast.style.animation = 'slideDown 0.3s ease reverse';
+                    setTimeout(() => {
+                        if (toast.parentNode) {
+                            container.removeChild(toast);
+                        }
+                    }, 300);
+                }
+            }, 5000);
         }
         
-        // Função para mostrar prompt de instalação
-        function showInstallPrompt() {
-            if (localStorage.getItem('installPromptShown')) return;
-            
-            const installHtml = `
-                <div class="text-center">
-                    <i class="fas fa-mobile-alt fa-3x text-primary mb-3"></i>
-                    <h5>Instalar App</h5>
-                    <p>Adicione o Sistema de Boletos à sua tela inicial para acesso rápido!</p>
-                    <div class="d-grid gap-2">
-                        <button class="btn btn-primary" onclick="installApp()">
-                            <i class="fas fa-download"></i> Instalar
-                        </button>
-                        <button class="btn btn-outline-secondary" onclick="dismissInstall()">
-                            Agora não
-                        </button>
-                    </div>
-                </div>
-            `;
-            
-            document.getElementById('boletoDetalhes').innerHTML = installHtml;
-            document.getElementById('boletoOverlay').classList.add('show');
-            document.getElementById('boletoSheet').classList.add('show');
-            document.body.style.overflow = 'hidden';
-            
-            localStorage.setItem('installPromptShown', 'true');
-        }
-        
-        // Função para instalar app
-        function installApp() {
-            if (window.deferredPrompt) {
-                window.deferredPrompt.prompt();
-                window.deferredPrompt.userChoice.then((choiceResult) => {
-                    if (choiceResult.outcome === 'accepted') {
-                        showToast('App instalado com sucesso!', 'success');
-                    }
-                    window.deferredPrompt = null;
+        // Log de analytics/eventos do usuário
+        function logUserAction(action, data = {}) {
+            try {
+                // Envia para analytics se configurado
+                if (typeof gtag !== 'undefined') {
+                    gtag('event', action, data);
+                }
+                
+                // Log local para debug
+                console.log('User Action:', action, data);
+                
+                // Armazena localmente para sync posterior
+                const actions = JSON.parse(localStorage.getItem('userActions') || '[]');
+                actions.push({
+                    action,
+                    data,
+                    timestamp: Date.now(),
+                    url: window.location.href
                 });
+                
+                // Mantém apenas últimas 50 ações
+                if (actions.length > 50) {
+                    actions.splice(0, actions.length - 50);
+                }
+                
+                localStorage.setItem('userActions', JSON.stringify(actions));
+                
+            } catch (error) {
+                console.error('Erro ao registrar ação:', error);
             }
-            fecharDetalhes();
-        }
-        
-        // Função para dispensar instalação
-        function dismissInstall() {
-            fecharDetalhes();
         }
         
         // Função utilitária para formatação de moeda
@@ -1376,18 +1714,25 @@ error_log("Dashboard Mobile: Resumo final - Polo: {$_SESSION['subdomain']}, Tota
             return date.toLocaleDateString('pt-BR');
         }
         
-        // Detecta se está offline
-        window.addEventListener('online', function() {
-            showToast('Conexão restaurada!', 'success');
-            // Tenta sincronizar dados quando volta online
-            setTimeout(() => atualizarDados(true), 1000);
-        });
+        // Debug e monitoramento
+        function logPerformance() {
+            if (performance.mark && performance.measure) {
+                performance.mark('dashboard-loaded');
+                
+                window.addEventListener('load', () => {
+                    performance.mark('dashboard-complete');
+                    performance.measure('dashboard-load-time', 'dashboard-loaded', 'dashboard-complete');
+                    
+                    const measure = performance.getEntriesByName('dashboard-load-time')[0];
+                    console.log('Dashboard load time:', measure.duration + 'ms');
+                });
+            }
+        }
         
-        window.addEventListener('offline', function() {
-            showToast('Você está offline', 'warning');
-        });
+        // Inicializa monitoramento de performance
+        logPerformance();
         
-        // Log de debug
+        // Log de debug final
         console.log('Dashboard Mobile carregado', {
             aluno_id: <?= $aluno['id'] ?? 'null' ?>,
             subdomain: '<?= $_SESSION['subdomain'] ?>',
@@ -1395,7 +1740,11 @@ error_log("Dashboard Mobile: Resumo final - Polo: {$_SESSION['subdomain']}, Tota
             user_agent: navigator.userAgent,
             screen_size: `${screen.width}x${screen.height}`,
             viewport_size: `${window.innerWidth}x${window.innerHeight}`,
-            is_mobile: /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+            is_mobile: /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent),
+            is_pwa: window.matchMedia('(display-mode: standalone)').matches,
+            online: navigator.onLine,
+            sw_supported: 'serviceWorker' in navigator,
+            push_supported: 'PushManager' in window
         });
     </script>
 </body>
@@ -1403,7 +1752,7 @@ error_log("Dashboard Mobile: Resumo final - Polo: {$_SESSION['subdomain']}, Tota
 
 <?php
 /**
- * Função para renderizar card de boleto
+ * Função para renderizar card de boleto com integração completa
  */
 function renderizarBoletoCard($boleto, $statusClass) {
     $vencimento = new DateTime($boleto['vencimento']);
@@ -1434,13 +1783,21 @@ function renderizarBoletoCard($boleto, $statusClass) {
     $valorFormatado = 'R$ ' . number_format($boleto['valor'], 2, ',', '.');
     $dataVencimento = $vencimento->format('d/m/Y');
     
+    // Verifica se tem arquivo PDF
+    $temPDF = !empty($boleto['arquivo_pdf']);
+    
     ob_start();
     ?>
     <div class="boleto-card <?= $statusClass ?>" onclick="mostrarDetalhes(<?= $boleto['id'] ?>)">
         <div class="boleto-header">
             <div class="boleto-info">
                 <div>
-                    <div class="boleto-numero">#<?= htmlspecialchars($boleto['numero_boleto']) ?></div>
+                    <div class="boleto-numero">
+                        #<?= htmlspecialchars($boleto['numero_boleto']) ?>
+                        <?php if ($temPDF): ?>
+                            <i class="fas fa-file-pdf text-danger ms-1" title="PDF disponível"></i>
+                        <?php endif; ?>
+                    </div>
                     <div class="boleto-curso"><?= htmlspecialchars($boleto['curso_nome']) ?></div>
                 </div>
                 <div class="boleto-valor"><?= $valorFormatado ?></div>
@@ -1479,11 +1836,24 @@ function renderizarBoletoCard($boleto, $statusClass) {
         
         <?php if ($boleto['status'] != 'pago'): ?>
         <div class="boleto-actions" onclick="event.stopPropagation();">
-            <button class="btn-action btn-download" onclick="downloadBoleto(<?= $boleto['id'] ?>)">
-                <i class="fas fa-download"></i> PDF
-            </button>
-            <button class="btn-action btn-pix" onclick="mostrarPix(<?= $boleto['id'] ?>)">
+            <?php if ($temPDF): ?>
+                <button class="btn-action btn-download" onclick="downloadBoleto(<?= $boleto['id'] ?>)" title="Download PDF">
+                    <i class="fas fa-download"></i> PDF
+                </button>
+            <?php else: ?>
+                <button class="btn-action btn-disabled" disabled title="PDF não disponível">
+                    <i class="fas fa-file-pdf"></i> N/D
+                </button>
+            <?php endif; ?>
+            
+            <button class="btn-action btn-pix" onclick="mostrarPix(<?= $boleto['id'] ?>)" title="Gerar código PIX">
                 <i class="fas fa-qrcode"></i> PIX
+            </button>
+        </div>
+        <?php elseif ($temPDF): ?>
+        <div class="boleto-actions" onclick="event.stopPropagation();">
+            <button class="btn-action btn-download" onclick="downloadBoleto(<?= $boleto['id'] ?>)" title="Download comprovante">
+                <i class="fas fa-download"></i> Comprovante
             </button>
         </div>
         <?php endif; ?>
