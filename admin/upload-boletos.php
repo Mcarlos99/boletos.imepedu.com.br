@@ -1012,7 +1012,7 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                             </div>
                         </form>
                     </div>
-                    </div>
+                    
                     
                     <!-- Instruções -->
                     <div class="tab-pane fade" id="instrucoes" role="tabpanel">
