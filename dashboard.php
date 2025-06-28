@@ -2716,7 +2716,8 @@ function renderizarBoletoCard($boleto, $statusClass) {
     
     ob_start();
     ?>
-    <div class="boleto-card <?= $statusClass ?>" onclick="mostrarDetalhes(<?= $boleto['id'] ?>)">
+	<!-- <div class="boleto-card <?= $statusClass ?>" onclick="mostrarDetalhes(<?= $boleto['id'] ?>)"> !-->
+    <div class="boleto-card <?= $statusClass ?>" >
         <div class="boleto-header">
             <div class="boleto-info">
                 <div>
