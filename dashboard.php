@@ -1746,6 +1746,649 @@ error_log("Dashboard: Resumo final - Polo: {$_SESSION['subdomain']}, Total: " . 
             sw_supported: 'serviceWorker' in navigator,
             push_supported: 'PushManager' in window
         });
+
+
+
+/**
+ * CORREÇÕES JAVASCRIPT PARA DASHBOARD.PHP
+ * Adicione este código no final do script do dashboard.php para corrigir erros
+ */
+
+// 1. CORREÇÃO: Global error handler
+window.addEventListener('error', function(event) {
+    console.error('JavaScript Error:', {
+        message: event.message,
+        filename: event.filename,
+        lineno: event.lineno,
+        colno: event.colno,
+        error: event.error
+    });
+    
+    // Log para analytics se disponível
+    if (typeof logUserAction === 'function') {
+        logUserAction('javascript_error', {
+            message: event.message,
+            filename: event.filename,
+            line: event.lineno
+        });
+    }
+});
+
+// 2. CORREÇÃO: Promise rejection handler
+window.addEventListener('unhandledrejection', function(event) {
+    console.error('Unhandled Promise Rejection:', event.reason);
+    
+    // Evita que apareça no console como erro não tratado
+    event.preventDefault();
+    
+    // Log para analytics
+    if (typeof logUserAction === 'function') {
+        logUserAction('promise_rejection', {
+            reason: event.reason?.toString() || 'Unknown reason'
+        });
+    }
+});
+
+// 3. CORREÇÃO: Valida se todas as funções essenciais existem
+(function validateEssentialFunctions() {
+    const requiredFunctions = [
+        'downloadBoleto',
+        'mostrarPix', 
+        'atualizarDados',
+        'showToast',
+        'mostrarDetalhes'
+    ];
+    
+    const missingFunctions = requiredFunctions.filter(func => typeof window[func] !== 'function');
+    
+    if (missingFunctions.length > 0) {
+        console.warn('Funções faltando:', missingFunctions);
+        
+        // Cria funções stub para evitar erros
+        missingFunctions.forEach(funcName => {
+            window[funcName] = function() {
+                console.warn(`Função ${funcName} não implementada`);
+                showToast?.(`Função ${funcName} temporariamente indisponível`, 'warning');
+            };
+        });
+    }
+})();
+
+// 4. CORREÇÃO: Wrapper seguro para fetch
+const originalFetch = window.fetch;
+window.fetch = function safeFetch(url, options = {}) {
+    // Timeout padrão de 10 segundos
+    const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Request timeout')), 10000);
+    });
+    
+    // Adiciona headers padrão
+    const defaultOptions = {
+        headers: {
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+            ...options.headers
+        },
+        ...options
+    };
+    
+    return Promise.race([
+        originalFetch(url, defaultOptions),
+        timeoutPromise
+    ]).catch(error => {
+        console.error('Fetch error:', url, error);
+        
+        // Se for erro de rede, tenta cache se disponível
+        if (error.message.includes('Failed to fetch') || error.message.includes('timeout')) {
+            if ('caches' in window) {
+                return caches.match(url).then(cachedResponse => {
+                    if (cachedResponse) {
+                        console.log('Usando resposta em cache para:', url);
+                        return cachedResponse;
+                    }
+                    throw error;
+                });
+            }
+        }
+        
+        throw error;
+    });
+};
+
+// 5. CORREÇÃO: Melhora a função showToast para ser mais robusta
+if (typeof showToast !== 'function') {
+    window.showToast = function(message, type = 'info') {
+        console.log(`Toast (${type}):`, message);
+        
+        // Remove toasts existentes do mesmo tipo
+        const existingToasts = document.querySelectorAll(`.toast-${type}`);
+        existingToasts.forEach(toast => toast.remove());
+        
+        // Cria container se não existir
+        let container = document.getElementById('toastContainer');
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'toastContainer';
+            container.className = 'toast-container';
+            container.style.cssText = `
+                position: fixed;
+                top: 20px;
+                left: 50%;
+                transform: translateX(-50%);
+                z-index: 2001;
+                min-width: 280px;
+                max-width: 90vw;
+            `;
+            document.body.appendChild(container);
+        }
+        
+        const toast = document.createElement('div');
+        toast.className = `toast-custom toast-${type}`;
+        toast.style.cssText = `
+            background: white;
+            border-radius: 8px;
+            padding: 12px 16px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            animation: slideDown 0.3s ease;
+            border-left: 4px solid var(--${type === 'error' ? 'danger' : type === 'success' ? 'success' : type === 'warning' ? 'warning' : 'info'}-color, #007bff);
+        `;
+        
+        const icon = type === 'error' ? 'fa-exclamation-triangle' : 
+                    type === 'success' ? 'fa-check-circle' : 
+                    type === 'warning' ? 'fa-exclamation-circle' : 'fa-info-circle';
+        
+        toast.innerHTML = `
+            <i class="fas ${icon}" style="color: var(--${type === 'error' ? 'danger' : type}-color, #007bff);"></i>
+            <span style="flex: 1;">${message}</span>
+            <button type="button" style="background: none; border: none; font-size: 1.2rem; cursor: pointer; color: #999;" onclick="this.parentElement.remove()">×</button>
+        `;
+        
+        container.appendChild(toast);
+        
+        // Remove automaticamente após 5 segundos
+        setTimeout(() => {
+            if (toast.parentNode) {
+                toast.style.animation = 'slideDown 0.3s ease reverse';
+                setTimeout(() => {
+                    if (toast.parentNode) {
+                        container.removeChild(toast);
+                    }
+                }, 300);
+            }
+        }, 5000);
+    };
+}
+
+// 6. CORREÇÃO: Adiciona styles CSS necessários se não existirem
+(function addRequiredStyles() {
+    const styleId = 'dashboard-fixes-styles';
+    if (document.getElementById(styleId)) return;
+    
+    const style = document.createElement('style');
+    style.id = styleId;
+    style.textContent = `
+        @keyframes slideDown {
+            from { transform: translateY(-100%); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        
+        .toast-container {
+            position: fixed !important;
+            top: 20px !important;
+            left: 50% !important;
+            transform: translateX(-50%) !important;
+            z-index: 2001 !important;
+        }
+        
+        .toast-custom {
+            animation: slideDown 0.3s ease !important;
+        }
+        
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+        }
+        
+        .loading-spinner {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+    `;
+    document.head.appendChild(style);
+})();
+
+// 7. CORREÇÃO: Função de loading global
+window.showLoading = function(message = 'Carregando...') {
+    const existingLoading = document.getElementById('globalLoading');
+    if (existingLoading) return;
+    
+    const overlay = document.createElement('div');
+    overlay.id = 'globalLoading';
+    overlay.className = 'loading-overlay';
+    overlay.innerHTML = `
+        <div class="loading-spinner">
+            <div class="spinner"></div>
+            <span>${message}</span>
+        </div>
+    `;
+    
+    document.body.appendChild(overlay);
+};
+
+window.hideLoading = function() {
+    const loading = document.getElementById('globalLoading');
+    if (loading) {
+        loading.remove();
+    }
+};
+
+// 8. CORREÇÃO: Melhora o registro do Service Worker
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js')
+        .then(registration => {
+            console.log('Service Worker registrado com sucesso:', registration);
+            
+            // Escuta atualizações
+            registration.addEventListener('updatefound', () => {
+                const newWorker = registration.installing;
+                if (newWorker) {
+                    newWorker.addEventListener('statechange', () => {
+                        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                            showToast('Nova versão disponível! Atualize a página.', 'info');
+                        }
+                    });
+                }
+            });
+        })
+        .catch(error => {
+            console.log('Erro ao registrar Service Worker:', error);
+        });
+        
+    // Escuta mensagens do Service Worker
+    navigator.serviceWorker.addEventListener('message', event => {
+        const data = event.data;
+        
+        if (data.type === 'SW_ACTIVATED') {
+            showToast(data.message, 'info');
+        } else if (data.type === 'SYNC_REQUEST') {
+            // Executa sincronização quando solicitada pelo SW
+            if (typeof atualizarDados === 'function') {
+                atualizarDados(true); // Sincronização silenciosa
+            }
+        }
+    });
+}
+
+// 9. CORREÇÃO: Valida elementos DOM essenciais
+document.addEventListener('DOMContentLoaded', function() {
+    const requiredElements = [
+        'toastContainer',
+        'debugResultados',
+        'pixOverlay',
+        'boletoOverlay'
+    ];
+    
+    requiredElements.forEach(elementId => {
+        if (!document.getElementById(elementId)) {
+            console.warn(`Elemento necessário não encontrado: ${elementId}`);
+            
+            // Cria elemento se for crítico
+            if (elementId === 'toastContainer') {
+                const container = document.createElement('div');
+                container.id = elementId;
+                container.className = 'toast-container';
+                document.body.appendChild(container);
+            }
+        }
+    });
+});
+
+// 10. CORREÇÃO: Rate limiting para evitar spam de requisições
+const rateLimiter = {
+    requests: new Map(),
+    
+    canMakeRequest(key, limit = 5, window = 60000) { // 5 requests per minute
+        const now = Date.now();
+        const requests = this.requests.get(key) || [];
+        
+        // Remove requests antigas
+        const validRequests = requests.filter(time => now - time < window);
+        
+        if (validRequests.length >= limit) {
+            return false;
+        }
+        
+        validRequests.push(now);
+        this.requests.set(key, validRequests);
+        return true;
+    }
+};
+
+// 11. CORREÇÃO: Wrapper para funções de API com rate limiting
+const originalDownloadBoleto = window.downloadBoleto;
+if (typeof originalDownloadBoleto === 'function') {
+    window.downloadBoleto = function(boletoId) {
+        if (!rateLimiter.canMakeRequest(`download_${boletoId}`, 3, 30000)) {
+            showToast('Muitas tentativas de download. Aguarde um momento.', 'warning');
+            return;
+        }
+        
+        return originalDownloadBoleto.call(this, boletoId);
+    };
+}
+
+const originalMostrarPix = window.mostrarPix;
+if (typeof originalMostrarPix === 'function') {
+    window.mostrarPix = function(boletoId) {
+        if (!rateLimiter.canMakeRequest(`pix_${boletoId}`, 3, 60000)) {
+            showToast('Aguarde antes de gerar outro código PIX.', 'warning');
+            return;
+        }
+        
+        return originalMostrarPix.call(this, boletoId);
+    };
+}
+
+const originalAtualizarDados = window.atualizarDados;
+if (typeof originalAtualizarDados === 'function') {
+    window.atualizarDados = function(silencioso = false) {
+        if (!rateLimiter.canMakeRequest('atualizar_dados', 2, 30000)) {
+            if (!silencioso) {
+                showToast('Aguarde antes de sincronizar novamente.', 'warning');
+            }
+            return;
+        }
+        
+        return originalAtualizarDados.call(this, silencioso);
+    };
+}
+
+// 12. CORREÇÃO: Detecta e corrige problemas comuns de CSS
+(function fixCommonCSSIssues() {
+    // Corrige z-index conflicts
+    const highZIndexElements = document.querySelectorAll('[style*="z-index"]');
+    highZIndexElements.forEach(el => {
+        const zIndex = parseInt(el.style.zIndex);
+        if (zIndex > 2000) {
+            console.warn('Elemento com z-index muito alto detectado:', el);
+        }
+    });
+    
+    // Corrige overflow hidden em body
+    if (document.body.style.overflow === 'hidden' && !document.querySelector('.modal.show')) {
+        console.warn('Body com overflow hidden sem modal visível');
+        document.body.style.overflow = '';
+    }
+})();
+
+// 13. CORREÇÃO: Detecta problemas de performance
+(function performanceMonitoring() {
+    if (!('performance' in window)) return;
+    
+    // Monitora tempo de carregamento da página
+    window.addEventListener('load', () => {
+        setTimeout(() => {
+            const navigation = performance.getEntriesByType('navigation')[0];
+            const loadTime = navigation.loadEventEnd - navigation.fetchStart;
+            
+            if (loadTime > 5000) { // Mais de 5 segundos
+                console.warn('Página carregou lentamente:', loadTime + 'ms');
+                logUserAction?.('slow_page_load', { load_time: loadTime });
+            }
+            
+            console.log('Performance timing:', {
+                'DNS': navigation.domainLookupEnd - navigation.domainLookupStart,
+                'TCP': navigation.connectEnd - navigation.connectStart,
+                'Request': navigation.responseStart - navigation.requestStart,
+                'Response': navigation.responseEnd - navigation.responseStart,
+                'DOM': navigation.domContentLoadedEventEnd - navigation.domContentLoadedEventStart,
+                'Total': loadTime
+            });
+        }, 0);
+    });
+    
+    // Monitora memory usage se disponível
+    if ('memory' in performance) {
+        setInterval(() => {
+            const memory = performance.memory;
+            const usedMB = Math.round(memory.usedJSHeapSize / 1048576);
+            const limitMB = Math.round(memory.jsHeapSizeLimit / 1048576);
+            
+            if (usedMB > limitMB * 0.8) { // Mais de 80% da memória
+                console.warn('Alto uso de memória:', usedMB + 'MB/' + limitMB + 'MB');
+            }
+        }, 30000); // Check a cada 30 segundos
+    }
+})();
+
+// 14. CORREÇÃO: Fallback para localStorage se não disponível
+if (!window.localStorage) {
+    console.warn('localStorage não disponível, usando fallback');
+    window.localStorage = {
+        storage: {},
+        getItem: function(key) {
+            return this.storage[key] || null;
+        },
+        setItem: function(key, value) {
+            this.storage[key] = String(value);
+        },
+        removeItem: function(key) {
+            delete this.storage[key];
+        },
+        clear: function() {
+            this.storage = {};
+        }
+    };
+}
+
+// 15. CORREÇÃO: Intercepta e melhora console.error para debugging
+const originalConsoleError = console.error;
+console.error = function(...args) {
+    // Chama o console.error original
+    originalConsoleError.apply(console, args);
+    
+    // Log adicional para debugging
+    const errorInfo = {
+        timestamp: new Date().toISOString(),
+        url: window.location.href,
+        userAgent: navigator.userAgent,
+        args: args.map(arg => {
+            if (arg instanceof Error) {
+                return {
+                    name: arg.name,
+                    message: arg.message,
+                    stack: arg.stack
+                };
+            }
+            return arg;
+        })
+    };
+    
+    // Salva no localStorage para debug posterior
+    try {
+        const errors = JSON.parse(localStorage.getItem('dashboard_errors') || '[]');
+        errors.push(errorInfo);
+        
+        // Mantém apenas os últimos 10 erros
+        if (errors.length > 10) {
+            errors.splice(0, errors.length - 10);
+        }
+        
+        localStorage.setItem('dashboard_errors', JSON.stringify(errors));
+    } catch (e) {
+        // Ignora se localStorage falhar
+    }
+};
+
+// 16. CORREÇÃO: Adiciona função de debug para desenvolvedores
+window.debugDashboard = function() {
+    console.group('🔧 Dashboard Debug Info');
+    
+    console.log('📊 Estatísticas:', {
+        boletos_na_pagina: document.querySelectorAll('.boleto-card').length,
+        modals_abertos: document.querySelectorAll('.modal.show').length,
+        toasts_ativos: document.querySelectorAll('.toast-custom').length,
+        memoria_usada: performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) + 'MB' : 'N/A'
+    });
+    
+    console.log('🌐 Service Worker:', {
+        suportado: 'serviceWorker' in navigator,
+        controlador: navigator.serviceWorker?.controller?.state || 'none',
+        registro: navigator.serviceWorker?.ready || 'pending'
+    });
+    
+    console.log('💾 Storage:', {
+        localStorage_disponivel: !!window.localStorage,
+        sessionStorage_disponivel: !!window.sessionStorage,
+        erros_salvos: JSON.parse(localStorage.getItem('dashboard_errors') || '[]').length
+    });
+    
+    console.log('🔄 Rate Limiter:', {
+        requests_ativas: Array.from(rateLimiter.requests.entries()).map(([key, requests]) => ({
+            key,
+            count: requests.length
+        }))
+    });
+    
+    console.groupEnd();
+    
+    return {
+        clearErrors: () => localStorage.removeItem('dashboard_errors'),
+        clearRateLimit: () => rateLimiter.requests.clear(),
+        showErrors: () => JSON.parse(localStorage.getItem('dashboard_errors') || '[]'),
+        forceSync: () => atualizarDados?.(false)
+    };
+};
+
+// 17. CORREÇÃO: Auto-fix para problemas comuns
+(function autoFix() {
+    // Fix 1: Remove eventos duplicados
+    const cleanupDuplicateEvents = () => {
+        document.querySelectorAll('[onclick]').forEach(el => {
+            const onclick = el.getAttribute('onclick');
+            if (onclick && onclick.includes('undefined')) {
+                console.warn('Removendo onclick inválido:', el);
+                el.removeAttribute('onclick');
+            }
+        });
+    };
+    
+    // Fix 2: Corrige botões sem função
+    const fixBrokenButtons = () => {
+        document.querySelectorAll('button[onclick], a[onclick]').forEach(el => {
+            const onclick = el.getAttribute('onclick');
+            if (onclick) {
+                try {
+                    // Testa se a função existe
+                    const funcName = onclick.split('(')[0];
+                    if (typeof window[funcName] !== 'function') {
+                        console.warn('Função não existe:', funcName, 'no elemento:', el);
+                        el.style.opacity = '0.5';
+                        el.title = 'Função temporariamente indisponível';
+                    }
+                } catch (e) {
+                    console.warn('Erro ao validar onclick:', onclick);
+                }
+            }
+        });
+    };
+    
+    // Fix 3: Adiciona loading state para botões importantes
+    const addLoadingStates = () => {
+        document.querySelectorAll('.btn-action, .btn-upload, .btn-sync').forEach(btn => {
+            if (!btn.dataset.loadingEnhanced) {
+                btn.dataset.loadingEnhanced = 'true';
+                
+                const originalClick = btn.onclick;
+                if (originalClick) {
+                    btn.onclick = function(e) {
+                        if (this.disabled) return false;
+                        
+                        this.disabled = true;
+                        this.style.opacity = '0.6';
+                        
+                        setTimeout(() => {
+                            this.disabled = false;
+                            this.style.opacity = '';
+                        }, 2000);
+                        
+                        return originalClick.call(this, e);
+                    };
+                }
+            }
+        });
+    };
+    
+    // Executa fixes
+    cleanupDuplicateEvents();
+    fixBrokenButtons();
+    addLoadingStates();
+    
+    // Re-executa fixes periodicamente
+    setInterval(() => {
+        cleanupDuplicateEvents();
+        fixBrokenButtons();
+        addLoadingStates();
+    }, 30000);
+})();
+
+// 18. CORREÇÃO: Adiciona teclas de atalho para debug
+document.addEventListener('keydown', function(e) {
+    // Ctrl+Shift+D para debug
+    if (e.ctrlKey && e.shiftKey && e.key === 'D') {
+        e.preventDefault();
+        debugDashboard();
+    }
+    
+    // Ctrl+Shift+R para forçar sync
+    if (e.ctrlKey && e.shiftKey && e.key === 'R') {
+        e.preventDefault();
+        if (typeof atualizarDados === 'function') {
+            atualizarDados(false);
+        }
+    }
+    
+    // Ctrl+Shift+C para limpar cache
+    if (e.ctrlKey && e.shiftKey && e.key === 'C') {
+        e.preventDefault();
+        if ('caches' in window) {
+            caches.keys().then(names => {
+                names.forEach(name => caches.delete(name));
+                showToast('Cache limpo! Recarregue a página.', 'success');
+            });
+        }
+    }
+});
+
+// 19. FINAL: Log de inicialização
+console.log('🚀 Dashboard Debug & Fixes carregado');
+console.log('📋 Comandos disponíveis:');
+console.log('  - debugDashboard(): Informações de debug');
+console.log('  - Ctrl+Shift+D: Debug rápido');
+console.log('  - Ctrl+Shift+R: Forçar sincronização');
+console.log('  - Ctrl+Shift+C: Limpar cache');
+
+// Marca como carregado
+window.dashboardFixesLoaded = true;
+
+
+        
     </script>
 </body>
 </html>

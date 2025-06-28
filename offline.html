@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Offline - IMED Boletos</title>
+    <meta name="theme-color" content="#0066cc">
+    <link rel="icon" href="/icons/icon-192x192.png">
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #0066cc, #004499);
+            color: white;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 20px;
+        }
+        
+        .offline-container {
+            max-width: 400px;
+            animation: fadeIn 0.6s ease-out;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .icon {
+            font-size: 5rem;
+            margin-bottom: 1.5rem;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        
+        h1 {
+            font-size: 2rem;
+            margin-bottom: 1rem;
+            font-weight: 600;
+        }
+        
+        p {
+            font-size: 1.1rem;
+            margin-bottom: 2rem;
+            opacity: 0.9;
+            line-height: 1.5;
+        }
+        
+        .actions {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            width: 100%;
+        }
+        
+        .btn {
+            background: rgba(255,255,255,0.2);
+            color: white;
+            padding: 15px 25px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        
+        .btn:hover, .btn:focus {
+            background: rgba(255,255,255,0.3);
+            border-color: rgba(255,255,255,0.5);
+            transform: translateY(-2px);
+            color: white;
+        }
+        
+        .btn-primary {
+            background: rgba(255,255,255,0.9);
+            color: #0066cc;
+            border-color: white;
+        }
+        
+        .btn-primary:hover {
+            background: white;
+            color: #004499;
+        }
+        
+        .status {
+            margin-top: 2rem;
+            padding: 1rem;
+            background: rgba(0,0,0,0.2);
+            border-radius: 8px;
+            font-size: 0.9rem;
+        }
+        
+        .online {
+            background: rgba(40,167,69,0.3);
+        }
+        
+        .offline {
+            background: rgba(220,53,69,0.3);
+        }
+        
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-top: 2px solid white;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .features {
+            margin-top: 3rem;
+            text-align: left;
+        }
+        
+        .features h3 {
+            margin-bottom: 1rem;
+            font-size: 1.2rem;
+        }
+        
+        .features ul {
+            list-style: none;
+            padding: 0;
+        }
+        
+        .features li {
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.9rem;
+            opacity: 0.9;
+        }
+        
+        .features li::before {
+            content: "✓";
+            color: #4CAF50;
+            font-weight: bold;
+        }
+        
+        @media (max-width: 480px) {
+            .icon {
+                font-size: 3.5rem;
+            }
+            
+            h1 {
+                font-size: 1.5rem;
+            }
+            
+            p {
+                font-size: 1rem;
+            }
+            
+            .btn {
+                padding: 12px 20px;
+                font-size: 0.9rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="offline-container">
+        <div class="icon" id="statusIcon">📱</div>
+        <h1 id="statusTitle">Você está offline</h1>
+        <p id="statusMessage">
+            Sem conexão com a internet no momento. 
+            Alguns recursos podem estar limitados, mas você ainda pode 
+            visualizar dados salvos anteriormente.
+        </p>
+        
+        <div class="actions">
+            <button class="btn btn-primary" onclick="checkConnection()">
+                <span id="retryIcon">🔄</span>
+                <span id="retryText">Tentar Conectar</span>
+            </button>
+            
+            <a href="/dashboard.php" class="btn">
+                📊 Ver Dados Salvos
+            </a>
+            
+            <a href="/login.php" class="btn">
+                🔐 Fazer Login
+            </a>
+        </div>
+        
+        <div class="status offline" id="connectionStatus">
+            <strong>Status:</strong> <span id="statusText">Offline</span>
+        </div>
+        
+        <div class="features">
+            <h3>🚀 Recursos Offline Disponíveis</h3>
+            <ul>
+                <li>Visualizar boletos salvos</li>
+                <li>Consultar dados anteriores</li>
+                <li>Interface responsiva</li>
+                <li>Sincronização automática</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        let isRetrying = false;
+        
+        // Verifica status de conexão
+        function updateConnectionStatus() {
+            const online = navigator.onLine;
+            const statusIcon = document.getElementById('statusIcon');
+            const statusTitle = document.getElementById('statusTitle');
+            const statusMessage = document.getElementById('statusMessage');
+            const statusElement = document.getElementById('connectionStatus');
+            const statusText = document.getElementById('statusText');
+            
+            if (online) {
+                statusIcon.textContent = '✅';
+                statusTitle.textContent = 'Conexão Restaurada!';
+                statusMessage.textContent = 'Sua conexão com a internet foi restaurada. Redirecionando...';
+                statusElement.className = 'status online';
+                statusText.textContent = 'Online';
+                
+                // Aguarda um pouco e recarrega
+                setTimeout(() => {
+                    window.location.reload();
+                }, 2000);
+            } else {
+                statusIcon.textContent = '📱';
+                statusTitle.textContent = 'Você está offline';
+                statusMessage.textContent = 'Sem conexão com a internet no momento. Alguns recursos podem estar limitados.';
+                statusElement.className = 'status offline';
+                statusText.textContent = 'Offline';
+            }
+        }
+        
+        // Tenta reconectar
+        async function checkConnection() {
+            if (isRetrying) return;
+            
+            isRetrying = true;
+            const retryIcon = document.getElementById('retryIcon');
+            const retryText = document.getElementById('retryText');
+            
+            retryIcon.innerHTML = '<div class="spinner"></div>';
+            retryText.textContent = 'Conectando...';
+            
+            try {
+                // Testa conexão real
+                const response = await fetch('/api/test-connection.php', {
+                    method: 'HEAD',
+                    cache: 'no-cache'
+                });
+                
+                if (response.ok) {
+                    retryIcon.textContent = '✅';
+                    retryText.textContent = 'Conectado!';
+                    
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1000);
+                } else {
+                    throw new Error('Servidor indisponível');
+                }
+            } catch (error) {
+                retryIcon.textContent = '❌';
+                retryText.textContent = 'Falha na Conexão';
+                
+                setTimeout(() => {
+                    retryIcon.textContent = '🔄';
+                    retryText.textContent = 'Tentar Conectar';
+                    isRetrying = false;
+                }, 2000);
+            }
+        }
+        
+        // Event listeners para mudanças de conexão
+        window.addEventListener('online', () => {
+            console.log('Conexão restaurada');
+            updateConnectionStatus();
+        });
+        
+        window.addEventListener('offline', () => {
+            console.log('Conexão perdida');
+            updateConnectionStatus();
+        });
+        
+        // Verifica status inicial
+        updateConnectionStatus();
+        
+        // Verifica periodicamente
+        setInterval(() => {
+            if (!isRetrying) {
+                updateConnectionStatus();
+            }
+        }, 5000);
+        
+        // Service Worker registration se disponível
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js')
+                .then(registration => {
+                    console.log('SW registrado na página offline');
+                })
+                .catch(error => {
+                    console.log('Erro SW na página offline:', error);
+                });
+        }
+        
+        // Escuta mensagens do Service Worker
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.addEventListener('message', event => {
+                const data = event.data;
+                
+                if (data.type === 'SW_ACTIVATED') {
+                    const statusMessage = document.getElementById('statusMessage');
+                    statusMessage.innerHTML = `
+                        ${statusMessage.innerHTML}<br>
+                        <small style="color: #4CAF50;">✨ ${data.message}</small>
+                    `;
+                }
+            });
+        }
+        
+        console.log('Página offline carregada');
+        console.log('Navigator online:', navigator.onLine);
+        console.log('Service Worker suportado:', 'serviceWorker' in navigator);
+    </script>
+</body>
+</html>
