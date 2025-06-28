@@ -1,7 +1,9 @@
 <?php
 /**
- * Sistema de Boletos IMED - Upload de Boletos PDF
- * Arquivo: admin/upload-boletos.php
+ * Sistema de Boletos IMED - Upload de Boletos PDF COM MÚLTIPLOS UPLOADS POR ALUNO
+ * Arquivo: admin/upload-boletos.php - VERSÃO COMPLETA MELHORADA
+ * 
+ * NOVIDADE: Adicionada funcionalidade para múltiplos uploads para um único aluno
  */
 
 session_start();
@@ -41,6 +43,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Upload em lote
             $resultado = $uploadService->processarUploadLote($_POST, $_FILES);
             $sucesso = "Upload em lote processado! {$resultado['sucessos']} boletos enviados, {$resultado['erros']} erros.";
+        } elseif (isset($_POST['acao']) && $_POST['acao'] === 'upload_multiplo_aluno') {
+            // 🆕 NOVO: Upload múltiplo para um único aluno
+            $resultado = $uploadService->processarUploadMultiploAluno($_POST, $_FILES);
+            $sucesso = "Upload múltiplo processado! {$resultado['sucessos']} boletos enviados para {$resultado['aluno_nome']}, {$resultado['erros']} erros.";
         }
     } catch (Exception $e) {
         $erro = $e->getMessage();
@@ -198,6 +204,46 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
             color: var(--primary-color);
         }
         
+        /* 🆕 Estilos para múltiplos uploads */
+        .upload-zone-multiple {
+            border: 2px dashed #28a745;
+            background: rgba(40,167,69,0.05);
+        }
+        
+        .upload-zone-multiple:hover {
+            border-color: #1e7e34;
+            background: rgba(40,167,69,0.1);
+        }
+        
+        .file-list {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 1rem;
+            margin-top: 1rem;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .file-list-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.5rem;
+            margin-bottom: 0.5rem;
+            background: white;
+            border-radius: 6px;
+            border: 1px solid #e9ecef;
+        }
+        
+        .file-list-item.valid {
+            border-left: 4px solid #28a745;
+        }
+        
+        .file-list-item.invalid {
+            border-left: 4px solid #dc3545;
+            background: rgba(220,53,69,0.05);
+        }
+        
         .form-section {
             background: white;
             border-radius: 10px;
@@ -226,6 +272,22 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
         .btn-upload:hover {
             transform: translateY(-2px);
             box-shadow: 0 5px 15px rgba(40,167,69,0.3);
+            color: white;
+        }
+        
+        /* 🆕 Botão especial para upload múltiplo */
+        .btn-upload-multiple {
+            background: linear-gradient(135deg, var(--info-color), #138496);
+            border: none;
+            border-radius: 25px;
+            padding: 12px 30px;
+            font-weight: 600;
+            color: white;
+        }
+        
+        .btn-upload-multiple:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(23,162,184,0.3);
             color: white;
         }
         
@@ -305,6 +367,24 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
             color: white;
         }
         
+        /* 🆕 Tab especial para múltiplos uploads */
+        .nav-tabs .nav-link.tab-multiple {
+            position: relative;
+        }
+        
+        .nav-tabs .nav-link.tab-multiple::after {
+            content: "NOVO";
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            background: #ff6b6b;
+            color: white;
+            font-size: 0.6rem;
+            padding: 2px 6px;
+            border-radius: 10px;
+            font-weight: bold;
+        }
+        
         .dropzone {
             border: 2px dashed #dee2e6 !important;
             border-radius: 10px !important;
@@ -315,6 +395,49 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
         .dropzone.dz-drag-hover {
             border-color: var(--primary-color) !important;
             background: rgba(0,102,204,0.05) !important;
+        }
+        
+        /* Debug section styling */
+        .debug-section {
+            border-left: 4px solid #ffc107;
+            background: linear-gradient(90deg, rgba(255,193,7,0.05) 0%, transparent 100%);
+        }
+
+        #debugConteudo {
+            line-height: 1.4;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        #debugConteudo .text-success {
+            color: #28a745 !important;
+        }
+
+        #debugConteudo .text-danger {
+            color: #dc3545 !important;
+        }
+
+        #debugConteudo .text-warning {
+            color: #ffc107 !important;
+        }
+
+        #debugConteudo .text-info {
+            color: #17a2b8 !important;
+        }
+
+        #debugConteudo .text-primary {
+            color: #007bff !important;
+        }
+
+        .debug-quick-link {
+            display: inline-block;
+            margin-top: 5px;
+            font-size: 0.85rem;
+            text-decoration: none;
+        }
+
+        .debug-quick-link:hover {
+            text-decoration: underline;
         }
         
         @media (max-width: 768px) {
@@ -332,57 +455,6 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                 padding: 1rem;
             }
         }
-
-
-
-
-    
-.debug-section {
-    border-left: 4px solid #ffc107;
-    background: linear-gradient(90deg, rgba(255,193,7,0.05) 0%, transparent 100%);
-}
-
-#debugConteudo {
-    line-height: 1.4;
-    white-space: pre-wrap;
-    word-wrap: break-word;
-}
-
-#debugConteudo .text-success {
-    color: #28a745 !important;
-}
-
-#debugConteudo .text-danger {
-    color: #dc3545 !important;
-}
-
-#debugConteudo .text-warning {
-    color: #ffc107 !important;
-}
-
-#debugConteudo .text-info {
-    color: #17a2b8 !important;
-}
-
-#debugConteudo .text-primary {
-    color: #007bff !important;
-}
-
-.debug-quick-link {
-    display: inline-block;
-    margin-top: 5px;
-    font-size: 0.85rem;
-    text-decoration: none;
-}
-
-.debug-quick-link:hover {
-    text-decoration: underline;
-}
-
-
-
-
-
     </style>
 </head>
 <body>
@@ -488,6 +560,63 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
             </div>
         <?php endif; ?>
         
+        <!-- Seção de Debug - Matrícula -->
+        <div class="card mb-4 debug-section">
+            <div class="card-body">
+                <h6 class="card-title text-warning">
+                    <i class="fas fa-bug"></i> Debug de Matrícula
+                </h6>
+                <p class="text-muted mb-3">
+                    Use esta ferramenta para diagnosticar problemas de matrícula quando aparecer o erro 
+                    "Aluno não está matriculado neste curso".
+                </p>
+                
+                <div class="row">
+                    <div class="col-md-4">
+                        <label class="form-label">CPF do Aluno</label>
+                        <input type="text" class="form-control" id="debug_cpf" placeholder="000.000.000-00" maxlength="14">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Polo</label>
+                        <select class="form-control" id="debug_polo">
+                            <option value="">Selecione o polo</option>
+                            <?php foreach ($polosAtivos as $polo): ?>
+                                <?php $config = MoodleConfig::getConfig($polo); ?>
+                                <option value="<?= $polo ?>">
+                                    <?= htmlspecialchars($config['name'] ?? $polo) ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">&nbsp;</label>
+                        <div class="d-grid gap-2">
+                            <button class="btn btn-warning" onclick="debugMatricula('verificar')">
+                                <i class="fas fa-search"></i> Verificar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="mt-3">
+                    <button class="btn btn-info btn-sm me-2" onclick="debugMatricula('sincronizar')">
+                        <i class="fas fa-sync"></i> Forçar Sincronização
+                    </button>
+                    <button class="btn btn-secondary btn-sm" onclick="limparDebug()">
+                        <i class="fas fa-times"></i> Limpar
+                    </button>
+                </div>
+                
+                <!-- Área de Resultados -->
+                <div id="debugResultados" class="mt-4" style="display: none;">
+                    <h6><i class="fas fa-terminal"></i> Resultados do Debug:</h6>
+                    <div class="bg-dark text-light p-3 rounded" style="font-family: monospace; font-size: 12px; max-height: 500px; overflow-y: auto;">
+                        <div id="debugConteudo"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
         <!-- Guias de Upload -->
         <div class="card">
             <div class="card-header">
@@ -498,282 +627,6 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
             </div>
 
             <div class="card-body">
-                <!-- ADICIONAR NO ARQUIVO admin/upload-boletos.php -->
-<!-- Inserir antes do formulário de upload individual -->
-
-<!-- Seção de Debug - Matrícula -->
-<div class="card mb-4" style="border-left: 4px solid #ffc107;">
-    <div class="card-body">
-        <h6 class="card-title text-warning">
-            <i class="fas fa-bug"></i> Debug de Matrícula
-        </h6>
-        <p class="text-muted mb-3">
-            Use esta ferramenta para diagnosticar problemas de matrícula quando aparecer o erro 
-            "Aluno não está matriculado neste curso".
-        </p>
-        
-        <div class="row">
-            <div class="col-md-4">
-                <label class="form-label">CPF do Aluno</label>
-                <input type="text" class="form-control" id="debug_cpf" placeholder="000.000.000-00" maxlength="14">
-            </div>
-            <div class="col-md-4">
-                <label class="form-label">Polo</label>
-                <select class="form-control" id="debug_polo">
-                    <option value="">Selecione o polo</option>
-                    <?php foreach ($polosAtivos as $polo): ?>
-                        <?php $config = MoodleConfig::getConfig($polo); ?>
-                        <option value="<?= $polo ?>">
-                            <?= htmlspecialchars($config['name'] ?? $polo) ?>
-                        </option>
-                    <?php endforeach; ?>
-                </select>
-            </div>
-            <div class="col-md-4">
-                <label class="form-label">&nbsp;</label>
-                <div class="d-grid gap-2">
-                    <button class="btn btn-warning" onclick="debugMatricula('verificar')">
-                        <i class="fas fa-search"></i> Verificar
-                    </button>
-                </div>
-            </div>
-        </div>
-        
-        <div class="mt-3">
-            <button class="btn btn-info btn-sm me-2" onclick="debugMatricula('sincronizar')">
-                <i class="fas fa-sync"></i> Forçar Sincronização
-            </button>
-            <button class="btn btn-secondary btn-sm" onclick="limparDebug()">
-                <i class="fas fa-times"></i> Limpar
-            </button>
-        </div>
-        
-        <!-- Área de Resultados -->
-        <div id="debugResultados" class="mt-4" style="display: none;">
-            <h6><i class="fas fa-terminal"></i> Resultados do Debug:</h6>
-            <div class="bg-dark text-light p-3 rounded" style="font-family: monospace; font-size: 12px; max-height: 500px; overflow-y: auto;">
-                <div id="debugConteudo"></div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<script>
-// Máscara para CPF no debug
-document.getElementById('debug_cpf').addEventListener('input', function(e) {
-    let value = e.target.value.replace(/\D/g, '');
-    value = value.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
-    e.target.value = value;
-});
-
-// Função principal de debug
-function debugMatricula(acao) {
-    const cpf = document.getElementById('debug_cpf').value;
-    const polo = document.getElementById('debug_polo').value;
-    
-    if (!cpf || !polo) {
-        showToast('Preencha CPF e Polo para fazer o debug', 'error');
-        return;
-    }
-    
-    const resultadosDiv = document.getElementById('debugResultados');
-    const conteudoDiv = document.getElementById('debugConteudo');
-    
-    // Mostra área de resultados
-    resultadosDiv.style.display = 'block';
-    conteudoDiv.innerHTML = '<span class="text-warning">🔄 Executando debug...</span>';
-    
-    // Scroll para os resultados
-    resultadosDiv.scrollIntoView({ behavior: 'smooth' });
-    
-    fetch('/admin/api/debug-matricula.php', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            cpf: cpf,
-            polo: polo,
-            acao: acao
-        })
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            exibirResultadosDebug(data);
-            
-            if (acao === 'sincronizar' && data.sincronizacao_realizada) {
-                showToast('Sincronização realizada com sucesso!', 'success');
-            }
-        } else {
-            conteudoDiv.innerHTML = `<span class="text-danger">❌ Erro: ${data.message}</span>`;
-            showToast('Erro no debug: ' + data.message, 'error');
-        }
-    })
-    .catch(error => {
-        conteudoDiv.innerHTML = `<span class="text-danger">❌ Erro de conexão: ${error.message}</span>`;
-        showToast('Erro de conexão', 'error');
-    });
-}
-
-// Exibe resultados formatados
-function exibirResultadosDebug(data) {
-    const conteudoDiv = document.getElementById('debugConteudo');
-    let html = '';
-    
-    // Cabeçalho
-    html += `<div class="text-info">📋 DEBUG DE MATRÍCULA</div>`;
-    html += `<div class="text-muted">CPF: ${data.cpf} | Polo: ${data.polo} | ${data.timestamp}</div>\n\n`;
-    
-    // Diagnóstico principal
-    const diagnosticoCor = {
-        'TUDO_OK': 'text-success',
-        'ALUNO_NAO_ENCONTRADO': 'text-danger', 
-        'ALUNO_NAO_SINCRONIZADO': 'text-warning',
-        'SEM_MATRICULAS': 'text-warning'
-    };
-    
-    if (data.diagnostico) {
-        html += `<div class="${diagnosticoCor[data.diagnostico] || 'text-info'}">`;
-        html += `🎯 DIAGNÓSTICO: ${data.diagnostico}</div>\n\n`;
-    }
-    
-    // Debug detalhado
-    if (data.debug) {
-        data.debug.forEach(linha => {
-            html += escapeHtml(linha) + '\n';
-        });
-    }
-    
-    // Informações estruturadas
-    if (data.aluno_local) {
-        html += `\n<div class="text-success">👤 ALUNO LOCAL ENCONTRADO:</div>`;
-        html += `   ID: ${data.aluno_local.id}\n`;
-        html += `   Nome: ${data.aluno_local.nome}\n`;
-        html += `   Email: ${data.aluno_local.email}\n`;
-        html += `   Moodle User ID: ${data.aluno_local.moodle_user_id}\n`;
-    }
-    
-    if (data.aluno_moodle) {
-        html += `\n<div class="text-success">🌐 ALUNO MOODLE ENCONTRADO:</div>`;
-        html += `   Nome: ${data.aluno_moodle.nome}\n`;
-        html += `   Email: ${data.aluno_moodle.email}\n`;
-        html += `   Moodle User ID: ${data.aluno_moodle.moodle_user_id}\n`;
-        html += `   Cursos no Moodle: ${data.aluno_moodle.cursos ? data.aluno_moodle.cursos.length : 0}\n`;
-    }
-    
-    if (data.matriculas_locais && data.matriculas_locais.length > 0) {
-        html += `\n<div class="text-info">📚 MATRÍCULAS LOCAIS (${data.matriculas_locais.length}):</div>`;
-        data.matriculas_locais.forEach(matricula => {
-            html += `   ✓ ${matricula.curso_nome} (Status: ${matricula.status})\n`;
-        });
-    }
-    
-    if (data.cursos_disponiveis && data.cursos_disponiveis.length > 0) {
-        html += `\n<div class="text-info">📖 CURSOS DISPONÍVEIS NO POLO (${data.cursos_disponiveis.length}):</div>`;
-        data.cursos_disponiveis.forEach(curso => {
-            html += `   📋 ${curso.nome} (ID: ${curso.id})\n`;
-        });
-    }
-    
-    // Sugestões
-    if (data.sugestoes && data.sugestoes.length > 0) {
-        html += `\n<div class="text-warning">💡 SUGESTÕES:</div>`;
-        data.sugestoes.forEach(sugestao => {
-            html += `   • ${sugestao}\n`;
-        });
-    }
-    
-    // Ações recomendadas
-    html += `\n<div class="text-primary">🔧 AÇÕES DISPONÍVEIS:</div>`;
-    
-    if (data.diagnostico === 'ALUNO_NAO_SINCRONIZADO') {
-        html += `   • Execute "Forçar Sincronização" para corrigir\n`;
-    }
-    
-    if (data.diagnostico === 'SEM_MATRICULAS') {
-        html += `   • Verifique se o aluno está matriculado no Moodle\n`;
-        html += `   • Execute "Forçar Sincronização" após matricular\n`;
-    }
-    
-    if (data.diagnostico === 'TUDO_OK') {
-        html += `   • Tente novamente o upload do boleto\n`;
-        html += `   • Verifique se está selecionando o curso correto\n`;
-    }
-    
-    conteudoDiv.innerHTML = html;
-}
-
-// Limpa debug
-function limparDebug() {
-    document.getElementById('debug_cpf').value = '';
-    document.getElementById('debug_polo').value = '';
-    document.getElementById('debugResultados').style.display = 'none';
-}
-
-// Escape HTML para segurança
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
-
-// Auto-preenchimento do debug com dados do formulário principal
-function autoPreencherDebug() {
-    const cpfPrincipal = document.getElementById('aluno_cpf').value;
-    const poloPrincipal = document.getElementById('polo').value;
-    
-    if (cpfPrincipal) {
-        document.getElementById('debug_cpf').value = cpfPrincipal;
-    }
-    
-    if (poloPrincipal) {
-        document.getElementById('debug_polo').value = poloPrincipal;
-    }
-    
-    // Scroll para o debug
-    document.getElementById('debugResultados').parentElement.scrollIntoView({ behavior: 'smooth' });
-}
-
-// Adiciona botão de debug rápido no formulário principal
-document.addEventListener('DOMContentLoaded', function() {
-    // Adiciona link de debug rápido ao lado do campo CPF
-    const cpfField = document.getElementById('aluno_cpf');
-    if (cpfField) {
-        const debugLink = document.createElement('small');
-        debugLink.className = 'text-primary ms-2';
-        debugLink.style.cursor = 'pointer';
-        debugLink.innerHTML = '<i class="fas fa-bug"></i> Debug Matrícula';
-        debugLink.onclick = autoPreencherDebug;
-        
-        cpfField.parentElement.appendChild(debugLink);
-    }
-});
-
-// Intercepta erros de matrícula e sugere debug
-const originalSubmit = document.getElementById('uploadIndividualForm').onsubmit;
-document.getElementById('uploadIndividualForm').addEventListener('submit', function(e) {
-    // Guarda dados para possível debug
-    window.lastUploadData = {
-        cpf: document.getElementById('aluno_cpf').value,
-        polo: document.getElementById('polo').value
-    };
-});
-
-// Função para mostrar sugestão de debug após erro
-function sugerirDebugAposErro(mensagemErro) {
-    if (mensagemErro.includes('não está matriculado') && window.lastUploadData) {
-        setTimeout(() => {
-            if (confirm('Erro de matrícula detectado. Deseja executar o debug automático?')) {
-                document.getElementById('debug_cpf').value = window.lastUploadData.cpf;
-                document.getElementById('debug_polo').value = window.lastUploadData.polo;
-                debugMatricula('verificar');
-            }
-        }, 2000);
-    }
-}
-</script>
-
                 <ul class="nav nav-tabs" id="uploadTabs" role="tablist">
                     <li class="nav-item" role="presentation">
                         <button class="nav-link active" id="individual-tab" data-bs-toggle="tab" 
@@ -781,6 +634,15 @@ function sugerirDebugAposErro(mensagemErro) {
                             <i class="fas fa-file"></i> Upload Individual
                         </button>
                     </li>
+                    
+                    <!-- 🆕 NOVA ABA: Upload Múltiplo para Um Aluno -->
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link tab-multiple" id="multiplo-aluno-tab" data-bs-toggle="tab" 
+                                data-bs-target="#multiplo-aluno" type="button" role="tab">
+                            <i class="fas fa-user-plus"></i> Múltiplos para Um Aluno
+                        </button>
+                    </li>
+                    
                     <li class="nav-item" role="presentation">
                         <button class="nav-link" id="lote-tab" data-bs-toggle="tab" 
                                 data-bs-target="#lote" type="button" role="tab">
@@ -906,6 +768,153 @@ function sugerirDebugAposErro(mensagemErro) {
                         </form>
                     </div>
                     
+                    <!-- 🆕 NOVA ABA: Upload Múltiplo para Um Aluno -->
+                    <div class="tab-pane fade" id="multiplo-aluno" role="tabpanel">
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle"></i>
+                            <strong>Upload Múltiplo para Um Aluno:</strong> Envie vários boletos para o mesmo aluno de uma só vez. 
+                            Ideal para enviar múltiplas mensalidades ou diferentes tipos de boletos para um único estudante.
+                            <br><small>⚡ <strong>Novidade:</strong> Agora você pode definir valores e vencimentos diferentes para cada boleto!</small>
+                        </div>
+                        
+                        <form method="POST" enctype="multipart/form-data" id="uploadMultiploAlunoForm">
+                            <input type="hidden" name="acao" value="upload_multiplo_aluno">
+                            
+                            <!-- Dados do Aluno -->
+                            <div class="section-title">
+                                <i class="fas fa-user"></i> 1. Dados do Aluno
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-md-4">
+                                    <div class="mb-3">
+                                        <label for="polo_multiplo" class="form-label">
+                                            <i class="fas fa-map-marker-alt"></i> Polo
+                                        </label>
+                                        <select class="form-select" id="polo_multiplo" name="polo" required>
+                                            <option value="">Selecione o polo</option>
+                                            <?php foreach ($polosAtivos as $polo): ?>
+                                                <?php $config = MoodleConfig::getConfig($polo); ?>
+                                                <option value="<?= $polo ?>">
+                                                    <?= htmlspecialchars($config['name'] ?? $polo) ?>
+                                                </option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </div>
+                                </div>
+                                
+                                <div class="col-md-4">
+                                    <div class="mb-3">
+                                        <label for="curso_multiplo" class="form-label">
+                                            <i class="fas fa-book"></i> Curso
+                                        </label>
+                                        <select class="form-select" id="curso_multiplo" name="curso_id" required>
+                                            <option value="">Primeiro selecione o polo</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                
+                                <div class="col-md-4">
+                                    <div class="mb-3">
+                                        <label for="aluno_cpf_multiplo" class="form-label">
+                                            <i class="fas fa-user"></i> CPF do Aluno
+                                        </label>
+                                        <input type="text" class="form-control" id="aluno_cpf_multiplo" name="aluno_cpf" 
+                                               placeholder="000.000.000-00" maxlength="14" required>
+                                        <small class="debug-quick-link" onclick="autoPreencherDebugMultiplo()">
+                                            <i class="fas fa-bug"></i> Debug Matrícula
+                                        </small>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Upload de Múltiplos Arquivos -->
+                            <div class="section-title mt-4">
+                                <i class="fas fa-files"></i> 2. Arquivos PDF dos Boletos
+                            </div>
+                            
+                            <div class="mb-3">
+                                <div class="upload-zone upload-zone-multiple" id="uploadZoneMultiplo">
+                                    <i class="fas fa-cloud-upload-alt"></i>
+                                    <h5>Arraste múltiplos arquivos PDF aqui ou clique para selecionar</h5>
+                                    <p class="text-muted">
+                                        Selecione todos os PDFs que deseja enviar para este aluno<br>
+                                        Máximo 5MB por arquivo • Apenas arquivos PDF
+                                    </p>
+                                    <input type="file" id="arquivos_multiplos" name="arquivos_multiplos[]" 
+                                           accept=".pdf" multiple hidden required>
+                                </div>
+                            </div>
+                            
+                            <!-- Lista de Arquivos Selecionados -->
+                            <div id="fileListMultiplo" class="file-list" style="display: none;">
+                                <h6><i class="fas fa-list"></i> Arquivos Selecionados:</h6>
+                                <div id="fileListContent"></div>
+                                
+                                <div class="row mt-3">
+                                    <div class="col-md-6">
+                                        <button type="button" class="btn btn-outline-success btn-sm" onclick="aplicarValoresGlobais()">
+                                            <i class="fas fa-magic"></i> Aplicar Valores Globais
+                                        </button>
+                                        <button type="button" class="btn btn-outline-info btn-sm" onclick="gerarNumerosSequenciais()">
+                                            <i class="fas fa-sort-numeric-up"></i> Números Sequenciais
+                                        </button>
+                                    </div>
+                                    <div class="col-md-6 text-end">
+                                        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="limparArquivosMultiplo()">
+                                            <i class="fas fa-times"></i> Limpar Todos
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Configurações Globais -->
+                            <div class="section-title mt-4">
+                                <i class="fas fa-cogs"></i> 3. Configurações Globais (Opcional)
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-md-4">
+                                    <div class="mb-3">
+                                        <label for="valor_global" class="form-label">
+                                            <i class="fas fa-dollar-sign"></i> Valor Padrão
+                                        </label>
+                                        <input type="number" class="form-control" id="valor_global" 
+                                               step="0.01" min="0" placeholder="Ex: 150.00">
+                                        <small class="form-text text-muted">Será aplicado a todos os boletos</small>
+                                    </div>
+                                </div>
+                                
+                                <div class="col-md-4">
+                                    <div class="mb-3">
+                                        <label for="vencimento_global" class="form-label">
+                                            <i class="fas fa-calendar"></i> Vencimento Base
+                                        </label>
+                                        <input type="date" class="form-control" id="vencimento_global">
+                                        <small class="form-text text-muted">Data base para sequência mensal</small>
+                                    </div>
+                                </div>
+                                
+                                <div class="col-md-4">
+                                    <div class="mb-3">
+                                        <label for="descricao_global" class="form-label">
+                                            <i class="fas fa-comment"></i> Descrição Padrão
+                                        </label>
+                                        <input type="text" class="form-control" id="descricao_global" 
+                                               placeholder="Ex: Mensalidade">
+                                        <small class="form-text text-muted">Será usada para todos os boletos</small>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="text-center">
+                                <button type="submit" class="btn btn-upload-multiple" id="btnEnviarMultiplo" disabled>
+                                    <i class="fas fa-user-plus"></i> Enviar Boletos para o Aluno
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                    
                     <!-- Upload em Lote -->
                     <div class="tab-pane fade" id="lote" role="tabpanel">
                         <div class="alert alert-info">
@@ -1003,11 +1012,12 @@ function sugerirDebugAposErro(mensagemErro) {
                             </div>
                         </form>
                     </div>
+                    </div>
                     
                     <!-- Instruções -->
                     <div class="tab-pane fade" id="instrucoes" role="tabpanel">
                         <div class="row">
-                            <div class="col-md-6">
+                            <div class="col-md-4">
                                 <h5 class="section-title">
                                     <i class="fas fa-file"></i> Upload Individual
                                 </h5>
@@ -1035,7 +1045,36 @@ function sugerirDebugAposErro(mensagemErro) {
                                 </ul>
                             </div>
                             
-                            <div class="col-md-6">
+                            <div class="col-md-4">
+                                <h5 class="section-title">
+                                    <i class="fas fa-user-plus"></i> Múltiplos para Um Aluno
+                                    <span class="badge bg-success ms-2">NOVO</span>
+                                </h5>
+                                <ul class="list-unstyled">
+                                    <li class="mb-2">
+                                        <i class="fas fa-check text-success"></i>
+                                        Envie vários boletos para o mesmo aluno
+                                    </li>
+                                    <li class="mb-2">
+                                        <i class="fas fa-check text-success"></i>
+                                        Configure valores individuais ou globais
+                                    </li>
+                                    <li class="mb-2">
+                                        <i class="fas fa-check text-success"></i>
+                                        Numeração automática sequencial
+                                    </li>
+                                    <li class="mb-2">
+                                        <i class="fas fa-check text-success"></i>
+                                        Vencimentos com intervalos mensais
+                                    </li>
+                                    <li class="mb-2">
+                                        <i class="fas fa-check text-success"></i>
+                                        Ideal para múltiplas mensalidades
+                                    </li>
+                                </ul>
+                            </div>
+                            
+                            <div class="col-md-4">
                                 <h5 class="section-title">
                                     <i class="fas fa-files"></i> Upload em Lote
                                 </h5>
@@ -1075,9 +1114,64 @@ function sugerirDebugAposErro(mensagemErro) {
                                     <li><strong>Tamanho máximo:</strong> 5MB por arquivo</li>
                                     <li><strong>Validação:</strong> Sistema verifica se aluno está matriculado no curso</li>
                                     <li><strong>Duplicatas:</strong> Números de boleto devem ser únicos</li>
+                                    <li><strong>Upload Múltiplo:</strong> 🆕 Ideal para enviar várias mensalidades de uma vez</li>
                                     <li><strong>Nomenclatura:</strong> Para upload em lote, siga exatamente o padrão</li>
                                     <li><strong>Segurança:</strong> Arquivos são armazenados de forma segura e criptografada</li>
                                 </ul>
+                            </div>
+                        </div>
+                        
+                        <!-- 🆕 NOVA SEÇÃO: Exemplos de Uso -->
+                        <div class="mt-4">
+                            <h5 class="section-title">
+                                <i class="fas fa-lightbulb text-info"></i> Exemplos de Uso
+                            </h5>
+                            
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="card">
+                                        <div class="card-body">
+                                            <h6 class="card-title text-primary">
+                                                <i class="fas fa-user-plus"></i> Múltiplos para Um Aluno
+                                            </h6>
+                                            <p class="card-text">
+                                                <strong>Cenário:</strong> Enviar 6 mensalidades para João Silva<br>
+                                                <strong>Como fazer:</strong>
+                                            </p>
+                                            <ol class="small">
+                                                <li>Selecione o polo e curso do João</li>
+                                                <li>Digite o CPF: 123.456.789-01</li>
+                                                <li>Arraste 6 arquivos PDF das mensalidades</li>
+                                                <li>Configure valor global: R$ 150,00</li>
+                                                <li>Data base: 15/01/2024</li>
+                                                <li>Clique em "Números Sequenciais"</li>
+                                                <li>Sistema criará mensalidades de Jan a Jun</li>
+                                            </ol>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="col-md-6">
+                                    <div class="card">
+                                        <div class="card-body">
+                                            <h6 class="card-title text-success">
+                                                <i class="fas fa-files"></i> Upload em Lote
+                                            </h6>
+                                            <p class="card-text">
+                                                <strong>Cenário:</strong> Mensalidades de vários alunos<br>
+                                                <strong>Nomeação dos arquivos:</strong>
+                                            </p>
+                                            <ul class="small">
+                                                <li><code>12345678901_202401001.pdf</code> - João</li>
+                                                <li><code>98765432100_202401002.pdf</code> - Maria</li>
+                                                <li><code>11122233344_202401003.pdf</code> - Pedro</li>
+                                            </ul>
+                                            <p class="small text-muted">
+                                                Todos terão o mesmo valor e vencimento configurados no formulário.
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -1092,8 +1186,121 @@ function sugerirDebugAposErro(mensagemErro) {
     <script src="https://cdnjs.cloudflare.com/ajax/libs/dropzone/5.9.3/dropzone.min.js"></script>
     
     <script>
+        // ========== VARIÁVEIS GLOBAIS ==========
+        let fileListMultiplo = [];
+        let isUpdating = false;
+        
+        // ========== FUNÇÕES DE DEBUG DE MATRÍCULA ==========
+        
+        // Máscara para CPF no debug
+        document.getElementById('debug_cpf').addEventListener('input', function(e) {
+            let value = e.target.value.replace(/\D/g, '');
+            value = value.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+            e.target.value = value;
+        });
+
+        // Função principal de debug
+        function debugMatricula(acao) {
+            const cpf = document.getElementById('debug_cpf').value;
+            const polo = document.getElementById('debug_polo').value;
+            
+            if (!cpf || !polo) {
+                showToast('Preencha CPF e Polo para fazer o debug', 'error');
+                return;
+            }
+            
+            const resultadosDiv = document.getElementById('debugResultados');
+            const conteudoDiv = document.getElementById('debugConteudo');
+            
+            resultadosDiv.style.display = 'block';
+            conteudoDiv.innerHTML = '<span class="text-warning">🔄 Executando debug...</span>';
+            resultadosDiv.scrollIntoView({ behavior: 'smooth' });
+            
+            fetch('/admin/api/debug-matricula.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ cpf: cpf, polo: polo, acao: acao })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    exibirResultadosDebug(data);
+                    if (acao === 'sincronizar' && data.sincronizacao_realizada) {
+                        showToast('Sincronização realizada com sucesso!', 'success');
+                    }
+                } else {
+                    conteudoDiv.innerHTML = `<span class="text-danger">❌ Erro: ${data.message}</span>`;
+                    showToast('Erro no debug: ' + data.message, 'error');
+                }
+            })
+            .catch(error => {
+                conteudoDiv.innerHTML = `<span class="text-danger">❌ Erro de conexão: ${error.message}</span>`;
+                showToast('Erro de conexão', 'error');
+            });
+        }
+
+        // Exibe resultados formatados do debug
+        function exibirResultadosDebug(data) {
+            const conteudoDiv = document.getElementById('debugConteudo');
+            let html = `<div class="text-info">📋 DEBUG DE MATRÍCULA</div>`;
+            html += `<div class="text-muted">CPF: ${data.cpf} | Polo: ${data.polo} | ${data.timestamp}</div>\n\n`;
+            
+            if (data.diagnostico) {
+                const diagnosticoCor = {
+                    'TUDO_OK': 'text-success',
+                    'ALUNO_NAO_ENCONTRADO': 'text-danger', 
+                    'ALUNO_NAO_SINCRONIZADO': 'text-warning',
+                    'SEM_MATRICULAS': 'text-warning'
+                };
+                html += `<div class="${diagnosticoCor[data.diagnostico] || 'text-info'}">`;
+                html += `🎯 DIAGNÓSTICO: ${data.diagnostico}</div>\n\n`;
+            }
+            
+            if (data.debug) {
+                data.debug.forEach(linha => {
+                    html += escapeHtml(linha) + '\n';
+                });
+            }
+            
+            conteudoDiv.innerHTML = html;
+        }
+
+        // Limpa debug
+        function limparDebug() {
+            document.getElementById('debug_cpf').value = '';
+            document.getElementById('debug_polo').value = '';
+            document.getElementById('debugResultados').style.display = 'none';
+        }
+
+        // Auto-preenchimento do debug com dados do formulário múltiplo
+        function autoPreencherDebugMultiplo() {
+            const cpfMultiplo = document.getElementById('aluno_cpf_multiplo').value;
+            const poloMultiplo = document.getElementById('polo_multiplo').value;
+            
+            if (cpfMultiplo) document.getElementById('debug_cpf').value = cpfMultiplo;
+            if (poloMultiplo) document.getElementById('debug_polo').value = poloMultiplo;
+            
+            document.getElementById('debugResultados').parentElement.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        // Escape HTML para segurança
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        // ========== FUNÇÕES DE UPLOAD INDIVIDUAL ==========
+        
         // Máscara para CPF
         document.getElementById('aluno_cpf').addEventListener('input', function(e) {
+            let value = e.target.value.replace(/\D/g, '');
+            value = value.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+            e.target.value = value;
+        });
+        
+        // Máscara para CPF múltiplo
+        document.getElementById('aluno_cpf_multiplo').addEventListener('input', function(e) {
             let value = e.target.value.replace(/\D/g, '');
             value = value.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
             e.target.value = value;
@@ -1169,7 +1376,217 @@ function sugerirDebugAposErro(mensagemErro) {
             filePreview.style.display = 'none';
         }
         
-        // Configuração do Dropzone para upload em lote
+        // ========== 🆕 FUNÇÕES DE UPLOAD MÚLTIPLO PARA UM ALUNO ==========
+        
+        // Upload múltiplo - zona de drag and drop
+        const uploadZoneMultiplo = document.getElementById('uploadZoneMultiplo');
+        const fileInputMultiplo = document.getElementById('arquivos_multiplos');
+        const fileListMultiploDiv = document.getElementById('fileListMultiplo');
+        const fileListContent = document.getElementById('fileListContent');
+        const btnEnviarMultiplo = document.getElementById('btnEnviarMultiplo');
+        
+        uploadZoneMultiplo.addEventListener('click', () => fileInputMultiplo.click());
+        
+        uploadZoneMultiplo.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadZoneMultiplo.classList.add('dragover');
+        });
+        
+        uploadZoneMultiplo.addEventListener('dragleave', () => {
+            uploadZoneMultiplo.classList.remove('dragover');
+        });
+        
+        uploadZoneMultiplo.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadZoneMultiplo.classList.remove('dragover');
+            
+            const files = Array.from(e.dataTransfer.files);
+            processarArquivosMultiplo(files);
+        });
+        
+        fileInputMultiplo.addEventListener('change', (e) => {
+            const files = Array.from(e.target.files);
+            processarArquivosMultiplo(files);
+        });
+        
+        function processarArquivosMultiplo(files) {
+            // Filtra apenas PDFs
+            const pdfFiles = files.filter(file => file.type === 'application/pdf');
+            
+            if (pdfFiles.length !== files.length) {
+                showToast('Apenas arquivos PDF são aceitos. Arquivos não-PDF foram ignorados.', 'warning');
+            }
+            
+            // Verifica tamanho
+            const validFiles = pdfFiles.filter(file => file.size <= 5 * 1024 * 1024);
+            
+            if (validFiles.length !== pdfFiles.length) {
+                showToast('Arquivos maiores que 5MB foram ignorados.', 'warning');
+            }
+            
+            // Adiciona arquivos válidos à lista
+            validFiles.forEach((file, index) => {
+                const fileId = Date.now() + index;
+                const fileData = {
+                    id: fileId,
+                    file: file,
+                    nome: file.name,
+                    tamanho: file.size,
+                    numero_boleto: '',
+                    valor: '',
+                    vencimento: '',
+                    descricao: ''
+                };
+                
+                fileListMultiplo.push(fileData);
+            });
+            
+            atualizarListaArquivosMultiplo();
+            
+            if (validFiles.length > 0) {
+                showToast(`${validFiles.length} arquivo(s) adicionado(s) com sucesso!`, 'success');
+            }
+        }
+        
+        function atualizarListaArquivosMultiplo() {
+            if (fileListMultiplo.length === 0) {
+                fileListMultiploDiv.style.display = 'none';
+                btnEnviarMultiplo.disabled = true;
+                return;
+            }
+            
+            fileListMultiploDiv.style.display = 'block';
+            btnEnviarMultiplo.disabled = false;
+            
+            let html = '';
+            
+            fileListMultiplo.forEach((fileData, index) => {
+                const isValid = fileData.numero_boleto && fileData.valor && fileData.vencimento;
+                const itemClass = isValid ? 'valid' : 'invalid';
+                
+                html += `
+                    <div class="file-list-item ${itemClass}" data-file-id="${fileData.id}">
+                        <div class="row w-100 align-items-center">
+                            <div class="col-md-3">
+                                <div class="file-info">
+                                    <div class="file-icon" style="width: 30px; height: 30px; font-size: 0.8rem;">
+                                        <i class="fas fa-file-pdf"></i>
+                                    </div>
+                                    <div>
+                                        <div class="fw-bold small">${fileData.nome}</div>
+                                        <small class="text-muted">${(fileData.tamanho / 1024 / 1024).toFixed(2)} MB</small>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-2">
+                                <input type="text" class="form-control form-control-sm" 
+                                       placeholder="Número do boleto" 
+                                       value="${fileData.numero_boleto}"
+                                       onchange="atualizarDadosArquivo(${fileData.id}, 'numero_boleto', this.value)">
+                            </div>
+                            <div class="col-md-2">
+                                <input type="number" class="form-control form-control-sm" 
+                                       placeholder="Valor" step="0.01" min="0"
+                                       value="${fileData.valor}"
+                                       onchange="atualizarDadosArquivo(${fileData.id}, 'valor', this.value)">
+                            </div>
+                            <div class="col-md-2">
+                                <input type="date" class="form-control form-control-sm" 
+                                       value="${fileData.vencimento}"
+                                       onchange="atualizarDadosArquivo(${fileData.id}, 'vencimento', this.value)">
+                            </div>
+                            <div class="col-md-2">
+                                <input type="text" class="form-control form-control-sm" 
+                                       placeholder="Descrição (opcional)" 
+                                       value="${fileData.descricao}"
+                                       onchange="atualizarDadosArquivo(${fileData.id}, 'descricao', this.value)">
+                            </div>
+                            <div class="col-md-1">
+                                <button type="button" class="btn btn-sm btn-outline-danger" 
+                                        onclick="removerArquivoMultiplo(${fileData.id})">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            fileListContent.innerHTML = html;
+        }
+        
+        function atualizarDadosArquivo(fileId, campo, valor) {
+            const fileData = fileListMultiplo.find(f => f.id === fileId);
+            if (fileData) {
+                fileData[campo] = valor;
+                atualizarListaArquivosMultiplo();
+            }
+        }
+        
+        function removerArquivoMultiplo(fileId) {
+            fileListMultiplo = fileListMultiplo.filter(f => f.id !== fileId);
+            atualizarListaArquivosMultiplo();
+            showToast('Arquivo removido', 'info');
+        }
+        
+        function limparArquivosMultiplo() {
+            fileListMultiplo = [];
+            fileInputMultiplo.value = '';
+            atualizarListaArquivosMultiplo();
+            showToast('Todos os arquivos foram removidos', 'info');
+        }
+        
+        function aplicarValoresGlobais() {
+            const valorGlobal = document.getElementById('valor_global').value;
+            const vencimentoGlobal = document.getElementById('vencimento_global').value;
+            const descricaoGlobal = document.getElementById('descricao_global').value;
+            
+            if (!valorGlobal && !vencimentoGlobal && !descricaoGlobal) {
+                showToast('Preencha pelo menos um campo global para aplicar', 'warning');
+                return;
+            }
+            
+            fileListMultiplo.forEach(fileData => {
+                if (valorGlobal) fileData.valor = valorGlobal;
+                if (vencimentoGlobal) fileData.vencimento = vencimentoGlobal;
+                if (descricaoGlobal) fileData.descricao = descricaoGlobal;
+            });
+            
+            atualizarListaArquivosMultiplo();
+            showToast('Valores globais aplicados a todos os arquivos!', 'success');
+        }
+        
+        function gerarNumerosSequenciais() {
+            if (fileListMultiplo.length === 0) {
+                showToast('Adicione arquivos primeiro', 'warning');
+                return;
+            }
+            
+            const dataBase = new Date();
+            const numeroBase = dataBase.getFullYear().toString() + 
+                              String(dataBase.getMonth() + 1).padStart(2, '0') + 
+                              String(dataBase.getDate()).padStart(2, '0');
+            
+            const vencimentoBase = document.getElementById('vencimento_global').value;
+            
+            fileListMultiplo.forEach((fileData, index) => {
+                // Gera número sequencial
+                fileData.numero_boleto = numeroBase + String(index + 1).padStart(4, '0');
+                
+                // Se tem vencimento base, gera vencimentos mensais
+                if (vencimentoBase) {
+                    const dataVencimento = new Date(vencimentoBase);
+                    dataVencimento.setMonth(dataVencimento.getMonth() + index);
+                    fileData.vencimento = dataVencimento.toISOString().split('T')[0];
+                }
+            });
+            
+            atualizarListaArquivosMultiplo();
+            showToast('Números sequenciais e vencimentos gerados!', 'success');
+        }
+        
+        // ========== CONFIGURAÇÃO DO DROPZONE PARA LOTE ==========
+        
         Dropzone.autoDiscover = false;
         
         const dropzoneLote = new Dropzone("#dropzoneLote", {
@@ -1206,13 +1623,11 @@ function sugerirDebugAposErro(mensagemErro) {
                     if (myDropzone.getQueuedFiles().length > 0) {
                         myDropzone.processQueue();
                     } else {
-                        // Submete formulário sem arquivos se necessário
                         document.getElementById('uploadLoteForm').submit();
                     }
                 });
                 
                 this.on("addedfile", function(file) {
-                    // Valida nome do arquivo
                     const fileName = file.name.replace('.pdf', '');
                     const parts = fileName.split('_');
                     
@@ -1245,7 +1660,8 @@ function sugerirDebugAposErro(mensagemErro) {
             }
         });
         
-        // Carrega cursos baseado no polo selecionado
+        // ========== FUNÇÕES DE BUSCA DE CURSOS ==========
+        
         function carregarCursos(poloSelect, cursoSelect) {
             const polo = poloSelect.value;
             cursoSelect.innerHTML = '<option value="">Carregando...</option>';
@@ -1282,11 +1698,17 @@ function sugerirDebugAposErro(mensagemErro) {
             carregarCursos(this, document.getElementById('curso'));
         });
         
+        document.getElementById('polo_multiplo').addEventListener('change', function() {
+            carregarCursos(this, document.getElementById('curso_multiplo'));
+        });
+        
         document.getElementById('polo_lote').addEventListener('change', function() {
             carregarCursos(this, document.getElementById('curso_lote'));
         });
         
-        // Validação dos formulários
+        // ========== VALIDAÇÕES DOS FORMULÁRIOS ==========
+        
+        // Validação do formulário individual
         document.getElementById('uploadIndividualForm').addEventListener('submit', function(e) {
             const cpf = document.getElementById('aluno_cpf').value.replace(/\D/g, '');
             const arquivo = document.getElementById('arquivo_pdf').files[0];
@@ -1315,6 +1737,88 @@ function sugerirDebugAposErro(mensagemErro) {
             submitBtn.disabled = true;
         });
         
+        // 🆕 Validação do formulário múltiplo
+        document.getElementById('uploadMultiploAlunoForm').addEventListener('submit', function(e) {
+            const cpf = document.getElementById('aluno_cpf_multiplo').value.replace(/\D/g, '');
+            const polo = document.getElementById('polo_multiplo').value;
+            const curso = document.getElementById('curso_multiplo').value;
+            
+            if (cpf.length !== 11) {
+                e.preventDefault();
+                alert('CPF deve conter 11 dígitos');
+                return;
+            }
+            
+            if (!polo || !curso) {
+                e.preventDefault();
+                alert('Selecione polo e curso');
+                return;
+            }
+            
+            if (fileListMultiplo.length === 0) {
+                e.preventDefault();
+                alert('Adicione pelo menos um arquivo PDF');
+                return;
+            }
+            
+            // Valida se todos os arquivos têm dados obrigatórios
+            const arquivosIncompletos = fileListMultiplo.filter(f => !f.numero_boleto || !f.valor || !f.vencimento);
+            if (arquivosIncompletos.length > 0) {
+                e.preventDefault();
+                alert(`${arquivosIncompletos.length} arquivo(s) estão incompletos. Preencha número do boleto, valor e vencimento para todos.`);
+                return;
+            }
+            
+            // Adiciona dados dos arquivos ao FormData
+            const formData = new FormData(this);
+            formData.delete('arquivos_multiplos[]'); // Remove o input original
+            
+            fileListMultiplo.forEach((fileData, index) => {
+                formData.append('arquivos_multiplos[]', fileData.file);
+                formData.append(`arquivo_${index}_numero`, fileData.numero_boleto);
+                formData.append(`arquivo_${index}_valor`, fileData.valor);
+                formData.append(`arquivo_${index}_vencimento`, fileData.vencimento);
+                formData.append(`arquivo_${index}_descricao`, fileData.descricao || '');
+            });
+            
+            // Previne submissão normal e envia via AJAX
+            e.preventDefault();
+            enviarFormularioMultiplo(formData);
+        });
+        
+        // 🆕 Função para enviar formulário múltiplo via AJAX
+        function enviarFormularioMultiplo(formData) {
+            const submitBtn = document.getElementById('btnEnviarMultiplo');
+            const originalText = submitBtn.innerHTML;
+            
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processando...';
+            submitBtn.disabled = true;
+            
+            fetch('/admin/upload-boletos.php', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.text())
+            .then(data => {
+                // Se a resposta contém HTML (página recarregada), recarrega
+                if (data.includes('<!DOCTYPE html>') || data.includes('<html')) {
+                    location.reload();
+                } else {
+                    showToast('Upload múltiplo processado com sucesso!', 'success');
+                    setTimeout(() => location.reload(), 2000);
+                }
+            })
+            .catch(error => {
+                console.error('Erro:', error);
+                showToast('Erro no upload múltiplo: ' + error.message, 'error');
+            })
+            .finally(() => {
+                submitBtn.innerHTML = originalText;
+                submitBtn.disabled = false;
+            });
+        }
+        
+        // Validação do formulário em lote
         document.getElementById('uploadLoteForm').addEventListener('submit', function(e) {
             const polo = document.getElementById('polo_lote').value;
             const curso = document.getElementById('curso_lote').value;
@@ -1334,40 +1838,65 @@ function sugerirDebugAposErro(mensagemErro) {
             }
         });
         
-        // Sistema de notificações
+        // ========== SISTEMA DE NOTIFICAÇÕES ==========
+        
         function showToast(message, type = 'info') {
             const existingToasts = document.querySelectorAll('.toast-custom');
             existingToasts.forEach(toast => toast.remove());
             
+            let container = document.getElementById('toastContainer');
+            if (!container) {
+                container = document.createElement('div');
+                container.id = 'toastContainer';
+                container.className = 'toast-container';
+                container.style.cssText = `
+                    position: fixed;
+                    top: 20px;
+                    right: 20px;
+                    z-index: 2001;
+                    min-width: 300px;
+                    max-width: 90vw;
+                `;
+                document.body.appendChild(container);
+            }
+            
             const toast = document.createElement('div');
-            toast.className = `toast-custom alert alert-${type === 'error' ? 'danger' : type === 'success' ? 'success' : 'info'} position-fixed`;
-            toast.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px; animation: slideInRight 0.3s ease;';
+            toast.className = `toast-custom alert alert-${type === 'error' ? 'danger' : type === 'success' ? 'success' : type === 'warning' ? 'warning' : 'info'} position-relative`;
+            toast.style.cssText = 'animation: slideInRight 0.3s ease; margin-bottom: 8px;';
             
             const icon = type === 'error' ? 'fa-exclamation-triangle' : 
-                        type === 'success' ? 'fa-check-circle' : 'fa-info-circle';
+                        type === 'success' ? 'fa-check-circle' : 
+                        type === 'warning' ? 'fa-exclamation-circle' : 'fa-info-circle';
             
             toast.innerHTML = `
                 <div class="d-flex align-items-center">
                     <i class="fas ${icon} me-2"></i>
-                    <span>${message}</span>
-                    <button type="button" class="btn-close ms-auto" onclick="this.parentElement.parentElement.remove()"></button>
+                    <span class="flex-grow-1">${message}</span>
+                    <button type="button" class="btn-close ms-2" onclick="this.parentElement.parentElement.remove()"></button>
                 </div>
             `;
             
-            document.body.appendChild(toast);
+            container.appendChild(toast);
             
             setTimeout(() => {
-                if (toast.parentElement) {
+                if (toast.parentNode) {
                     toast.style.animation = 'slideOutRight 0.3s ease';
-                    setTimeout(() => toast.remove(), 300);
+                    setTimeout(() => {
+                        if (toast.parentNode) {
+                            container.removeChild(toast);
+                        }
+                    }, 300);
                 }
             }, 5000);
         }
+        
+        // ========== FUNÇÕES AUXILIARES ==========
         
         // Define data mínima como hoje
         const hoje = new Date().toISOString().split('T')[0];
         document.getElementById('vencimento').min = hoje;
         document.getElementById('vencimento_lote').min = hoje;
+        document.getElementById('vencimento_global').min = hoje;
         
         // Auto-complete número do boleto baseado na data
         document.getElementById('vencimento').addEventListener('change', function() {
@@ -1412,7 +1941,18 @@ function sugerirDebugAposErro(mensagemErro) {
             }
         });
         
-        // Adiciona estilos para animações
+        document.getElementById('aluno_cpf_multiplo').addEventListener('blur', function() {
+            const cpf = this.value.replace(/\D/g, '');
+            if (cpf && !validarCPF(cpf)) {
+                this.classList.add('is-invalid');
+                showToast('CPF inválido', 'error');
+            } else {
+                this.classList.remove('is-invalid');
+            }
+        });
+        
+        // ========== ESTILOS PARA ANIMAÇÕES ==========
+        
         const style = document.createElement('style');
         style.textContent = `
             @keyframes slideInRight {
@@ -1425,11 +1965,141 @@ function sugerirDebugAposErro(mensagemErro) {
                 to { transform: translateX(100%); opacity: 0; }
             }
             
+            .toast-container {
+                position: fixed !important;
+                top: 20px !important;
+                right: 20px !important;
+                z-index: 2001 !important;
+            }
+            
             .is-invalid {
                 border-color: #dc3545 !important;
             }
+            
+            .file-list-item.valid {
+                border-left: 4px solid #28a745;
+                background: rgba(40,167,69,0.02);
+            }
+            
+            .file-list-item.invalid {
+                border-left: 4px solid #dc3545;
+                background: rgba(220,53,69,0.02);
+            }
+            
+            .upload-zone-multiple {
+                border-color: #28a745 !important;
+                background: rgba(40,167,69,0.05) !important;
+            }
+            
+            .upload-zone-multiple:hover {
+                border-color: #1e7e34 !important;
+                background: rgba(40,167,69,0.1) !important;
+            }
+            
+            .nav-tabs .nav-link.tab-multiple::after {
+                content: "NOVO";
+                position: absolute;
+                top: -8px;
+                right: -8px;
+                background: #ff6b6b;
+                color: white;
+                font-size: 0.6rem;
+                padding: 2px 6px;
+                border-radius: 10px;
+                font-weight: bold;
+                animation: pulse 2s infinite;
+            }
+            
+            @keyframes pulse {
+                0% { transform: scale(1); }
+                50% { transform: scale(1.1); }
+                100% { transform: scale(1); }
+            }
         `;
         document.head.appendChild(style);
+        
+        // ========== INICIALIZAÇÃO ==========
+        
+        // Log de debug final
+        console.log('✅ Sistema de Upload Múltiplo para Um Aluno carregado!');
+        console.log('🆕 Nova funcionalidade disponível na aba "Múltiplos para Um Aluno"');
+        
+        // Tooltip para elementos com title
+        document.addEventListener('DOMContentLoaded', function() {
+            const tooltips = document.querySelectorAll('[title]');
+            tooltips.forEach(element => {
+                if (typeof bootstrap !== 'undefined' && bootstrap.Tooltip) {
+                    new bootstrap.Tooltip(element);
+                }
+            });
+        });
+        
+        // Atalhos de teclado
+        document.addEventListener('keydown', function(e) {
+            // Ctrl + M para ir para aba múltipla
+            if (e.ctrlKey && e.key === 'm') {
+                e.preventDefault();
+                document.getElementById('multiplo-aluno-tab').click();
+            }
+            
+            // Ctrl + 1, 2, 3, 4 para alternar entre abas
+            if (e.ctrlKey && ['1', '2', '3', '4'].includes(e.key)) {
+                e.preventDefault();
+                const tabs = ['individual-tab', 'multiplo-aluno-tab', 'lote-tab', 'instrucoes-tab'];
+                const tabIndex = parseInt(e.key) - 1;
+                if (tabs[tabIndex]) {
+                    document.getElementById(tabs[tabIndex]).click();
+                }
+            }
+        });
+        
+        // Intercepta erros de matrícula e sugere debug
+        const originalSubmitIndividual = document.getElementById('uploadIndividualForm').onsubmit;
+        const originalSubmitMultiplo = document.getElementById('uploadMultiploAlunoForm').onsubmit;
+        
+        // Guarda dados para possível debug após erro
+        function guardarDadosParaDebug(form) {
+            if (form.id === 'uploadIndividualForm') {
+                window.lastUploadData = {
+                    cpf: document.getElementById('aluno_cpf').value,
+                    polo: document.getElementById('polo').value
+                };
+            } else if (form.id === 'uploadMultiploAlunoForm') {
+                window.lastUploadData = {
+                    cpf: document.getElementById('aluno_cpf_multiplo').value,
+                    polo: document.getElementById('polo_multiplo').value
+                };
+            }
+        }
+        
+        document.getElementById('uploadIndividualForm').addEventListener('submit', function() {
+            guardarDadosParaDebug(this);
+        });
+        
+        document.getElementById('uploadMultiploAlunoForm').addEventListener('submit', function() {
+            guardarDadosParaDebug(this);
+        });
+        
+        // Função para sugerir debug após erro
+        function sugerirDebugAposErro(mensagemErro) {
+            if (mensagemErro.includes('não está matriculado') && window.lastUploadData) {
+                setTimeout(() => {
+                    if (confirm('Erro de matrícula detectado. Deseja executar o debug automático?')) {
+                        document.getElementById('debug_cpf').value = window.lastUploadData.cpf;
+                        document.getElementById('debug_polo').value = window.lastUploadData.polo;
+                        debugMatricula('verificar');
+                    }
+                }, 2000);
+            }
+        }
+        
+        console.log('🎉 Upload de Boletos - Sistema Completo Carregado!');
+        console.log('📋 Funcionalidades disponíveis:');
+        console.log('   1️⃣ Upload Individual');
+        console.log('   2️⃣ 🆕 Upload Múltiplo para Um Aluno');
+        console.log('   3️⃣ Upload em Lote');
+        console.log('   🐛 Debug de Matrícula integrado');
+        console.log('⌨️ Atalhos: Ctrl+1/2/3/4 (abas), Ctrl+M (múltiplo)');
     </script>
 </body>
 </html>
