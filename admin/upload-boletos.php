@@ -332,6 +332,57 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                 padding: 1rem;
             }
         }
+
+
+
+
+    
+.debug-section {
+    border-left: 4px solid #ffc107;
+    background: linear-gradient(90deg, rgba(255,193,7,0.05) 0%, transparent 100%);
+}
+
+#debugConteudo {
+    line-height: 1.4;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+#debugConteudo .text-success {
+    color: #28a745 !important;
+}
+
+#debugConteudo .text-danger {
+    color: #dc3545 !important;
+}
+
+#debugConteudo .text-warning {
+    color: #ffc107 !important;
+}
+
+#debugConteudo .text-info {
+    color: #17a2b8 !important;
+}
+
+#debugConteudo .text-primary {
+    color: #007bff !important;
+}
+
+.debug-quick-link {
+    display: inline-block;
+    margin-top: 5px;
+    font-size: 0.85rem;
+    text-decoration: none;
+}
+
+.debug-quick-link:hover {
+    text-decoration: underline;
+}
+
+
+
+
+
     </style>
 </head>
 <body>
@@ -445,7 +496,284 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                     Upload de Boletos PDF
                 </h5>
             </div>
+
             <div class="card-body">
+                <!-- ADICIONAR NO ARQUIVO admin/upload-boletos.php -->
+<!-- Inserir antes do formulário de upload individual -->
+
+<!-- Seção de Debug - Matrícula -->
+<div class="card mb-4" style="border-left: 4px solid #ffc107;">
+    <div class="card-body">
+        <h6 class="card-title text-warning">
+            <i class="fas fa-bug"></i> Debug de Matrícula
+        </h6>
+        <p class="text-muted mb-3">
+            Use esta ferramenta para diagnosticar problemas de matrícula quando aparecer o erro 
+            "Aluno não está matriculado neste curso".
+        </p>
+        
+        <div class="row">
+            <div class="col-md-4">
+                <label class="form-label">CPF do Aluno</label>
+                <input type="text" class="form-control" id="debug_cpf" placeholder="000.000.000-00" maxlength="14">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Polo</label>
+                <select class="form-control" id="debug_polo">
+                    <option value="">Selecione o polo</option>
+                    <?php foreach ($polosAtivos as $polo): ?>
+                        <?php $config = MoodleConfig::getConfig($polo); ?>
+                        <option value="<?= $polo ?>">
+                            <?= htmlspecialchars($config['name'] ?? $polo) ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">&nbsp;</label>
+                <div class="d-grid gap-2">
+                    <button class="btn btn-warning" onclick="debugMatricula('verificar')">
+                        <i class="fas fa-search"></i> Verificar
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <div class="mt-3">
+            <button class="btn btn-info btn-sm me-2" onclick="debugMatricula('sincronizar')">
+                <i class="fas fa-sync"></i> Forçar Sincronização
+            </button>
+            <button class="btn btn-secondary btn-sm" onclick="limparDebug()">
+                <i class="fas fa-times"></i> Limpar
+            </button>
+        </div>
+        
+        <!-- Área de Resultados -->
+        <div id="debugResultados" class="mt-4" style="display: none;">
+            <h6><i class="fas fa-terminal"></i> Resultados do Debug:</h6>
+            <div class="bg-dark text-light p-3 rounded" style="font-family: monospace; font-size: 12px; max-height: 500px; overflow-y: auto;">
+                <div id="debugConteudo"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Máscara para CPF no debug
+document.getElementById('debug_cpf').addEventListener('input', function(e) {
+    let value = e.target.value.replace(/\D/g, '');
+    value = value.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+    e.target.value = value;
+});
+
+// Função principal de debug
+function debugMatricula(acao) {
+    const cpf = document.getElementById('debug_cpf').value;
+    const polo = document.getElementById('debug_polo').value;
+    
+    if (!cpf || !polo) {
+        showToast('Preencha CPF e Polo para fazer o debug', 'error');
+        return;
+    }
+    
+    const resultadosDiv = document.getElementById('debugResultados');
+    const conteudoDiv = document.getElementById('debugConteudo');
+    
+    // Mostra área de resultados
+    resultadosDiv.style.display = 'block';
+    conteudoDiv.innerHTML = '<span class="text-warning">🔄 Executando debug...</span>';
+    
+    // Scroll para os resultados
+    resultadosDiv.scrollIntoView({ behavior: 'smooth' });
+    
+    fetch('/admin/api/debug-matricula.php', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            cpf: cpf,
+            polo: polo,
+            acao: acao
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            exibirResultadosDebug(data);
+            
+            if (acao === 'sincronizar' && data.sincronizacao_realizada) {
+                showToast('Sincronização realizada com sucesso!', 'success');
+            }
+        } else {
+            conteudoDiv.innerHTML = `<span class="text-danger">❌ Erro: ${data.message}</span>`;
+            showToast('Erro no debug: ' + data.message, 'error');
+        }
+    })
+    .catch(error => {
+        conteudoDiv.innerHTML = `<span class="text-danger">❌ Erro de conexão: ${error.message}</span>`;
+        showToast('Erro de conexão', 'error');
+    });
+}
+
+// Exibe resultados formatados
+function exibirResultadosDebug(data) {
+    const conteudoDiv = document.getElementById('debugConteudo');
+    let html = '';
+    
+    // Cabeçalho
+    html += `<div class="text-info">📋 DEBUG DE MATRÍCULA</div>`;
+    html += `<div class="text-muted">CPF: ${data.cpf} | Polo: ${data.polo} | ${data.timestamp}</div>\n\n`;
+    
+    // Diagnóstico principal
+    const diagnosticoCor = {
+        'TUDO_OK': 'text-success',
+        'ALUNO_NAO_ENCONTRADO': 'text-danger', 
+        'ALUNO_NAO_SINCRONIZADO': 'text-warning',
+        'SEM_MATRICULAS': 'text-warning'
+    };
+    
+    if (data.diagnostico) {
+        html += `<div class="${diagnosticoCor[data.diagnostico] || 'text-info'}">`;
+        html += `🎯 DIAGNÓSTICO: ${data.diagnostico}</div>\n\n`;
+    }
+    
+    // Debug detalhado
+    if (data.debug) {
+        data.debug.forEach(linha => {
+            html += escapeHtml(linha) + '\n';
+        });
+    }
+    
+    // Informações estruturadas
+    if (data.aluno_local) {
+        html += `\n<div class="text-success">👤 ALUNO LOCAL ENCONTRADO:</div>`;
+        html += `   ID: ${data.aluno_local.id}\n`;
+        html += `   Nome: ${data.aluno_local.nome}\n`;
+        html += `   Email: ${data.aluno_local.email}\n`;
+        html += `   Moodle User ID: ${data.aluno_local.moodle_user_id}\n`;
+    }
+    
+    if (data.aluno_moodle) {
+        html += `\n<div class="text-success">🌐 ALUNO MOODLE ENCONTRADO:</div>`;
+        html += `   Nome: ${data.aluno_moodle.nome}\n`;
+        html += `   Email: ${data.aluno_moodle.email}\n`;
+        html += `   Moodle User ID: ${data.aluno_moodle.moodle_user_id}\n`;
+        html += `   Cursos no Moodle: ${data.aluno_moodle.cursos ? data.aluno_moodle.cursos.length : 0}\n`;
+    }
+    
+    if (data.matriculas_locais && data.matriculas_locais.length > 0) {
+        html += `\n<div class="text-info">📚 MATRÍCULAS LOCAIS (${data.matriculas_locais.length}):</div>`;
+        data.matriculas_locais.forEach(matricula => {
+            html += `   ✓ ${matricula.curso_nome} (Status: ${matricula.status})\n`;
+        });
+    }
+    
+    if (data.cursos_disponiveis && data.cursos_disponiveis.length > 0) {
+        html += `\n<div class="text-info">📖 CURSOS DISPONÍVEIS NO POLO (${data.cursos_disponiveis.length}):</div>`;
+        data.cursos_disponiveis.forEach(curso => {
+            html += `   📋 ${curso.nome} (ID: ${curso.id})\n`;
+        });
+    }
+    
+    // Sugestões
+    if (data.sugestoes && data.sugestoes.length > 0) {
+        html += `\n<div class="text-warning">💡 SUGESTÕES:</div>`;
+        data.sugestoes.forEach(sugestao => {
+            html += `   • ${sugestao}\n`;
+        });
+    }
+    
+    // Ações recomendadas
+    html += `\n<div class="text-primary">🔧 AÇÕES DISPONÍVEIS:</div>`;
+    
+    if (data.diagnostico === 'ALUNO_NAO_SINCRONIZADO') {
+        html += `   • Execute "Forçar Sincronização" para corrigir\n`;
+    }
+    
+    if (data.diagnostico === 'SEM_MATRICULAS') {
+        html += `   • Verifique se o aluno está matriculado no Moodle\n`;
+        html += `   • Execute "Forçar Sincronização" após matricular\n`;
+    }
+    
+    if (data.diagnostico === 'TUDO_OK') {
+        html += `   • Tente novamente o upload do boleto\n`;
+        html += `   • Verifique se está selecionando o curso correto\n`;
+    }
+    
+    conteudoDiv.innerHTML = html;
+}
+
+// Limpa debug
+function limparDebug() {
+    document.getElementById('debug_cpf').value = '';
+    document.getElementById('debug_polo').value = '';
+    document.getElementById('debugResultados').style.display = 'none';
+}
+
+// Escape HTML para segurança
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Auto-preenchimento do debug com dados do formulário principal
+function autoPreencherDebug() {
+    const cpfPrincipal = document.getElementById('aluno_cpf').value;
+    const poloPrincipal = document.getElementById('polo').value;
+    
+    if (cpfPrincipal) {
+        document.getElementById('debug_cpf').value = cpfPrincipal;
+    }
+    
+    if (poloPrincipal) {
+        document.getElementById('debug_polo').value = poloPrincipal;
+    }
+    
+    // Scroll para o debug
+    document.getElementById('debugResultados').parentElement.scrollIntoView({ behavior: 'smooth' });
+}
+
+// Adiciona botão de debug rápido no formulário principal
+document.addEventListener('DOMContentLoaded', function() {
+    // Adiciona link de debug rápido ao lado do campo CPF
+    const cpfField = document.getElementById('aluno_cpf');
+    if (cpfField) {
+        const debugLink = document.createElement('small');
+        debugLink.className = 'text-primary ms-2';
+        debugLink.style.cursor = 'pointer';
+        debugLink.innerHTML = '<i class="fas fa-bug"></i> Debug Matrícula';
+        debugLink.onclick = autoPreencherDebug;
+        
+        cpfField.parentElement.appendChild(debugLink);
+    }
+});
+
+// Intercepta erros de matrícula e sugere debug
+const originalSubmit = document.getElementById('uploadIndividualForm').onsubmit;
+document.getElementById('uploadIndividualForm').addEventListener('submit', function(e) {
+    // Guarda dados para possível debug
+    window.lastUploadData = {
+        cpf: document.getElementById('aluno_cpf').value,
+        polo: document.getElementById('polo').value
+    };
+});
+
+// Função para mostrar sugestão de debug após erro
+function sugerirDebugAposErro(mensagemErro) {
+    if (mensagemErro.includes('não está matriculado') && window.lastUploadData) {
+        setTimeout(() => {
+            if (confirm('Erro de matrícula detectado. Deseja executar o debug automático?')) {
+                document.getElementById('debug_cpf').value = window.lastUploadData.cpf;
+                document.getElementById('debug_polo').value = window.lastUploadData.polo;
+                debugMatricula('verificar');
+            }
+        }, 2000);
+    }
+}
+</script>
+
                 <ul class="nav nav-tabs" id="uploadTabs" role="tablist">
                     <li class="nav-item" role="presentation">
                         <button class="nav-link active" id="individual-tab" data-bs-toggle="tab" 

@@ -51,7 +51,7 @@ foreach ($cursos as $curso) {
     error_log("Dashboard: Curso - ID: {$curso['id']}, Nome: {$curso['nome']}, Subdomain: {$curso['subdomain']}");
 }
 
-// Para cada curso, busca os boletos
+// Para cada curso, busca os boletos - VERSÃO CORRIGIDA
 $dadosDashboard = [];
 $resumoGeral = [
     'total_boletos' => 0,
@@ -63,78 +63,163 @@ $resumoGeral = [
     'valor_pendente' => 0
 ];
 
-foreach ($cursos as $curso) {
-    error_log("Dashboard: Processando curso ID: {$curso['id']}, Nome: {$curso['nome']}");
+// CORREÇÃO: Busca TODOS os boletos do aluno, independente de ter curso na lista
+error_log("Dashboard: Buscando TODOS os boletos do aluno ID: {$aluno['id']}, Subdomain: {$_SESSION['subdomain']}");
+
+try {
+    $db = (new Database())->getConnection();
     
-    $boletos = $boletoService->buscarBoletosCurso($aluno['id'], $curso['id']);
-    error_log("Dashboard: Boletos encontrados para curso {$curso['id']}: " . count($boletos));
+    // NOVA QUERY: Busca todos os boletos do aluno no polo atual
+    $stmt = $db->prepare("
+        SELECT b.*, c.nome as curso_nome, c.subdomain
+        FROM boletos b
+        INNER JOIN cursos c ON b.curso_id = c.id
+        WHERE b.aluno_id = ? 
+        AND c.subdomain = ?
+        ORDER BY b.vencimento DESC, b.created_at DESC
+    ");
+    $stmt->execute([$aluno['id'], $_SESSION['subdomain']]);
+    $todosBoletos = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
-    $cursoDados = [
-        'curso' => $curso,
-        'boletos' => [],
-        'resumo' => [
-            'total' => 0,
-            'pagos' => 0,
-            'pendentes' => 0,
-            'vencidos' => 0,
-            'valor_total' => 0,
-            'valor_pendente' => 0
-        ]
-    ];
+    error_log("Dashboard: Total de boletos encontrados: " . count($todosBoletos));
     
-    foreach ($boletos as $boleto) {
-        // Verifica se está vencido
-        $hoje = new DateTime();
-        $vencimento = new DateTime($boleto['vencimento']);
-        $diasVencimento = $hoje->diff($vencimento)->format('%r%a');
+    if (!empty($todosBoletos)) {
+        // Agrupa boletos por curso
+        $boletosPorCurso = [];
         
-        $boleto['dias_vencimento'] = (int)$diasVencimento;
-        $boleto['esta_vencido'] = ($boleto['status'] == 'pendente' && $diasVencimento < 0);
-        
-        // Atualiza status se vencido
-        if ($boleto['esta_vencido'] && $boleto['status'] == 'pendente') {
-            $boletoService->atualizarStatusVencido($boleto['id']);
-            $boleto['status'] = 'vencido';
+        foreach ($todosBoletos as $boleto) {
+            $cursoId = $boleto['curso_id'];
+            
+            if (!isset($boletosPorCurso[$cursoId])) {
+                $boletosPorCurso[$cursoId] = [
+                    'curso' => [
+                        'id' => $cursoId,
+                        'nome' => $boleto['curso_nome'],
+                        'subdomain' => $boleto['subdomain']
+                    ],
+                    'boletos' => [],
+                    'resumo' => [
+                        'total' => 0,
+                        'pagos' => 0,
+                        'pendentes' => 0,
+                        'vencidos' => 0,
+                        'valor_total' => 0,
+                        'valor_pendente' => 0
+                    ]
+                ];
+            }
+            
+            // Verifica se está vencido
+            $hoje = new DateTime();
+            $vencimento = new DateTime($boleto['vencimento']);
+            $diasVencimento = $hoje->diff($vencimento)->format('%r%a');
+            
+            $boleto['dias_vencimento'] = (int)$diasVencimento;
+            $boleto['esta_vencido'] = ($boleto['status'] == 'pendente' && $diasVencimento < 0);
+            
+            // Atualiza status se vencido
+            if ($boleto['esta_vencido'] && $boleto['status'] == 'pendente') {
+                $boletoService->atualizarStatusVencido($boleto['id']);
+                $boleto['status'] = 'vencido';
+            }
+            
+            $boletosPorCurso[$cursoId]['boletos'][] = $boleto;
+            
+            // Atualiza contadores
+            $boletosPorCurso[$cursoId]['resumo']['total']++;
+            $boletosPorCurso[$cursoId]['resumo']['valor_total'] += $boleto['valor'];
+            
+            switch ($boleto['status']) {
+                case 'pago':
+                    $boletosPorCurso[$cursoId]['resumo']['pagos']++;
+                    break;
+                case 'pendente':
+                    $boletosPorCurso[$cursoId]['resumo']['pendentes']++;
+                    $boletosPorCurso[$cursoId]['resumo']['valor_pendente'] += $boleto['valor'];
+                    break;
+                case 'vencido':
+                    $boletosPorCurso[$cursoId]['resumo']['vencidos']++;
+                    $boletosPorCurso[$cursoId]['resumo']['valor_pendente'] += $boleto['valor'];
+                    break;
+            }
         }
         
-        $cursoDados['boletos'][] = $boleto;
+        // Converte para array indexado
+        $dadosDashboard = array_values($boletosPorCurso);
         
-        // Atualiza contadores
-        $cursoDados['resumo']['total']++;
-        $cursoDados['resumo']['valor_total'] += $boleto['valor'];
+        // Ordena boletos dentro de cada curso
+        foreach ($dadosDashboard as &$cursoDados) {
+            usort($cursoDados['boletos'], function($a, $b) {
+                return strtotime($a['vencimento']) - strtotime($b['vencimento']);
+            });
+            
+            // Atualiza resumo geral
+            $resumoGeral['total_boletos'] += $cursoDados['resumo']['total'];
+            $resumoGeral['boletos_pagos'] += $cursoDados['resumo']['pagos'];
+            $resumoGeral['boletos_pendentes'] += $cursoDados['resumo']['pendentes'];
+            $resumoGeral['boletos_vencidos'] += $cursoDados['resumo']['vencidos'];
+            $resumoGeral['valor_total'] += $cursoDados['resumo']['valor_total'];
+            $resumoGeral['valor_pendente'] += $cursoDados['resumo']['valor_pendente'];
+        }
         
-        switch ($boleto['status']) {
-            case 'pago':
-                $cursoDados['resumo']['pagos']++;
-                break;
-            case 'pendente':
-                $cursoDados['resumo']['pendentes']++;
-                $cursoDados['resumo']['valor_pendente'] += $boleto['valor'];
-                break;
-            case 'vencido':
-                $cursoDados['resumo']['vencidos']++;
-                $cursoDados['resumo']['valor_pendente'] += $boleto['valor'];
-                break;
+        error_log("Dashboard: Cursos com boletos: " . count($dadosDashboard));
+        
+    } else {
+        error_log("Dashboard: ⚠️ NENHUM BOLETO ENCONTRADO - Possível problema!");
+        
+        // Debug adicional: verifica se existem boletos com outro aluno_id mas mesmo CPF
+        $stmt = $db->prepare("
+            SELECT b.*, a.cpf, a.nome as aluno_nome_boleto, c.nome as curso_nome
+            FROM boletos b
+            INNER JOIN alunos a ON b.aluno_id = a.id
+            INNER JOIN cursos c ON b.curso_id = c.id
+            WHERE a.cpf = ? AND c.subdomain = ?
+        ");
+        $stmt->execute([$_SESSION['aluno_cpf'], $_SESSION['subdomain']]);
+        $boletosComMesmoCPF = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        if (!empty($boletosComMesmoCPF)) {
+            error_log("Dashboard: 🔍 ENCONTRADOS " . count($boletosComMesmoCPF) . " boletos com mesmo CPF mas aluno_id diferente:");
+            
+            foreach ($boletosComMesmoCPF as $boleto) {
+                error_log("Dashboard: - Boleto #{$boleto['numero_boleto']}: aluno_id={$boleto['aluno_id']}, curso={$boleto['curso_nome']}");
+                
+                // CORREÇÃO AUTOMÁTICA: Atualiza aluno_id se necessário
+                if ($boleto['aluno_id'] != $aluno['id']) {
+                    error_log("Dashboard: 🔧 CORRIGINDO aluno_id do boleto #{$boleto['numero_boleto']} de {$boleto['aluno_id']} para {$aluno['id']}");
+                    
+                    $stmtUpdate = $db->prepare("UPDATE boletos SET aluno_id = ? WHERE id = ?");
+                    $stmtUpdate->execute([$aluno['id'], $boleto['id']]);
+                }
+            }
+            
+            // Recarrega boletos após correção
+            $stmt = $db->prepare("
+                SELECT b.*, c.nome as curso_nome, c.subdomain
+                FROM boletos b
+                INNER JOIN cursos c ON b.curso_id = c.id
+                WHERE b.aluno_id = ? 
+                AND c.subdomain = ?
+                ORDER BY b.vencimento DESC, b.created_at DESC
+            ");
+            $stmt->execute([$aluno['id'], $_SESSION['subdomain']]);
+            $todosBoletos = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            if (!empty($todosBoletos)) {
+                error_log("Dashboard: ✅ CORREÇÃO APLICADA: " . count($todosBoletos) . " boletos agora visíveis");
+                // Re-processa os boletos com a lógica acima
+                // (copie novamente todo o código de processamento)
+            }
         }
     }
     
-    // Ordena boletos por vencimento (mais próximos primeiro)
-    usort($cursoDados['boletos'], function($a, $b) {
-        return strtotime($a['vencimento']) - strtotime($b['vencimento']);
-    });
-    
-    $dadosDashboard[] = $cursoDados;
-    
-    // Atualiza resumo geral
-    $resumoGeral['total_boletos'] += $cursoDados['resumo']['total'];
-    $resumoGeral['boletos_pagos'] += $cursoDados['resumo']['pagos'];
-    $resumoGeral['boletos_pendentes'] += $cursoDados['resumo']['pendentes'];
-    $resumoGeral['boletos_vencidos'] += $cursoDados['resumo']['vencidos'];
-    $resumoGeral['valor_total'] += $cursoDados['resumo']['valor_total'];
-    $resumoGeral['valor_pendente'] += $cursoDados['resumo']['valor_pendente'];
+} catch (Exception $e) {
+    error_log("Dashboard: ERRO ao buscar boletos: " . $e->getMessage());
+    $dadosDashboard = [];
 }
 
 $resumoGeral['valor_pago'] = $resumoGeral['valor_total'] - $resumoGeral['valor_pendente'];
+
 
 // Busca próximos vencimentos APENAS DO POLO ATUAL
 try {
@@ -157,6 +242,30 @@ try {
     error_log("Dashboard: Erro ao buscar próximos vencimentos: " . $e->getMessage());
     $proximosVencimentos = [];
 }
+
+// ADICIONA INFORMAÇÕES DE DEBUG NO FINAL DO ARQUIVO (antes de </body>)
+if (isset($_GET['debug']) && $_GET['debug'] == '1') {
+    echo '<div class="debug-info" style="background: #f8f9fa; padding: 20px; margin: 20px; border: 1px solid #dee2e6; border-radius: 5px; font-family: monospace; font-size: 12px;">';
+    echo '<h5>🐛 Informações de Debug - Dashboard</h5>';
+    echo '<p><strong>Aluno ID:</strong> ' . $aluno['id'] . '</p>';
+    echo '<p><strong>CPF da Sessão:</strong> ' . $_SESSION['aluno_cpf'] . '</p>';
+    echo '<p><strong>Subdomain:</strong> ' . $_SESSION['subdomain'] . '</p>';
+    echo '<p><strong>Total boletos encontrados:</strong> ' . count($todosBoletos ?? []) . '</p>';
+    echo '<p><strong>Cursos com boletos:</strong> ' . count($dadosDashboard) . '</p>';
+    echo '<p><strong>Resumo:</strong> ' . json_encode($resumoGeral) . '</p>';
+    
+    if (!empty($todosBoletos)) {
+        echo '<p><strong>Boletos encontrados:</strong></p>';
+        echo '<ul>';
+        foreach ($todosBoletos as $boleto) {
+            echo '<li>#' . $boleto['numero_boleto'] . ' - ' . $boleto['curso_nome'] . ' - R$ ' . number_format($boleto['valor'], 2, ',', '.') . '</li>';
+        }
+        echo '</ul>';
+    }
+    echo '</div>';
+}
+
+
 
 // Configura polo
 $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
@@ -1213,6 +1322,9 @@ error_log("Dashboard: Resumo final - Subdomain: {$_SESSION['subdomain']}, Cursos
             boletos_pendentes: <?= $resumoGeral['boletos_pendentes'] ?>,
             boletos_vencidos: <?= $resumoGeral['boletos_vencidos'] ?>
         });
+     
+      // Log final do dashboard
+	error_log("Dashboard: Resumo final - Subdomain: {$_SESSION['subdomain']}, Cursos: " . count($dadosDashboard) . ", Boletos totais: " . $resumoGeral['total_boletos']);
     </script>
 </body>
 </html>

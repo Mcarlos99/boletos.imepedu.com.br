@@ -257,31 +257,209 @@ class BoletoUploadService {
     /**
      * Verifica se aluno existe e está matriculado no curso
      */
-    private function verificarAlunoECurso($cpf, $cursoId, $polo) {
-        $alunoService = new AlunoService();
-        
-        // Busca aluno por CPF e polo
-        $aluno = $alunoService->buscarAlunoPorCPFESubdomain($cpf, $polo);
-        
-        if (!$aluno) {
-            throw new Exception("Aluno com CPF {$cpf} não encontrado no polo {$polo}");
-        }
-        
-        // Verifica se está matriculado no curso
-        $stmt = $this->db->prepare("
-            SELECT COUNT(*) as count 
-            FROM matriculas m 
-            WHERE m.aluno_id = ? AND m.curso_id = ? AND m.status = 'ativa'
-        ");
-        $stmt->execute([$aluno['id'], $cursoId]);
-        
-        if ($stmt->fetch()['count'] == 0) {
-            throw new Exception("Aluno {$aluno['nome']} não está matriculado neste curso");
-        }
-        
+private function verificarAlunoECurso($cpf, $cursoId, $polo) {
+    $alunoService = new AlunoService();
+    
+    // Busca aluno por CPF e polo
+    $aluno = $alunoService->buscarAlunoPorCPFESubdomain($cpf, $polo);
+    
+    if (!$aluno) {
+        throw new Exception("Aluno com CPF {$cpf} não encontrado no polo {$polo}");
+    }
+    
+    error_log("BoletoUpload: Verificando matrícula - Aluno ID: {$aluno['id']}, Curso ID: {$cursoId}, Polo: {$polo}");
+    
+    // CORREÇÃO: Verificação de matrícula usando estrutura correta do Moodle
+    // Método 1: Verificação via tabela matriculas do sistema local
+    $stmt = $this->db->prepare("
+        SELECT COUNT(*) as count 
+        FROM matriculas m 
+        INNER JOIN cursos c ON m.curso_id = c.id
+        WHERE m.aluno_id = ? 
+        AND c.id = ? 
+        AND c.subdomain = ?
+        AND m.status = 'ativa'
+    ");
+    $stmt->execute([$aluno['id'], $cursoId, $polo]);
+    $matriculaLocal = $stmt->fetch()['count'];
+    
+    error_log("BoletoUpload: Matrícula local encontrada: {$matriculaLocal}");
+    
+    if ($matriculaLocal > 0) {
+        error_log("BoletoUpload: ✅ Matrícula confirmada via sistema local");
         return $aluno;
     }
     
+    // CORREÇÃO: Se não encontrou localmente, verifica no Moodle e sincroniza
+    error_log("BoletoUpload: 🔄 Tentando sincronizar matrícula do Moodle");
+    
+    try {
+        require_once __DIR__ . '/../config/moodle.php';
+        require_once __DIR__ . '/MoodleAPI.php';
+        
+        // Conecta com o Moodle para verificar matrícula real
+        $moodleAPI = new MoodleAPI($polo);
+        
+        // Busca dados atualizados do aluno no Moodle
+        $dadosAlunoMoodle = $moodleAPI->buscarAlunoPorCPF($cpf);
+        
+        if ($dadosAlunoMoodle && !empty($dadosAlunoMoodle['cursos'])) {
+            error_log("BoletoUpload: 📚 Cursos encontrados no Moodle: " . count($dadosAlunoMoodle['cursos']));
+            
+            // Verifica se o curso solicitado está entre os cursos do Moodle
+            $cursoEncontrado = false;
+            
+            // Busca informações do curso local
+            $stmtCurso = $this->db->prepare("
+                SELECT moodle_course_id, nome, nome_curto 
+                FROM cursos 
+                WHERE id = ? AND subdomain = ?
+            ");
+            $stmtCurso->execute([$cursoId, $polo]);
+            $cursoLocal = $stmtCurso->fetch();
+            
+            if ($cursoLocal) {
+                error_log("BoletoUpload: 🎯 Curso local: {$cursoLocal['nome']} (Moodle ID: {$cursoLocal['moodle_course_id']})");
+                
+                foreach ($dadosAlunoMoodle['cursos'] as $cursoMoodle) {
+                    error_log("BoletoUpload: 🔍 Verificando curso Moodle: {$cursoMoodle['nome']} (ID: {$cursoMoodle['moodle_course_id']})");
+                    
+                    // Verifica correspondência por ID do Moodle
+                    if ($cursoMoodle['moodle_course_id'] == $cursoLocal['moodle_course_id']) {
+                        $cursoEncontrado = true;
+                        error_log("BoletoUpload: ✅ Correspondência encontrada por Moodle ID");
+                        break;
+                    }
+                    
+                    // Verificação por nome (fallback)
+                    $nomeCursoMoodle = $this->normalizarNome($cursoMoodle['nome']);
+                    $nomeCursoLocal = $this->normalizarNome($cursoLocal['nome']);
+                    
+                    if ($nomeCursoMoodle === $nomeCursoLocal) {
+                        $cursoEncontrado = true;
+                        error_log("BoletoUpload: ✅ Correspondência encontrada por nome");
+                        break;
+                    }
+                    
+                    // Verificação por nome curto (fallback)
+                    if (!empty($cursoMoodle['nome_curto']) && !empty($cursoLocal['nome_curto'])) {
+                        $nomeCurtoMoodle = $this->normalizarNome($cursoMoodle['nome_curto']);
+                        $nomeCurtoLocal = $this->normalizarNome($cursoLocal['nome_curto']);
+                        
+                        if ($nomeCurtoMoodle === $nomeCurtoLocal) {
+                            $cursoEncontrado = true;
+                            error_log("BoletoUpload: ✅ Correspondência encontrada por nome curto");
+                            break;
+                        }
+                    }
+                }
+                
+                if ($cursoEncontrado) {
+                    // Sincroniza dados do aluno no sistema local
+                    error_log("BoletoUpload: 🔄 Sincronizando dados do aluno");
+                    $alunoService->salvarOuAtualizarAluno($dadosAlunoMoodle);
+                    
+                    error_log("BoletoUpload: ✅ Matrícula confirmada e sincronizada do Moodle");
+                    return $aluno;
+                } else {
+                    error_log("BoletoUpload: ❌ Curso não encontrado entre os cursos do aluno no Moodle");
+                    
+                    // Log dos cursos disponíveis para debug
+                    $cursosDisponiveis = array_map(function($c) {
+                        return $c['nome'] . " (ID: " . $c['moodle_course_id'] . ")";
+                    }, $dadosAlunoMoodle['cursos']);
+                    error_log("BoletoUpload: 📋 Cursos disponíveis: " . implode(', ', $cursosDisponiveis));
+                }
+            } else {
+                error_log("BoletoUpload: ❌ Curso local não encontrado");
+            }
+        } else {
+            error_log("BoletoUpload: ❌ Nenhum curso encontrado para o aluno no Moodle");
+        }
+        
+    } catch (Exception $e) {
+        error_log("BoletoUpload: ⚠️ Erro ao verificar no Moodle: " . $e->getMessage());
+        // Em caso de erro do Moodle, continua com verificação básica
+    }
+    
+    // NOVA VERIFICAÇÃO: Busca flexível por qualquer curso do aluno no polo
+    $stmt = $this->db->prepare("
+        SELECT c.nome, c.moodle_course_id
+        FROM matriculas m 
+        INNER JOIN cursos c ON m.curso_id = c.id
+        WHERE m.aluno_id = ? 
+        AND c.subdomain = ?
+        AND m.status = 'ativa'
+    ");
+    $stmt->execute([$aluno['id'], $polo]);
+    $cursosAluno = $stmt->fetchAll();
+    
+    if (!empty($cursosAluno)) {
+        $nomesCursos = array_map(function($c) {
+            return $c['nome'] . " (Moodle ID: " . $c['moodle_course_id'] . ")";
+        }, $cursosAluno);
+        
+        throw new Exception("Aluno {$aluno['nome']} está matriculado em outros cursos deste polo, mas não no curso selecionado. Cursos disponíveis: " . implode(', ', $nomesCursos));
+    }
+    
+    throw new Exception("Aluno {$aluno['nome']} não possui matrículas ativas no polo {$polo}. Verifique se o aluno está matriculado no curso correto no Moodle.");
+}
+
+/**
+ * Normaliza nome para comparação
+ */
+private function normalizarNome($nome) {
+    $nome = trim(strtolower($nome));
+    
+    // Remove acentos
+    $acentos = [
+        'á' => 'a', 'à' => 'a', 'ã' => 'a', 'â' => 'a', 'ä' => 'a',
+        'é' => 'e', 'è' => 'e', 'ê' => 'e', 'ë' => 'e',
+        'í' => 'i', 'ì' => 'i', 'î' => 'i', 'ï' => 'i',
+        'ó' => 'o', 'ò' => 'o', 'õ' => 'o', 'ô' => 'o', 'ö' => 'o',
+        'ú' => 'u', 'ù' => 'u', 'û' => 'u', 'ü' => 'u',
+        'ç' => 'c', 'ñ' => 'n'
+    ];
+    
+    $nome = str_replace(array_keys($acentos), array_values($acentos), $nome);
+    
+    // Remove caracteres especiais
+    $nome = preg_replace('/[^a-z0-9\s]/', '', $nome);
+    
+    // Remove espaços extras
+    $nome = preg_replace('/\s+/', ' ', $nome);
+    
+    return trim($nome);
+}
+/**
+ * MÉTODO ADICIONAL: Força sincronização completa do aluno
+ */
+public function forcarSincronizacaoAluno($cpf, $polo) {
+    try {
+        error_log("BoletoUpload: 🔄 Forçando sincronização completa do aluno CPF: {$cpf}");
+        
+        require_once __DIR__ . '/MoodleAPI.php';
+        
+        $moodleAPI = new MoodleAPI($polo);
+        $dadosAlunoMoodle = $moodleAPI->buscarAlunoPorCPF($cpf);
+        
+        if ($dadosAlunoMoodle) {
+            $alunoService = new AlunoService();
+            $alunoId = $alunoService->salvarOuAtualizarAluno($dadosAlunoMoodle);
+            
+            error_log("BoletoUpload: ✅ Sincronização completa realizada");
+            return $alunoId;
+        } else {
+            error_log("BoletoUpload: ❌ Aluno não encontrado no Moodle");
+            return false;
+        }
+        
+    } catch (Exception $e) {
+        error_log("BoletoUpload: ❌ Erro na sincronização: " . $e->getMessage());
+        return false;
+    }
+}
+
     /**
      * Verifica se número do boleto é único
      */
