@@ -1,7 +1,9 @@
 <?php
 /**
- * Sistema de Boletos IMED - API para Cancelar Boleto
+ * Sistema de Boletos IMED - API para Cancelar Boleto CORRIGIDA
  * Arquivo: admin/api/cancelar-boleto.php
+ * 
+ * CORREÇÃO: Campo 'tipo' da tabela logs limitado para evitar truncamento
  */
 
 session_start();
@@ -101,24 +103,43 @@ try {
         throw new Exception('Falha ao cancelar o boleto');
     }
     
-    // Registra log detalhado
-    $stmt = $db->prepare("
-        INSERT INTO logs (
-            tipo, usuario_id, boleto_id, descricao, 
-            ip_address, user_agent, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, NOW())
-    ");
-    
-    $descricaoLog = "Boleto #{$boleto['numero_boleto']} cancelado - Aluno: {$boleto['aluno_nome']} - Motivo: {$motivo}";
-    
-    $stmt->execute([
-        'boleto_cancelado_admin',
-        $_SESSION['admin_id'],
-        $boletoId,
-        $descricaoLog,
-        $_SERVER['REMOTE_ADDR'] ?? 'unknown',
-        $_SERVER['HTTP_USER_AGENT'] ?? 'unknown'
-    ]);
+    // 🔧 CORREÇÃO: Registra log detalhado com validações
+    try {
+        $stmt = $db->prepare("
+            INSERT INTO logs (
+                tipo, usuario_id, boleto_id, descricao, 
+                ip_address, user_agent, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, NOW())
+        ");
+        
+        // 🔧 CORREÇÃO: Limita o tipo para evitar truncamento
+        $tipoLog = 'cancelado_admin';
+        
+        // 🔧 CORREÇÃO: Valida se admin_id existe antes de usar
+        $adminId = isset($_SESSION['admin_id']) ? (int)$_SESSION['admin_id'] : null;
+        
+        // 🔧 CORREÇÃO: Limita descrição se necessário
+        $descricaoLog = "Boleto #{$boleto['numero_boleto']} cancelado - Aluno: {$boleto['aluno_nome']} - Motivo: " . substr($motivo, 0, 200);
+        if (strlen($descricaoLog) > 500) {
+            $descricaoLog = substr($descricaoLog, 0, 497) . '...';
+        }
+        
+        $stmt->execute([
+            $tipoLog,
+            $adminId, // Pode ser NULL se sessão inválida
+            $boletoId,
+            $descricaoLog,
+            $_SERVER['REMOTE_ADDR'] ?? 'unknown',
+            substr($_SERVER['HTTP_USER_AGENT'] ?? 'unknown', 0, 255)
+        ]);
+        
+        error_log("Log de cancelamento registrado com sucesso");
+        
+    } catch (Exception $logError) {
+        // Se log falhar, não impede o cancelamento, apenas registra o erro
+        error_log("AVISO: Erro ao registrar log de cancelamento: " . $logError->getMessage());
+        error_log("Cancelamento do boleto continuará normalmente");
+    }
     
     // Commit da transação
     $db->commit();
@@ -321,7 +342,7 @@ function obterHistoricoCancelamentos($adminId, $limite = 10) {
             INNER JOIN boletos b ON l.boleto_id = b.id
             INNER JOIN alunos a ON b.aluno_id = a.id
             INNER JOIN cursos c ON b.curso_id = c.id
-            WHERE l.tipo = 'boleto_cancelado_admin' 
+            WHERE l.tipo = 'cancelado_admin' 
             AND l.usuario_id = ?
             ORDER BY l.created_at DESC
             LIMIT ?
@@ -333,6 +354,59 @@ function obterHistoricoCancelamentos($adminId, $limite = 10) {
     } catch (Exception $e) {
         error_log("Erro ao buscar histórico: " . $e->getMessage());
         return [];
+    }
+}
+
+/**
+ * 🔧 CORREÇÃO ADICIONAL: Função para verificar estrutura da tabela logs
+ */
+function verificarEstruturaTabelaLogs() {
+    try {
+        $db = (new Database())->getConnection();
+        
+        // Verifica a estrutura da coluna 'tipo'
+        $stmt = $db->prepare("SHOW COLUMNS FROM logs LIKE 'tipo'");
+        $stmt->execute();
+        $coluna = $stmt->fetch();
+        
+        if ($coluna) {
+            error_log("Estrutura coluna 'tipo': " . print_r($coluna, true));
+            
+            // Se for VARCHAR muito pequeno, sugere alteração
+            if (strpos($coluna['Type'], 'varchar') !== false) {
+                preg_match('/varchar\((\d+)\)/', $coluna['Type'], $matches);
+                $tamanho = isset($matches[1]) ? (int)$matches[1] : 0;
+                
+                if ($tamanho < 50) {
+                    error_log("AVISO: Coluna 'tipo' tem apenas {$tamanho} caracteres. Recomenda-se VARCHAR(100)");
+                    
+                    // Opcional: Auto-correção (descomente se quiser aplicar automaticamente)
+                    /*
+                    try {
+                        $db->exec("ALTER TABLE logs MODIFY COLUMN tipo VARCHAR(100) NOT NULL");
+                        error_log("✅ Coluna 'tipo' expandida para VARCHAR(100)");
+                    } catch (Exception $e) {
+                        error_log("❌ Erro ao expandir coluna 'tipo': " . $e->getMessage());
+                    }
+                    */
+                }
+            }
+        }
+        
+    } catch (Exception $e) {
+        error_log("Erro ao verificar estrutura da tabela: " . $e->getMessage());
+    }
+}
+
+// 🔧 CORREÇÃO: Executa verificação na primeira execução
+if (php_sapi_name() === 'cli' || 
+    (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST')) {
+    
+    // Executa verificação apenas uma vez por dia
+    $lastCheck = '/tmp/imed_logs_structure_check';
+    if (!file_exists($lastCheck) || (time() - filemtime($lastCheck)) > 86400) {
+        verificarEstruturaTabelaLogs();
+        touch($lastCheck);
     }
 }
 ?>

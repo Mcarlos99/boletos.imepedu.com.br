@@ -1185,43 +1185,44 @@ $cursosDisponiveis = $adminService->buscarTodosCursos();
             }
         }
         
-        // Remover boleto
-        function removerBoleto(boletoId) {
-            if (confirm('⚠️ ATENÇÃO: Remover Boleto\n\nEsta ação irá:\n• Excluir o boleto permanentemente\n• Remover o arquivo PDF do servidor\n• Não poderá ser desfeita\n\nTem certeza que deseja continuar?')) {
-                const motivo = prompt('Motivo da remoção (obrigatório):') || 'Removido pelo administrador';
-                
-                if (!motivo.trim()) {
-                    showToast('Motivo da remoção é obrigatório', 'error');
-                    return;
-                }
-                
-                showToast('Removendo boleto...', 'info');
-                
-                fetch('/admin/api/remover-boleto.php', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        boleto_id: boletoId,
-                        motivo: motivo.trim()
-                    })
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        showToast('Boleto removido com sucesso!', 'success');
-                        setTimeout(() => location.reload(), 1500);
-                    } else {
-                        showToast('Erro: ' + data.message, 'error');
-                    }
-                })
-                .catch(error => {
-                    console.error('Erro:', error);
-                    showToast('Erro de conexão', 'error');
-                });
-            }
+// Função para remover boleto
+function removerBoleto(boletoId) {
+    if (confirm('⚠️ ATENÇÃO: Remover Boleto\n\nEsta ação irá:\n• Excluir o boleto permanentemente\n• Remover o arquivo PDF do servidor\n• Não poderá ser desfeita\n\nTem certeza que deseja continuar?')) {
+        const motivo = prompt('Motivo da remoção (obrigatório):') || 'Removido pelo administrador';
+        
+        if (!motivo.trim()) {
+            showToast('Motivo da remoção é obrigatório', 'error');
+            return;
         }
+        
+        showToast('Removendo boleto...', 'info');
+        
+        fetch('/admin/api/remover-boleto-simples.php', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                boleto_id: boletoId,
+                motivo: motivo.trim(),
+                confirmar_remocao: true
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showToast('Boleto removido com sucesso!', 'success');
+                setTimeout(() => location.reload(), 1500);
+            } else {
+                showToast('Erro: ' + data.message, 'error');
+            }
+        })
+        .catch(error => {
+            console.error('Erro:', error);
+            showToast('Erro de conexão', 'error');
+        });
+    }
+}
         
         // Função para PIX (placeholder)
         function mostrarPix(boletoId) {
