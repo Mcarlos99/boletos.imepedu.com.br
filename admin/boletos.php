@@ -407,7 +407,7 @@ $cursosDisponiveis = $adminService->buscarTodosCursos();
                             </thead>
                             <tbody>
                                 <?php foreach ($resultado['boletos'] as $boleto): ?>
-                                    <tr>
+                                    <tr data-boleto-id="<?= $boleto['id'] ?>">
                                         <td>
                                             <strong>#<?= $boleto['numero_boleto'] ?></strong>
                                             <?php if (!empty($boleto['arquivo_pdf'])): ?>
@@ -545,8 +545,7 @@ $cursosDisponiveis = $adminService->buscarTodosCursos();
             </div>
         </div>
     </div>
-    
-    <!-- Modal para marcar como pago -->
+  <!-- Modal para marcar como pago -->
     <div class="modal fade" id="pagoModal" tabindex="-1">
         <div class="modal-dialog">
             <div class="modal-content">
@@ -586,7 +585,7 @@ $cursosDisponiveis = $adminService->buscarTodosCursos();
     
     <!-- Modal para detalhes do boleto -->
     <div class="modal fade" id="detalhesModal" tabindex="-1">
-        <div class="modal-dialog modal-lg">
+        <div class="modal-dialog modal-xl">
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title">Detalhes do Boleto</h5>
@@ -600,19 +599,32 @@ $cursosDisponiveis = $adminService->buscarTodosCursos();
                     </div>
                 </div>
                 <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" onclick="exportarDetalhes(currentBoletoId)" title="Exportar detalhes para CSV">
+                        <i class="fas fa-download"></i> Exportar
+                    </button>
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
                 </div>
             </div>
         </div>
     </div>
     
+    <!-- Toast Container -->
+    <div class="toast-container" id="toastContainer"></div>
+    
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     
     <script>
-        // Ver detalhes do boleto
+        // Variáveis globais
+        let isUpdating = false;
+        let currentBoletoId = null;
+        
+        // ========== FUNÇÕES DE DETALHES REAIS ==========
+        
+        // Ver detalhes do boleto - VERSÃO REAL
         function verDetalhes(boletoId) {
+            currentBoletoId = boletoId;
             const modal = new bootstrap.Modal(document.getElementById('detalhesModal'));
             const conteudo = document.getElementById('detalhesConteudo');
             
@@ -621,41 +633,454 @@ $cursosDisponiveis = $adminService->buscarTodosCursos();
                     <div class="spinner-border" role="status">
                         <span class="visually-hidden">Carregando...</span>
                     </div>
+                    <p class="mt-2">Carregando detalhes...</p>
                 </div>
             `;
             
             modal.show();
             
-            // Simula busca de detalhes (implementar API real)
-            setTimeout(() => {
-                conteudo.innerHTML = `
-                    <div class="row">
-                        <div class="col-md-6">
-                            <h6>Informações do Boleto</h6>
-                            <p><strong>Número:</strong> #${boletoId}</p>
-                            <p><strong>Valor:</strong> R$ 150,00</p>
-                            <p><strong>Vencimento:</strong> 15/01/2024</p>
-                            <p><strong>Status:</strong> <span class="badge-status badge-pendente">Pendente</span></p>
-                        </div>
-                        <div class="col-md-6">
-                            <h6>Informações do Aluno</h6>
-                            <p><strong>Nome:</strong> João Silva</p>
-                            <p><strong>CPF:</strong> 123.456.789-00</p>
-                            <p><strong>Email:</strong> joao@email.com</p>
-                            <p><strong>Curso:</strong> Técnico em Enfermagem</p>
-                        </div>
-                    </div>
-                `;
-            }, 1000);
+            // Busca detalhes reais via API
+            fetch(`/admin/api/boleto-detalhes.php?id=${boletoId}`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.success) {
+                        exibirDetalhesReais(data);
+                        showToast('Detalhes carregados!', 'success');
+                    } else {
+                        exibirErroDetalhes(data.message || 'Erro desconhecido');
+                        showToast('Erro: ' + (data.message || 'Erro desconhecido'), 'error');
+                    }
+                })
+                .catch(error => {
+                    console.error('Erro ao buscar detalhes:', error);
+                    exibirErroDetalhes('Erro de conexão: ' + error.message);
+                    showToast('Erro de conexão', 'error');
+                });
         }
         
-        // Marcar boleto como pago
-        function marcarComoPago(boletoId) {
-            document.getElementById('pago_boleto_id').value = boletoId;
-            document.getElementById('data_pagamento').value = new Date().toISOString().split('T')[0];
+        // Exibe detalhes reais do boleto
+        function exibirDetalhesReais(data) {
+            const { boleto, aluno, curso, administrador, arquivo, estatisticas, historico, acoes_disponiveis } = data;
             
-            const modal = new bootstrap.Modal(document.getElementById('pagoModal'));
-            modal.show();
+            // Determina classe de status
+            const statusClass = {
+                'pago': 'success',
+                'pendente': 'warning', 
+                'vencido': 'danger',
+                'cancelado': 'secondary'
+            }[boleto.status] || 'secondary';
+            
+            const html = `
+                <!-- Header com Status -->
+                <div class="row mb-4">
+                    <div class="col-md-8">
+                        <h4 class="mb-1">
+                            <i class="fas fa-file-invoice-dollar text-primary"></i>
+                            Boleto #${boleto.numero_boleto}
+                        </h4>
+                        <span class="badge bg-${statusClass} fs-6">${boleto.status_label}</span>
+                        ${boleto.esta_vencido ? '<span class="badge bg-danger ms-2">VENCIDO</span>' : ''}
+                    </div>
+                    <div class="col-md-4 text-end">
+                        <div class="h4 text-primary mb-0">${boleto.valor_formatado}</div>
+                        <small class="text-muted">${boleto.status_vencimento}</small>
+                    </div>
+                </div>
+
+                <!-- Informações Principais -->
+                <div class="row mb-4">
+                    <div class="col-md-6">
+                        <h6 class="text-primary mb-3">
+                            <i class="fas fa-info-circle"></i> Informações do Boleto
+                        </h6>
+                        <table class="table table-sm">
+                            <tr>
+                                <td><strong>Número:</strong></td>
+                                <td>#${boleto.numero_boleto}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Valor:</strong></td>
+                                <td>${boleto.valor_formatado}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Vencimento:</strong></td>
+                                <td>${boleto.vencimento_formatado}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Status:</strong></td>
+                                <td><span class="badge bg-${statusClass}">${boleto.status_label}</span></td>
+                            </tr>
+                            ${boleto.data_pagamento_formatada ? `
+                            <tr>
+                                <td><strong>Data Pagamento:</strong></td>
+                                <td>${boleto.data_pagamento_formatada}</td>
+                            </tr>
+                            ` : ''}
+                            ${boleto.valor_pago_formatado ? `
+                            <tr>
+                                <td><strong>Valor Pago:</strong></td>
+                                <td>${boleto.valor_pago_formatado}</td>
+                            </tr>
+                            ` : ''}
+                            <tr>
+                                <td><strong>Criado em:</strong></td>
+                                <td>${boleto.created_at_formatado}</td>
+                            </tr>
+                        </table>
+                        
+                        ${boleto.descricao && boleto.descricao !== 'Sem descrição' ? `
+                        <div class="mt-3">
+                            <strong>Descrição:</strong>
+                            <p class="text-muted">${boleto.descricao}</p>
+                        </div>
+                        ` : ''}
+                        
+                        ${boleto.observacoes ? `
+                        <div class="mt-3">
+                            <strong>Observações:</strong>
+                            <p class="text-muted">${boleto.observacoes}</p>
+                        </div>
+                        ` : ''}
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <h6 class="text-primary mb-3">
+                            <i class="fas fa-user"></i> Informações do Aluno
+                        </h6>
+                        <table class="table table-sm">
+                            <tr>
+                                <td><strong>Nome:</strong></td>
+                                <td>${aluno.nome}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>CPF:</strong></td>
+                                <td>${aluno.cpf_formatado}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Email:</strong></td>
+                                <td>
+                                    <a href="mailto:${aluno.email}" class="text-decoration-none">
+                                        ${aluno.email}
+                                    </a>
+                                </td>
+                            </tr>
+                            ${aluno.cidade ? `
+                            <tr>
+                                <td><strong>Cidade:</strong></td>
+                                <td>${aluno.cidade}</td>
+                            </tr>
+                            ` : ''}
+                            <tr>
+                                <td><strong>Cadastro:</strong></td>
+                                <td>${aluno.cadastro_formatado}</td>
+                            </tr>
+                        </table>
+                        
+                        <h6 class="text-primary mb-3 mt-4">
+                            <i class="fas fa-graduation-cap"></i> Curso
+                        </h6>
+                        <table class="table table-sm">
+                            <tr>
+                                <td><strong>Nome:</strong></td>
+                                <td>${curso.nome}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Código:</strong></td>
+                                <td>${curso.nome_curto}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Polo:</strong></td>
+                                <td>${curso.polo_nome}</td>
+                            </tr>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Informações do Arquivo -->
+                ${arquivo ? `
+                <div class="row mb-4">
+                    <div class="col-12">
+                        <h6 class="text-primary mb-3">
+                            <i class="fas fa-file-pdf"></i> Arquivo PDF
+                        </h6>
+                        ${arquivo.existe ? `
+                        <div class="alert alert-success">
+                            <div class="row">
+                                <div class="col-md-8">
+                                    <strong><i class="fas fa-check-circle"></i> Arquivo disponível</strong>
+                                    <br><small>Tamanho: ${arquivo.tamanho_formatado}</small>
+                                    <br><small>Modificado: ${arquivo.data_modificacao}</small>
+                                </div>
+                                <div class="col-md-4 text-end">
+                                    <button class="btn btn-info btn-sm" onclick="downloadBoleto(${boleto.id})">
+                                        <i class="fas fa-download"></i> Download
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        ` : `
+                        <div class="alert alert-warning">
+                            <i class="fas fa-exclamation-triangle"></i>
+                            <strong>Arquivo não encontrado</strong>
+                            <br><small>${arquivo.erro}</small>
+                        </div>
+                        `}
+                    </div>
+                </div>
+                ` : ''}
+
+                <!-- Estatísticas -->
+                <div class="row mb-4">
+                    <div class="col-12">
+                        <h6 class="text-primary mb-3">
+                            <i class="fas fa-chart-bar"></i> Estatísticas
+                        </h6>
+                        <div class="row text-center">
+                            <div class="col-md-4">
+                                <div class="card bg-light">
+                                    <div class="card-body py-2">
+                                        <h6 class="card-title mb-1">${estatisticas.total_downloads}</h6>
+                                        <small class="text-muted">Downloads</small>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="card bg-light">
+                                    <div class="card-body py-2">
+                                        <h6 class="card-title mb-1">${estatisticas.total_pix_gerados}</h6>
+                                        <small class="text-muted">PIX Gerados</small>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="card bg-light">
+                                    <div class="card-body py-2">
+                                        <h6 class="card-title mb-1">${estatisticas.ultimo_download_formatado}</h6>
+                                        <small class="text-muted">Último Download</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Histórico de Ações -->
+                ${historico && historico.length > 0 ? `
+                <div class="row mb-4">
+                    <div class="col-12">
+                        <h6 class="text-primary mb-3">
+                            <i class="fas fa-history"></i> Histórico de Ações
+                        </h6>
+                        <div style="max-height: 200px; overflow-y: auto;">
+                            ${historico.map(log => `
+                            <div class="border-bottom py-2">
+                                <div class="d-flex justify-content-between">
+                                    <div>
+                                        <strong>${getTipoLabel(log.tipo)}</strong>
+                                        <br><small class="text-muted">${log.descricao}</small>
+                                        <br><small class="text-info">por ${log.admin_nome}</small>
+                                    </div>
+                                    <div class="text-end">
+                                        <small class="text-muted">${log.data_formatada}</small>
+                                    </div>
+                                </div>
+                            </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+                ` : ''}
+
+                <!-- Ações Disponíveis -->
+                <div class="row">
+                    <div class="col-12">
+                        <h6 class="text-primary mb-3">
+                            <i class="fas fa-cogs"></i> Ações Disponíveis
+                        </h6>
+                        <div class="d-grid gap-2 d-md-flex">
+                            ${acoes_disponiveis.map(acao => `
+                            <button class="btn ${acao.classe}" onclick="executarAcao('${acao.tipo}', ${boleto.id})">
+                                <i class="${acao.icone}"></i> ${acao.label}
+                            </button>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Informações do Administrador -->
+                <div class="row mt-4">
+                    <div class="col-12">
+                        <small class="text-muted">
+                            <i class="fas fa-user-shield"></i>
+                            Criado por: ${administrador.nome}
+                            ${administrador.email ? ` (${administrador.email})` : ''}
+                        </small>
+                    </div>
+                </div>
+            `;
+            
+            document.getElementById('detalhesConteudo').innerHTML = html;
+        }
+        
+        // Função auxiliar para labels dos tipos de log
+        function getTipoLabel(tipo) {
+            const labels = {
+                'upload_individual': 'Upload Individual',
+                'upload_lote': 'Upload em Lote',
+                'boleto_pago': 'Marcado como Pago',
+                'boleto_pago_admin': 'Pago pelo Admin',
+                'boleto_cancelado': 'Cancelado',
+                'boleto_cancelado_admin': 'Cancelado pelo Admin',
+                'download_boleto': 'Download',
+                'download_pdf_sucesso': 'Download PDF',
+                'download_pdf_erro': 'Erro no Download',
+                'pix_gerado': 'PIX Gerado',
+                'pix_erro': 'Erro no PIX',
+                'remover_boleto': 'Removido',
+                'atualizar_arquivo': 'Arquivo Atualizado'
+            };
+            
+            return labels[tipo] || tipo.replace(/_/g, ' ').toUpperCase();
+        }
+        
+        // Executa ações do boleto
+        function executarAcao(acao, boletoId) {
+            switch (acao) {
+                case 'download':
+                    downloadBoleto(boletoId);
+                    break;
+                case 'pix':
+                    fecharDetalhes();
+                    mostrarPix(boletoId);
+                    break;
+                case 'marcar_pago':
+                    fecharDetalhes();
+                    marcarComoPago(boletoId);
+                    break;
+                case 'cancelar':
+                    fecharDetalhes();
+                    cancelarBoleto(boletoId);
+                    break;
+                case 'editar':
+                    fecharDetalhes();
+                    editarBoleto(boletoId);
+                    break;
+                case 'remover':
+                    fecharDetalhes();
+                    removerBoleto(boletoId);
+                    break;
+                default:
+                    showToast('Ação não implementada: ' + acao, 'warning');
+            }
+        }
+        
+        // Função para editar boleto (nova)
+        function editarBoleto(boletoId) {
+            showToast('Funcionalidade de edição será implementada em breve', 'info');
+            // TODO: Implementar modal de edição
+        }
+        
+        // Função para fechar detalhes
+        function fecharDetalhes() {
+            const detalhesModal = bootstrap.Modal.getInstance(document.getElementById('detalhesModal'));
+            if (detalhesModal) {
+                detalhesModal.hide();
+            }
+            currentBoletoId = null;
+        }
+        
+        // Função melhorada para mostrar erros
+        function exibirErroDetalhes(mensagem) {
+            const html = `
+                <div class="text-center p-4">
+                    <i class="fas fa-exclamation-triangle fa-3x text-warning mb-3"></i>
+                    <h5 class="text-danger">Erro ao Carregar Detalhes</h5>
+                    <p class="text-muted mb-4">${mensagem}</p>
+                    <div class="d-grid gap-2">
+                        <button class="btn btn-primary" onclick="location.reload()">
+                            <i class="fas fa-redo"></i> Recarregar Página
+                        </button>
+                        <button class="btn btn-outline-secondary" onclick="fecharDetalhes()">
+                            <i class="fas fa-times"></i> Fechar
+                        </button>
+                    </div>
+                </div>
+            `;
+            
+            document.getElementById('detalhesConteudo').innerHTML = html;
+        }
+   // ========== FUNÇÕES DE AÇÕES DOS BOLETOS ==========
+        
+        // Download de boleto com feedback melhorado
+        function downloadBoleto(boletoId) {
+            console.log('Iniciando download do boleto:', boletoId);
+            
+            // Mostra loading no botão se existir
+            const downloadBtn = document.querySelector(`button[onclick*="downloadBoleto(${boletoId})"]`);
+            if (downloadBtn) {
+                const originalText = downloadBtn.innerHTML;
+                downloadBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Baixando...';
+                downloadBtn.disabled = true;
+                
+                setTimeout(() => {
+                    downloadBtn.innerHTML = originalText;
+                    downloadBtn.disabled = false;
+                }, 3000);
+            }
+            
+            showToast('Preparando download...', 'info');
+            
+            // Cria link temporário para download
+            const link = document.createElement('a');
+            link.href = `/api/download-boleto.php?id=${boletoId}`;
+            link.download = `Boleto_${boletoId}.pdf`;
+            link.target = '_blank';
+            
+            // Simula clique para iniciar download
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            // Feedback para o usuário
+            setTimeout(() => {
+                showToast('Download iniciado!', 'success');
+            }, 500);
+            
+            // Log de analytics
+            logUserAction('download_boleto', { boleto_id: boletoId });
+        }
+        
+        // Função melhorada para marcar como pago
+        function marcarComoPago(boletoId) {
+            // Busca valor atual do boleto para pré-preencher
+            fetch(`/admin/api/boleto-detalhes.php?id=${boletoId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        document.getElementById('pago_boleto_id').value = boletoId;
+                        document.getElementById('valor_pago').value = data.boleto.valor;
+                        document.getElementById('data_pagamento').value = new Date().toISOString().split('T')[0];
+                        
+                        const modal = new bootstrap.Modal(document.getElementById('pagoModal'));
+                        modal.show();
+                    } else {
+                        showToast('Erro ao buscar dados do boleto', 'error');
+                    }
+                })
+                .catch(error => {
+                    console.error('Erro:', error);
+                    // Fallback para o método original
+                    document.getElementById('pago_boleto_id').value = boletoId;
+                    document.getElementById('data_pagamento').value = new Date().toISOString().split('T')[0];
+                    
+                    const modal = new bootstrap.Modal(document.getElementById('pagoModal'));
+                    modal.show();
+                });
         }
         
         // Confirma pagamento
@@ -670,13 +1095,24 @@ $cursosDisponiveis = $adminService->buscarTodosCursos();
                 return;
             }
             
+            if (parseFloat(valorPago) <= 0) {
+                showToast('Valor deve ser maior que zero', 'error');
+                return;
+            }
+            
+            // Mostra loading
+            const submitBtn = document.querySelector('#pagoModal .btn-success');
+            const originalText = submitBtn.innerHTML;
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processando...';
+            submitBtn.disabled = true;
+            
             fetch('/admin/api/marcar-pago.php', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    boleto_id: boletoId,
+                    boleto_id: parseInt(boletoId),
                     valor_pago: parseFloat(valorPago),
                     data_pagamento: dataPagamento,
                     observacoes: observacoes
@@ -686,24 +1122,42 @@ $cursosDisponiveis = $adminService->buscarTodosCursos();
             .then(data => {
                 if (data.success) {
                     showToast('Boleto marcado como pago!', 'success');
+                    bootstrap.Modal.getInstance(document.getElementById('pagoModal')).hide();
+                    
+                    // Atualiza status na lista
+                    atualizarStatusBoletoNaLista(boletoId, 'pago');
+                    
                     setTimeout(() => location.reload(), 1500);
                 } else {
                     showToast('Erro: ' + data.message, 'error');
                 }
-                
-                bootstrap.Modal.getInstance(document.getElementById('pagoModal')).hide();
             })
             .catch(error => {
+                console.error('Erro:', error);
                 showToast('Erro de conexão', 'error');
+            })
+            .finally(() => {
+                submitBtn.innerHTML = originalText;
+                submitBtn.disabled = false;
             });
         }
         
         // Cancelar boleto
         function cancelarBoleto(boletoId) {
-            const motivo = prompt('Motivo do cancelamento:');
-            if (motivo === null) return;
+            const motivo = prompt('Motivo do cancelamento (obrigatório):');
             
-            if (confirm('Tem certeza que deseja cancelar este boleto?')) {
+            if (motivo === null) {
+                return; // Usuário cancelou
+            }
+            
+            if (!motivo.trim()) {
+                showToast('Motivo do cancelamento é obrigatório', 'error');
+                return;
+            }
+            
+            if (confirm('Tem certeza que deseja cancelar este boleto?\n\nEsta ação não pode ser desfeita.')) {
+                showToast('Cancelando boleto...', 'info');
+                
                 fetch('/admin/api/cancelar-boleto.php', {
                     method: 'POST',
                     headers: {
@@ -711,19 +1165,21 @@ $cursosDisponiveis = $adminService->buscarTodosCursos();
                     },
                     body: JSON.stringify({
                         boleto_id: boletoId,
-                        motivo: motivo
+                        motivo: motivo.trim()
                     })
                 })
                 .then(response => response.json())
                 .then(data => {
                     if (data.success) {
-                        showToast('Boleto cancelado!', 'success');
+                        showToast('Boleto cancelado com sucesso!', 'success');
+                        atualizarStatusBoletoNaLista(boletoId, 'cancelado');
                         setTimeout(() => location.reload(), 1500);
                     } else {
                         showToast('Erro: ' + data.message, 'error');
                     }
                 })
                 .catch(error => {
+                    console.error('Erro:', error);
                     showToast('Erro de conexão', 'error');
                 });
             }
@@ -731,8 +1187,15 @@ $cursosDisponiveis = $adminService->buscarTodosCursos();
         
         // Remover boleto
         function removerBoleto(boletoId) {
-            if (confirm('Tem certeza que deseja remover este boleto? Esta ação não pode ser desfeita.')) {
-                const motivo = prompt('Motivo da remoção:') || 'Removido pelo administrador';
+            if (confirm('⚠️ ATENÇÃO: Remover Boleto\n\nEsta ação irá:\n• Excluir o boleto permanentemente\n• Remover o arquivo PDF do servidor\n• Não poderá ser desfeita\n\nTem certeza que deseja continuar?')) {
+                const motivo = prompt('Motivo da remoção (obrigatório):') || 'Removido pelo administrador';
+                
+                if (!motivo.trim()) {
+                    showToast('Motivo da remoção é obrigatório', 'error');
+                    return;
+                }
+                
+                showToast('Removendo boleto...', 'info');
                 
                 fetch('/admin/api/remover-boleto.php', {
                     method: 'POST',
@@ -741,27 +1204,46 @@ $cursosDisponiveis = $adminService->buscarTodosCursos();
                     },
                     body: JSON.stringify({
                         boleto_id: boletoId,
-                        motivo: motivo
+                        motivo: motivo.trim()
                     })
                 })
                 .then(response => response.json())
                 .then(data => {
                     if (data.success) {
-                        showToast('Boleto removido!', 'success');
+                        showToast('Boleto removido com sucesso!', 'success');
                         setTimeout(() => location.reload(), 1500);
                     } else {
                         showToast('Erro: ' + data.message, 'error');
                     }
                 })
                 .catch(error => {
+                    console.error('Erro:', error);
                     showToast('Erro de conexão', 'error');
                 });
             }
         }
         
-        // Download do boleto
-        function downloadBoleto(boletoId) {
-            window.open(`/admin/api/download-boleto.php?id=${boletoId}`, '_blank');
+        // Função para PIX (placeholder)
+        function mostrarPix(boletoId) {
+            showToast('Funcionalidade PIX será implementada em breve', 'info');
+        }
+        
+        // ========== FUNÇÕES AUXILIARES ==========
+        
+        // Atualiza status visual do boleto na listagem
+        function atualizarStatusBoletoNaLista(boletoId, novoStatus) {
+            const boletoRow = document.querySelector(`tr[data-boleto-id="${boletoId}"]`);
+            if (boletoRow) {
+                const statusCell = boletoRow.querySelector('.badge-status');
+                if (statusCell) {
+                    // Remove classes antigas
+                    statusCell.classList.remove('badge-pendente', 'badge-vencido', 'badge-pago', 'badge-cancelado');
+                    
+                    // Adiciona nova classe
+                    statusCell.classList.add(`badge-${novoStatus}`);
+                    statusCell.textContent = novoStatus.charAt(0).toUpperCase() + novoStatus.slice(1);
+                }
+            }
         }
         
         // Exportar relatório
@@ -777,35 +1259,146 @@ $cursosDisponiveis = $adminService->buscarTodosCursos();
             }, 2000);
         }
         
+        // Função para exportar detalhes (nova funcionalidade)
+        function exportarDetalhes(boletoId) {
+            if (!boletoId) {
+                showToast('Nenhum boleto selecionado para exportar', 'error');
+                return;
+            }
+            
+            fetch(`/admin/api/boleto-detalhes.php?id=${boletoId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        const csvContent = gerarCSVDetalhes(data);
+                        downloadCSV(csvContent, `boleto_${data.boleto.numero_boleto}_detalhes.csv`);
+                        showToast('Detalhes exportados!', 'success');
+                    }
+                })
+                .catch(error => {
+                    showToast('Erro ao exportar detalhes', 'error');
+                });
+        }
+        
+        // Função auxiliar para gerar CSV
+        function gerarCSVDetalhes(data) {
+            const { boleto, aluno, curso } = data;
+            
+            const rows = [
+                ['Campo', 'Valor'],
+                ['Número do Boleto', boleto.numero_boleto],
+                ['Valor', boleto.valor_formatado],
+                ['Status', boleto.status_label],
+                ['Vencimento', boleto.vencimento_formatado],
+                ['Aluno', aluno.nome],
+                ['CPF', aluno.cpf_formatado],
+                ['Email', aluno.email],
+                ['Curso', curso.nome],
+                ['Polo', curso.polo_nome],
+                ['Criado em', boleto.created_at_formatado]
+            ];
+            
+            return rows.map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
+        }
+        
+        // Função auxiliar para download de CSV
+        function downloadCSV(content, filename) {
+            const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            
+            if (link.download !== undefined) {
+                const url = URL.createObjectURL(blob);
+                link.setAttribute('href', url);
+                link.setAttribute('download', filename);
+                link.style.visibility = 'hidden';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            }
+        }
+        
         // Sistema de notificações
         function showToast(message, type = 'info') {
             const existingToasts = document.querySelectorAll('.toast-custom');
             existingToasts.forEach(toast => toast.remove());
             
+            // Cria container se não existir
+            let container = document.getElementById('toastContainer');
+            if (!container) {
+                container = document.createElement('div');
+                container.id = 'toastContainer';
+                container.className = 'toast-container';
+                container.style.cssText = `
+                    position: fixed;
+                    top: 20px;
+                    right: 20px;
+                    z-index: 2001;
+                    min-width: 300px;
+                    max-width: 90vw;
+                `;
+                document.body.appendChild(container);
+            }
+            
             const toast = document.createElement('div');
-            toast.className = `toast-custom alert alert-${type === 'error' ? 'danger' : type === 'success' ? 'success' : 'info'} position-fixed`;
-            toast.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px; animation: slideInRight 0.3s ease;';
+            toast.className = `toast-custom alert alert-${type === 'error' ? 'danger' : type === 'success' ? 'success' : type === 'warning' ? 'warning' : 'info'} position-relative`;
+            toast.style.cssText = 'animation: slideInRight 0.3s ease; margin-bottom: 8px;';
             
             const icon = type === 'error' ? 'fa-exclamation-triangle' : 
-                        type === 'success' ? 'fa-check-circle' : 'fa-info-circle';
+                        type === 'success' ? 'fa-check-circle' : 
+                        type === 'warning' ? 'fa-exclamation-circle' : 'fa-info-circle';
             
             toast.innerHTML = `
                 <div class="d-flex align-items-center">
                     <i class="fas ${icon} me-2"></i>
-                    <span>${message}</span>
-                    <button type="button" class="btn-close ms-auto" onclick="this.parentElement.parentElement.remove()"></button>
+                    <span class="flex-grow-1">${message}</span>
+                    <button type="button" class="btn-close ms-2" onclick="this.parentElement.parentElement.remove()"></button>
                 </div>
             `;
             
-            document.body.appendChild(toast);
+            container.appendChild(toast);
             
+            // Remove automaticamente após 5 segundos
             setTimeout(() => {
-                if (toast.parentElement) {
+                if (toast.parentNode) {
                     toast.style.animation = 'slideOutRight 0.3s ease';
-                    setTimeout(() => toast.remove(), 300);
+                    setTimeout(() => {
+                        if (toast.parentNode) {
+                            container.removeChild(toast);
+                        }
+                    }, 300);
                 }
             }, 5000);
         }
+        
+        // Log de ações do usuário (analytics)
+        function logUserAction(action, data = {}) {
+            try {
+                // Log local para debug
+                console.log('User Action:', action, data);
+                
+                // Armazena localmente para sync posterior
+                const actions = JSON.parse(localStorage.getItem('adminActions') || '[]');
+                actions.push({
+                    action,
+                    data,
+                    timestamp: Date.now(),
+                    url: window.location.href,
+                    user_id: <?= $_SESSION['admin_id'] ?? 'null' ?>
+                });
+                
+                // Mantém apenas últimas 100 ações
+                if (actions.length > 100) {
+                    actions.splice(0, actions.length - 100);
+                }
+                
+                localStorage.setItem('adminActions', JSON.stringify(actions));
+                
+            } catch (error) {
+                console.error('Erro ao registrar ação:', error);
+            }
+        }
+        
+        // ========== INICIALIZAÇÃO ==========
         
         // Auto-submit do formulário quando mudamos os filtros
         document.querySelectorAll('#filtrosForm select').forEach(select => {
@@ -819,12 +1412,15 @@ $cursosDisponiveis = $adminService->buscarTodosCursos();
         
         // Busca em tempo real (debounced)
         let searchTimeout;
-        document.querySelector('input[name="busca"]').addEventListener('input', function() {
-            clearTimeout(searchTimeout);
-            searchTimeout = setTimeout(() => {
-                document.getElementById('filtrosForm').submit();
-            }, 1000); // Aguarda 1 segundo após parar de digitar
-        });
+        const buscaInput = document.querySelector('input[name="busca"]');
+        if (buscaInput) {
+            buscaInput.addEventListener('input', function() {
+                clearTimeout(searchTimeout);
+                searchTimeout = setTimeout(() => {
+                    document.getElementById('filtrosForm').submit();
+                }, 1000); // Aguarda 1 segundo após parar de digitar
+            });
+        }
         
         // Atalhos de teclado
         document.addEventListener('keydown', function(e) {
@@ -837,116 +1433,59 @@ $cursosDisponiveis = $adminService->buscarTodosCursos();
             // Ctrl + F para focar na busca
             if (e.ctrlKey && e.key === 'f') {
                 e.preventDefault();
-                document.querySelector('input[name="busca"]').focus();
+                const buscaInput = document.querySelector('input[name="busca"]');
+                if (buscaInput) {
+                    buscaInput.focus();
+                }
             }
             
-            // ESC para limpar filtros
+            // ESC para limpar filtros ou fechar modal
             if (e.key === 'Escape') {
-                window.location.href = '/admin/boletos.php';
+                const detalhesModal = bootstrap.Modal.getInstance(document.getElementById('detalhesModal'));
+                if (detalhesModal) {
+                    detalhesModal.hide();
+                } else {
+                    window.location.href = '/admin/boletos.php';
+                }
+            }
+            
+            // F5 para recarregar
+            if (e.key === 'F5' && !e.ctrlKey) {
+                e.preventDefault();
+                showToast('Atualizando lista...', 'info');
+                setTimeout(() => location.reload(), 500);
             }
         });
         
-        // Tooltip para botões
+        // Melhoria no modal de detalhes - adiciona redimensionamento
         document.addEventListener('DOMContentLoaded', function() {
+            const detalhesModal = document.getElementById('detalhesModal');
+            if (detalhesModal) {
+                // Torna o modal responsivo baseado no conteúdo
+                detalhesModal.addEventListener('shown.bs.modal', function() {
+                    const modalDialog = this.querySelector('.modal-dialog');
+                    const content = this.querySelector('.modal-body');
+                    
+                    // Ajusta tamanho baseado no conteúdo
+                    if (content && content.scrollHeight > 600) {
+                        modalDialog.classList.add('modal-xl');
+                    }
+                });
+                
+                // Limpa classe quando fecha
+                detalhesModal.addEventListener('hidden.bs.modal', function() {
+                    const modalDialog = this.querySelector('.modal-dialog');
+                    modalDialog.classList.remove('modal-xl');
+                    currentBoletoId = null;
+                });
+            }
+            
+            // Tooltip para botões
             const tooltips = document.querySelectorAll('[title]');
             tooltips.forEach(element => {
                 new bootstrap.Tooltip(element);
             });
         });
-        
-        // Seleção múltipla (futuro)
-        let selectedBoletos = [];
-        
-        function toggleSelection(boletoId) {
-            const index = selectedBoletos.indexOf(boletoId);
-            if (index > -1) {
-                selectedBoletos.splice(index, 1);
-            } else {
-                selectedBoletos.push(boletoId);
-            }
-            
-            updateSelectionUI();
-        }
-        
-        function updateSelectionUI() {
-            const count = selectedBoletos.length;
-            const actionBar = document.getElementById('actionBar');
-            
-            if (count > 0) {
-                if (!actionBar) {
-                    createActionBar();
-                }
-                document.getElementById('selectedCount').textContent = count;
-                document.getElementById('actionBar').style.display = 'block';
-            } else if (actionBar) {
-                actionBar.style.display = 'none';
-            }
-        }
-        
-        function createActionBar() {
-            const actionBar = document.createElement('div');
-            actionBar.id = 'actionBar';
-            actionBar.className = 'position-fixed bottom-0 start-50 translate-middle-x bg-primary text-white p-3 rounded-top shadow';
-            actionBar.style.display = 'none';
-            actionBar.style.zIndex = '1050';
-            
-            actionBar.innerHTML = `
-                <div class="d-flex align-items-center gap-3">
-                    <span><span id="selectedCount">0</span> boletos selecionados</span>
-                    <button class="btn btn-light btn-sm" onclick="marcarTodosSelecionadosComoPagos()">
-                        <i class="fas fa-check"></i> Marcar como Pagos
-                    </button>
-                    <button class="btn btn-warning btn-sm" onclick="cancelarTodosSelecionados()">
-                        <i class="fas fa-times"></i> Cancelar
-                    </button>
-                    <button class="btn btn-danger btn-sm" onclick="removerTodosSelecionados()">
-                        <i class="fas fa-trash"></i> Remover
-                    </button>
-                    <button class="btn btn-secondary btn-sm" onclick="clearSelection()">
-                        <i class="fas fa-times"></i> Limpar
-                    </button>
-                </div>
-            `;
-            
-            document.body.appendChild(actionBar);
-        }
-        
-        function clearSelection() {
-            selectedBoletos = [];
-            updateSelectionUI();
-            
-            // Remove marcação visual das linhas
-            document.querySelectorAll('tr.table-active').forEach(row => {
-                row.classList.remove('table-active');
-            });
-        }
-        
-        // Funções para ações em lote (implementar conforme necessário)
-        function marcarTodosSelecionadosComoPagos() {
-            if (selectedBoletos.length === 0) return;
-            
-            showToast(`Marcando ${selectedBoletos.length} boletos como pagos...`, 'info');
-            // Implementar lógica
-        }
-        
-        function cancelarTodosSelecionados() {
-            if (selectedBoletos.length === 0) return;
-            
-            const motivo = prompt('Motivo do cancelamento em lote:');
-            if (motivo) {
-                showToast(`Cancelando ${selectedBoletos.length} boletos...`, 'info');
-                // Implementar lógica
-            }
-        }
-        
-        function removerTodosSelecionados() {
-            if (selectedBoletos.length === 0) return;
-            
-            if (confirm(`Tem certeza que deseja remover ${selectedBoletos.length} boletos?`)) {
-                showToast(`Removendo ${selectedBoletos.length} boletos...`, 'info');
-                // Implementar lógica
-            }
-        }
         
         // Adiciona estilos para animações
         const style = document.createElement('style');
@@ -959,6 +1498,13 @@ $cursosDisponiveis = $adminService->buscarTodosCursos();
             @keyframes slideOutRight {
                 from { transform: translateX(0); opacity: 1; }
                 to { transform: translateX(100%); opacity: 0; }
+            }
+            
+            .toast-container {
+                position: fixed !important;
+                top: 20px !important;
+                right: 20px !important;
+                z-index: 2001 !important;
             }
             
             .table-hover tbody tr:hover {
@@ -980,7 +1526,8 @@ $cursosDisponiveis = $adminService->buscarTodosCursos();
         `;
         document.head.appendChild(style);
         
-        // Log de debug
+        // Log de debug final
+        console.log('✅ JavaScript de detalhes reais carregado e funcionando!');
         console.log('Admin Boletos carregado', {
             total_boletos: <?= $resultado['total'] ?>,
             boletos_pagina: <?= count($resultado['boletos']) ?>,
@@ -988,6 +1535,8 @@ $cursosDisponiveis = $adminService->buscarTodosCursos();
             total_paginas: <?= $resultado['total_paginas'] ?>,
             filtros_ativos: <?= json_encode($filtros) ?>
         });
+        
     </script>
 </body>
-</html>
+</html>   
+  

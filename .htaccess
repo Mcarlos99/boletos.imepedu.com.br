@@ -1,7 +1,7 @@
-# Sistema de Boletos IMED - .htaccess ATUALIZADO
-# Arquivo: .htaccess (ADICIONAR estas linhas no início)
+# Sistema de Boletos IMED - .htaccess CORRIGIDO PARA LOGOUT
+# Arquivo: .htaccess (VERSÃO CORRIGIDA)
 
-# Redirecionamento específico para Breu Branco
+# 🔧 CORREÇÃO: Redirecionamento específico para Breu Branco
 RewriteEngine On
 
 # Regra específica para busca de cursos do Breu Branco
@@ -15,8 +15,9 @@ RewriteBase /
 # RewriteCond %{HTTPS} off
 # RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
 
-# Headers de segurança
+# 🔧 CORREÇÃO 1: Headers de segurança e cache ESPECÍFICOS PARA LOGOUT
 <IfModule mod_headers.c>
+    # Headers de segurança padrão
     Header always set X-Content-Type-Options nosniff
     Header always set X-Frame-Options DENY
     Header always set X-XSS-Protection "1; mode=block"
@@ -26,6 +27,51 @@ RewriteBase /
     Header always set Access-Control-Allow-Origin "*"
     Header always set Access-Control-Allow-Methods "GET, POST, OPTIONS"
     Header always set Access-Control-Allow-Headers "Content-Type, Authorization"
+    
+    # 🔧 CORREÇÃO: Headers específicos para logout - NUNCA cachear
+    <FilesMatch "(logout\.php)">
+        Header always set Cache-Control "no-cache, no-store, must-revalidate, private"
+        Header always set Pragma "no-cache"
+        Header always set Expires "0"
+        Header always set Last-Modified "Thu, 01 Jan 1970 00:00:00 GMT"
+        Header always set ETag ""
+        Header unset ETag
+    </FilesMatch>
+    
+    # 🔧 CORREÇÃO: Index.php com parâmetros de logout - NUNCA cachear
+    <If "%{QUERY_STRING} =~ /logout/">
+        Header always set Cache-Control "no-cache, no-store, must-revalidate, private"
+        Header always set Pragma "no-cache"
+        Header always set Expires "0"
+    </If>
+    
+    # 🔧 CORREÇÃO: Login.php pós-logout - NUNCA cachear
+    <If "%{QUERY_STRING} =~ /logout/">
+        Header always set Cache-Control "no-cache, no-store, must-revalidate, private"
+        Header always set Pragma "no-cache"
+        Header always set Expires "0"
+    </If>
+    
+    # Cache positivo para recursos estáticos
+    <FilesMatch "\.(css|js|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$">
+        Header set Cache-Control "public, max-age=86400"
+    </FilesMatch>
+    
+    # Cache moderado para páginas normais (não logout)
+    <FilesMatch "\.(php)$">
+        # Apenas se NÃO contém logout nos parâmetros
+        <If "%{QUERY_STRING} !~ /logout/">
+            Header set Cache-Control "private, max-age=3600"
+        </If>
+    </FilesMatch>
+</IfModule>
+
+# 🔧 CORREÇÃO 2: Regras específicas para logout
+<IfModule mod_rewrite.c>
+    # Força parâmetros únicos para logout para evitar cache
+    RewriteCond %{REQUEST_URI} ^/logout\.php$
+    RewriteCond %{QUERY_STRING} !t=
+    RewriteRule ^logout\.php$ /logout.php?t=%{TIME}&r=%{REMOTE_ADDR} [L,R=302]
 </IfModule>
 
 # URLs amigáveis - rotas específicas do sistema
@@ -39,14 +85,111 @@ RewriteRule ^boleto/([0-9]+)/?$ boleto.php?id=$1 [L]
 RewriteRule ^api/atualizar-dados/?$ api/atualizar_dados.php [L]
 RewriteRule ^api/([a-zA-Z_]+)/?$ api/$1.php [L]
 
-# Remove .php das URLs para arquivos públicos
+# 🔧 CORREÇÃO 3: Remove .php das URLs para arquivos públicos (exceto logout)
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_URI} !^/api/
 RewriteCond %{REQUEST_URI} !^/(config|src|logs|vendor)/
+RewriteCond %{REQUEST_URI} !logout
 RewriteRule ^([^\.]+)$ $1.php [NC,L]
 
 # Página inicial
 DirectoryIndex index.php
 
-# Resto da configuração original...
+# 🔧 CORREÇÃO 4: Configuração de expiração específica
+<IfModule mod_expires.c>
+    ExpiresActive On
+    
+    # NUNCA expira logout
+    <FilesMatch "(logout\.php)">
+        ExpiresDefault "access plus 0 seconds"
+    </FilesMatch>
+    
+    # Recursos estáticos
+    ExpiresByType text/css "access plus 1 month"
+    ExpiresByType application/javascript "access plus 1 month"
+    ExpiresByType image/png "access plus 1 month"
+    ExpiresByType image/jpg "access plus 1 month"
+    ExpiresByType image/jpeg "access plus 1 month"
+    ExpiresByType image/gif "access plus 1 month"
+    ExpiresByType image/ico "access plus 1 month"
+    ExpiresByType image/svg+xml "access plus 1 month"
+    
+    # Páginas PHP (exceto logout)
+    ExpiresByType text/html "access plus 1 hour"
+    
+    # APIs
+    <FilesMatch "^api/">
+        ExpiresDefault "access plus 15 minutes"
+    </FilesMatch>
+</IfModule>
+
+# 🔧 CORREÇÃO 5: Configuração ETags específica
+<IfModule mod_headers.c>
+    # Remove ETag de logout para forçar sempre nova requisição
+    <FilesMatch "(logout\.php)">
+        Header unset ETag
+        FileETag None
+    </FilesMatch>
+</IfModule>
+
+# 🔧 CORREÇÃO 6: Previne cache de navegador para logout
+<LocationMatch "/logout\.php">
+    Header always set Cache-Control "no-cache, no-store, must-revalidate, private"
+    Header always set Pragma "no-cache"
+    Header always set Expires "Thu, 01 Jan 1970 00:00:00 GMT"
+</LocationMatch>
+
+# 🔧 CORREÇÃO 7: Configuração específica para Service Worker
+<FilesMatch "sw\.js$">
+    Header set Cache-Control "no-cache, no-store, must-revalidate"
+    Header set Pragma "no-cache"
+    Header set Expires "0"
+    Header set Service-Worker-Allowed "/"
+</FilesMatch>
+
+# 🔧 CORREÇÃO 8: Manifest PWA
+<FilesMatch "manifest\.json$">
+    Header set Content-Type "application/manifest+json"
+    Header set Cache-Control "public, max-age=86400"
+</FilesMatch>
+
+# 🔧 CORREÇÃO 9: Configuração de compressão (melhora performance)
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/plain
+    AddOutputFilterByType DEFLATE text/html
+    AddOutputFilterByType DEFLATE text/xml
+    AddOutputFilterByType DEFLATE text/css
+    AddOutputFilterByType DEFLATE application/xml
+    AddOutputFilterByType DEFLATE application/xhtml+xml
+    AddOutputFilterByType DEFLATE application/rss+xml
+    AddOutputFilterByType DEFLATE application/javascript
+    AddOutputFilterByType DEFLATE application/x-javascript
+    AddOutputFilterByType DEFLATE application/json
+</IfModule>
+
+# 🔧 CORREÇÃO 10: Configuração de segurança adicional
+<IfModule mod_rewrite.c>
+    # Bloqueia acesso direto a arquivos sensíveis
+    RewriteRule ^(config|src|logs|vendor)/ - [F,L]
+    
+    # Bloqueia tentativas de acesso a arquivos de backup
+    RewriteRule \.(bak|backup|old|tmp)$ - [F,L]
+    
+    # Força HTTPS para área administrativa (descomente em produção)
+    # RewriteCond %{HTTPS} off
+    # RewriteCond %{REQUEST_URI} ^/admin
+    # RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+</IfModule>
+
+# Configuração final de headers para debugging
+<IfModule mod_headers.c>
+    # Adiciona header para identificar quando cache foi usado
+    Header always set X-Cache-Status "MISS"
+    
+    # Header específico para logout
+    <FilesMatch "(logout\.php)">
+        Header always set X-Logout-Safe "true"
+        Header always set X-Cache-Control "disabled"
+    </FilesMatch>
+</IfModule>

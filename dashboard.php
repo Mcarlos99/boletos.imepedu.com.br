@@ -747,7 +747,7 @@ error_log("Dashboard: Resumo final - Polo: {$_SESSION['subdomain']}, Total: " . 
             }
         }
         
-        /* Dark mode support */
+        /* Dark mode support 
         @media (prefers-color-scheme: dark) {
             :root {
                 --light-color: #1a1a1a;
@@ -771,7 +771,7 @@ error_log("Dashboard: Resumo final - Polo: {$_SESSION['subdomain']}, Total: " . 
             .section-title {
                 color: #ffffff;
             }
-        }
+        } */
     </style>
 </head>
 <body>
@@ -2386,6 +2386,291 @@ console.log('  - Ctrl+Shift+C: Limpar cache');
 
 // Marca como carregado
 window.dashboardFixesLoaded = true;
+
+
+
+
+
+
+
+
+/**
+ * CORREÇÃO JAVASCRIPT PARA DASHBOARD.PHP - LOGOUT LIMPO
+ * Adicione este código ao final do <script> do dashboard.php
+ */
+
+// 🔧 CORREÇÃO 1: Função de logout melhorada
+function logoutLimpo() {
+    console.log('🚪 Iniciando logout limpo...');
+    
+    // Mostra indicador de carregamento
+    showToast('Fazendo logout...', 'info');
+    
+    // Função para executar logout
+    const executarLogout = async () => {
+        try {
+            // Etapa 1: Limpa dados locais
+            console.log('🗑️ Limpando dados locais...');
+            
+            // Limpa localStorage e sessionStorage
+            if (typeof localStorage !== 'undefined') {
+                localStorage.clear();
+            }
+            if (typeof sessionStorage !== 'undefined') {
+                sessionStorage.clear();
+            }
+            
+            // Etapa 2: Comunica com Service Worker
+            if ('serviceWorker' in navigator) {
+                try {
+                    const registration = await navigator.serviceWorker.getRegistration();
+                    if (registration && registration.active) {
+                        console.log('📨 Enviando comando de logout para SW...');
+                        registration.active.postMessage({
+                            type: 'FORCE_LOGOUT',
+                            timestamp: Date.now()
+                        });
+                        
+                        // Aguarda um pouco para o SW processar
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                    }
+                } catch (swError) {
+                    console.log('⚠️ Erro ao comunicar com SW:', swError);
+                }
+            }
+            
+            // Etapa 3: Redireciona com timestamp para evitar cache
+            const logoutUrl = `/logout.php?t=${Date.now()}&pwa=1`;
+            console.log('🏠 Redirecionando para:', logoutUrl);
+            
+            // Força substituição completa da página
+            window.location.replace(logoutUrl);
+            
+        } catch (error) {
+            console.error('❌ Erro no logout:', error);
+            
+            // Fallback: logout forçado
+            window.location.replace(`/logout.php?t=${Date.now()}&fallback=1`);
+        }
+    };
+    
+    // Executa logout com pequeno delay para UX
+    setTimeout(executarLogout, 300);
+}
+
+// 🔧 CORREÇÃO 2: Intercepta todos os links de logout
+document.addEventListener('DOMContentLoaded', function() {
+    // Encontra e modifica links de logout
+    const logoutLinks = document.querySelectorAll('a[href*="logout"]');
+    
+    logoutLinks.forEach(link => {
+        link.addEventListener('click', function(e) {
+            e.preventDefault();
+            logoutLimpo();
+        });
+    });
+    
+    // Intercepta logout via JavaScript se existir
+    if (typeof window.logout === 'function') {
+        const originalLogout = window.logout;
+        window.logout = function() {
+            logoutLimpo();
+        };
+    }
+});
+
+// 🔧 CORREÇÃO 3: Escuta mensagens do Service Worker
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', event => {
+        const data = event.data;
+        
+        if (data.type === 'LOGOUT_COMPLETE') {
+            console.log('✅ SW confirmou logout:', data.message);
+            // SW já limpou o cache, pode prosseguir
+        }
+        
+        if (data.type === 'SW_ACTIVATED') {
+            console.log('🔄 Service Worker ativado:', data.message);
+            // Pode mostrar notificação discreta sobre atualização
+        }
+    });
+}
+
+// 🔧 CORREÇÃO 4: Detecta se acabou de fazer logout
+function verificarLogoutRecente() {
+    const urlParams = new URLSearchParams(window.location.search);
+    
+    if (urlParams.get('logout') === '1') {
+        console.log('✅ Logout recente detectado');
+        
+        // Limpa parâmetro da URL sem recarregar
+        if (window.history && window.history.replaceState) {
+            const newUrl = window.location.pathname;
+            window.history.replaceState({}, '', newUrl);
+        }
+        
+        // Mostra mensagem de sucesso
+        setTimeout(() => {
+            showToast('Logout realizado com sucesso!', 'success');
+        }, 500);
+        
+        // Força limpeza adicional por precaução
+        if ('caches' in window) {
+            caches.keys().then(names => {
+                names.forEach(name => {
+                    if (name.includes('data') || name.includes('api')) {
+                        caches.delete(name);
+                    }
+                });
+            }).catch(e => console.log('⚠️ Erro ao limpar cache:', e));
+        }
+    }
+}
+
+// Executa verificação de logout
+verificarLogoutRecente();
+
+// 🔧 CORREÇÃO 5: Sobrescreve função de menu para incluir logout limpo
+const originalMostrarMenu = window.mostrarMenu;
+if (typeof originalMostrarMenu === 'function') {
+    window.mostrarMenu = function() {
+        originalMostrarMenu();
+        
+        // Modifica link de logout no menu quando aberto
+        setTimeout(() => {
+            const logoutLinkMenu = document.querySelector('#menuModal a[href*="logout"]');
+            if (logoutLinkMenu) {
+                logoutLinkMenu.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    fecharMenu(); // Fecha menu primeiro
+                    setTimeout(logoutLimpo, 200); // Depois faz logout
+                });
+            }
+        }, 100);
+    };
+}
+
+// 🔧 CORREÇÃO 6: Função para detectar problemas de cache
+function diagnosticarCache() {
+    console.group('🔍 Diagnóstico de Cache');
+    
+    console.log('📱 PWA ativo:', window.matchMedia('(display-mode: standalone)').matches);
+    console.log('🔧 Service Worker suportado:', 'serviceWorker' in navigator);
+    
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistration().then(reg => {
+            console.log('📋 SW registrado:', !!reg);
+            if (reg) {
+                console.log('📋 SW ativo:', !!reg.active);
+                console.log('📋 SW esperando:', !!reg.waiting);
+                console.log('📋 SW instalando:', !!reg.installing);
+            }
+        });
+    }
+    
+    if ('caches' in window) {
+        caches.keys().then(names => {
+            console.log('💾 Caches ativos:', names);
+            console.log('💾 Total de caches:', names.length);
+        });
+    }
+    
+    console.log('🌐 Online:', navigator.onLine);
+    console.log('🕒 Timestamp atual:', Date.now());
+    
+    console.groupEnd();
+}
+
+// 🔧 CORREÇÃO 7: Adiciona atalho para diagnóstico (Ctrl+Shift+L)
+document.addEventListener('keydown', function(e) {
+    // Ctrl+Shift+L para diagnosticar
+    if (e.ctrlKey && e.shiftKey && e.key === 'L') {
+        e.preventDefault();
+        diagnosticarCache();
+    }
+    
+    // Ctrl+Shift+O para logout (emergency)
+    if (e.ctrlKey && e.shiftKey && e.key === 'O') {
+        e.preventDefault();
+        console.log('🚨 Logout de emergência ativado');
+        logoutLimpo();
+    }
+});
+
+// 🔧 CORREÇÃO 8: Monitora mudanças de conectividade
+window.addEventListener('online', function() {
+    console.log('🌐 Conexão restaurada');
+    showToast('Conexão restaurada!', 'success');
+    
+    // Se usuário não está logado, pode tentar recarregar
+    if (!document.querySelector('.user-name')) {
+        setTimeout(() => {
+            if (confirm('Conexão restaurada. Deseja recarregar a página?')) {
+                window.location.reload();
+            }
+        }, 1000);
+    }
+});
+
+window.addEventListener('offline', function() {
+    console.log('📱 Modo offline');
+    showToast('Você está offline. Algumas funcionalidades podem estar limitadas.', 'warning');
+});
+
+// 🔧 CORREÇÃO 9: Função para forçar limpeza completa (uso em casos extremos)
+window.forcarLimpezaCompleta = async function() {
+    if (!confirm('Isso irá limpar TODOS os dados armazenados e fazer logout. Continuar?')) {
+        return;
+    }
+    
+    console.log('🧹 Forçando limpeza completa...');
+    
+    try {
+        // Limpa todos os storages
+        localStorage.clear();
+        sessionStorage.clear();
+        
+        // Limpa todos os caches
+        if ('caches' in window) {
+            const names = await caches.keys();
+            await Promise.all(names.map(name => caches.delete(name)));
+        }
+        
+        // Desregistra Service Worker
+        if ('serviceWorker' in navigator) {
+            const registrations = await navigator.serviceWorker.getRegistrations();
+            await Promise.all(registrations.map(reg => reg.unregister()));
+        }
+        
+        showToast('Limpeza completa realizada. Redirecionando...', 'success');
+        
+        // Redireciona após limpeza
+        setTimeout(() => {
+            window.location.replace(`/index.php?cleaned=1&t=${Date.now()}`);
+        }, 2000);
+        
+    } catch (error) {
+        console.error('❌ Erro na limpeza completa:', error);
+        showToast('Erro na limpeza. Tente recarregar a página.', 'error');
+    }
+};
+
+// 🔧 CORREÇÃO 10: Log de inicialização das correções
+console.log('✅ Correções de logout carregadas');
+console.log('📋 Comandos disponíveis:');
+console.log('  - logoutLimpo(): Logout com limpeza de cache');
+console.log('  - diagnosticarCache(): Mostra status dos caches');
+console.log('  - forcarLimpezaCompleta(): Limpeza total (emergência)');
+console.log('  - Ctrl+Shift+L: Diagnóstico rápido');
+console.log('  - Ctrl+Shift+O: Logout de emergência');
+
+// Marca correções como carregadas
+window.dashboardLogoutFixesLoaded = true;
+
+
+
+
+
 
 
         
