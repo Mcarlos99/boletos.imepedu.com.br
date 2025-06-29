@@ -1,6 +1,6 @@
 <?php
 /**
- * Sistema de Boletos IMED - Login Administrativo
+ * Sistema de Boletos IMEPEDU - Login Administrativo
  * Arquivo: admin/login.php
  */
 
@@ -50,7 +50,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login Administrativo - Sistema de Boletos IMED</title>
+    <title>Login Administrativo - Sistema de Boletos IMEPEDU</title>
     
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
@@ -138,7 +138,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <div class="login-card">
             <div class="login-header">
                 <h2><i class="fas fa-shield-alt"></i> Área Administrativa</h2>
-                <p>Sistema de Boletos IMED</p>
+                <p>Sistema de Boletos IMEPEDU</p>
             </div>
             
             <div class="login-body">

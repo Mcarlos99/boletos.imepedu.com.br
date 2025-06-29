@@ -1,6 +1,6 @@
 <?php
 /**
- * Sistema de Boletos IMED - Serviço Administrativo CORRIGIDO
+ * Sistema de Boletos IMEPEDU - Serviço Administrativo CORRIGIDO
  * Arquivo: src/AdminService.php
  */
 

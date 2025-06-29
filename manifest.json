@@ -1,7 +1,7 @@
 {
-  "name": "IMED Boletos",
-  "short_name": "IMED Boletos",
-  "description": "Sistema de Boletos IMED - Acesse seus boletos acadêmicos",
+  "name": "IMEPEDU Boletos",
+  "short_name": "IMEPEDU Boletos",
+  "description": "Sistema de Boletos IMEPEDU - Acesse seus boletos acadêmicos",
   "start_url": "/dashboard.php",
   "display": "standalone",
   "background_color": "#0066cc",

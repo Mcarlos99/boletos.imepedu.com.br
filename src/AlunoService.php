@@ -1,6 +1,6 @@
 <?php
     /**
-     * Sistema de Boletos IMED - Serviço de Alunos (VERSÃO LIMPA E CORRIGIDA)
+     * Sistema de Boletos IMEPEDU - Serviço de Alunos (VERSÃO LIMPA E CORRIGIDA)
      * Arquivo: src/AlunoService.php
      */
     

@@ -1,6 +1,6 @@
 <?php
 /**
- * Sistema de Boletos IMED - Upload de Boletos PDF COM MÚLTIPLOS UPLOADS POR ALUNO
+ * Sistema de Boletos IMEPEDU - Upload de Boletos PDF COM MÚLTIPLOS UPLOADS POR ALUNO
  * Arquivo: admin/upload-boletos.php - VERSÃO COMPLETA MELHORADA
  * 
  * NOVIDADE: Adicionada funcionalidade para múltiplos uploads para um único aluno
@@ -64,7 +64,7 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Upload de Boletos - Administração IMED</title>
+    <title>Upload de Boletos - Administração IMEPEDU</title>
     
     <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -461,7 +461,7 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
     <!-- Sidebar -->
     <div class="sidebar">
         <div class="sidebar-brand">
-            <h4><i class="fas fa-graduation-cap"></i> IMED Admin</h4>
+            <h4><i class="fas fa-graduation-cap"></i> IMEPEDU Admin</h4>
             <small>Sistema de Boletos</small>
         </div>
         

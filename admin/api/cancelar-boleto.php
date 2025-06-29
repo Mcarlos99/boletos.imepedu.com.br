@@ -1,6 +1,6 @@
 <?php
 /**
- * Sistema de Boletos IMED - API para Cancelar Boleto CORRIGIDA
+ * Sistema de Boletos IMEPEDU - API para Cancelar Boleto CORRIGIDA
  * Arquivo: admin/api/cancelar-boleto.php
  * 
  * CORREÇÃO: Campo 'tipo' da tabela logs limitado para evitar truncamento
@@ -403,7 +403,7 @@ if (php_sapi_name() === 'cli' ||
     (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST')) {
     
     // Executa verificação apenas uma vez por dia
-    $lastCheck = '/tmp/imed_logs_structure_check';
+    $lastCheck = '/tmp/IMEPEDU_logs_structure_check';
     if (!file_exists($lastCheck) || (time() - filemtime($lastCheck)) > 86400) {
         verificarEstruturaTabelaLogs();
         touch($lastCheck);

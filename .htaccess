@@ -1,4 +1,4 @@
-# Sistema de Boletos IMED - .htaccess CORRIGIDO PARA UPLOAD
+# Sistema de Boletos IMEPEDU - .htaccess CORRIGIDO PARA UPLOAD
 # Arquivo: .htaccess (VERSÃO CORRIGIDA)
 
 # 🔧 CORREÇÃO: Remove .php das URLs para arquivos públicos (exceto admin e upload)

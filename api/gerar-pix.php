@@ -1,6 +1,6 @@
 <?php
 /**
- * Sistema de Boletos IMED - API Geração de Código PIX
+ * Sistema de Boletos IMEPEDU - API Geração de Código PIX
  * Arquivo: api/gerar-pix.php
  * 
  * API para geração de códigos PIX dinâmicos para pagamento de boletos
@@ -230,7 +230,7 @@ function obterConfiguracaoPIX($subdomain) {
     $configuracoes = [
         'breubranco.imepedu.com.br' => [
             'chave_pix' => '12.345.678/0001-90', // CNPJ da instituição
-            'beneficiario' => 'IMED EDUCACAO - POLO BREU BRANCO',
+            'beneficiario' => 'IMEPEDU EDUCACAO - POLO BREU BRANCO',
             'cidade' => 'BREU BRANCO',
             'cep' => '68470000',
             'merchant_category_code' => '8299', // Educação
@@ -239,7 +239,7 @@ function obterConfiguracaoPIX($subdomain) {
         ],
         'igarape.imepedu.com.br' => [
             'chave_pix' => '12.345.678/0001-90',
-            'beneficiario' => 'IMED EDUCACAO - POLO IGARAPE-MIRI',
+            'beneficiario' => 'IMEPEDU EDUCACAO - POLO IGARAPE-MIRI',
             'cidade' => 'IGARAPE-MIRI',
             'cep' => '68552000',
             'merchant_category_code' => '8299',
@@ -248,7 +248,7 @@ function obterConfiguracaoPIX($subdomain) {
         ],
         'tucurui.imepedu.com.br' => [
             'chave_pix' => '12.345.678/0001-90',
-            'beneficiario' => 'IMED EDUCACAO - POLO TUCURUI',
+            'beneficiario' => 'IMEPEDU EDUCACAO - POLO TUCURUI',
             'cidade' => 'TUCURUI',
             'cep' => '68455000',
             'merchant_category_code' => '8299',
@@ -257,7 +257,7 @@ function obterConfiguracaoPIX($subdomain) {
         ],
         'moju.imepedu.com.br' => [
             'chave_pix' => '12.345.678/0001-90',
-            'beneficiario' => 'IMED EDUCACAO - POLO MOJU',
+            'beneficiario' => 'IMEPEDU EDUCACAO - POLO MOJU',
             'cidade' => 'MOJU',
             'cep' => '68450000',
             'merchant_category_code' => '8299',
@@ -269,7 +269,7 @@ function obterConfiguracaoPIX($subdomain) {
     // Configuração padrão se polo não encontrado
     $configPadrao = [
         'chave_pix' => '12.345.678/0001-90',
-        'beneficiario' => 'IMED EDUCACAO',
+        'beneficiario' => 'IMEPEDU EDUCACAO',
         'cidade' => 'BELEM',
         'cep' => '66000000',
         'merchant_category_code' => '8299',
@@ -285,7 +285,7 @@ function obterConfiguracaoPIX($subdomain) {
  */
 function gerarCodigoPIX($boleto, $configPIX) {
     // Identificador único para o PIX (baseado no boleto)
-    $identificador = 'IMED' . $boleto['id'] . date('YmdHis');
+    $identificador = 'IMEPEDU' . $boleto['id'] . date('YmdHis');
     
     // Validade do PIX (24 horas após geração)
     $validade = date('Y-m-d H:i:s', strtotime('+24 hours'));
@@ -422,7 +422,7 @@ function gerarQRCode($pixCopiaCola) {
         $context = stream_context_create([
             'http' => [
                 'timeout' => 10,
-                'user_agent' => 'IMED-PIX-Generator/1.0'
+                'user_agent' => 'IMEPEDU-PIX-Generator/1.0'
             ]
         ]);
         

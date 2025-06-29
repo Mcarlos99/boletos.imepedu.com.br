@@ -1,6 +1,6 @@
 <?php
 /**
- * Sistema de Boletos IMED - Página Principal
+ * Sistema de Boletos IMEPEDU - Página Principal
  * Arquivo: public/index.php
  * 
  * Este arquivo serve como página inicial e também como login manual
@@ -119,7 +119,7 @@ try {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sistema de Boletos - IMED Educação</title>
+    <title>Sistema de Boletos - IMEPEDU Educação</title>
     
     <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -240,7 +240,7 @@ try {
             <div class="row">
                 <div class="col-12">
                     <a href="/" class="logo text-decoration-none">
-                        <i class="fas fa-graduation-cap"></i> IMED Educação
+                        <i class="fas fa-graduation-cap"></i> IMEPEDU Educação
                     </a>
                     <h1 class="display-4 mt-3 mb-4">Sistema de Boletos</h1>
                     <p class="lead mb-5">
@@ -442,7 +442,7 @@ try {
         <div class="container">
             <div class="row">
                 <div class="col-md-6">
-                    <h5>IMED Educação</h5>
+                    <h5>IMEPEDU Educação</h5>
                     <p class="mb-2">Transformando vidas através da educação</p>
                     <p class="mb-0">
                         <i class="fas fa-envelope"></i> contato@imepedu.com.br<br>
@@ -462,7 +462,7 @@ try {
             <div class="row">
                 <div class="col-12 text-center">
                     <p class="mb-0">
-                        &copy; <?= date('Y') ?> IMED Educação. Todos os direitos reservados. |
+                        &copy; <?= date('Y') ?> IMEPEDU Educação. Todos os direitos reservados. |
                         <a href="/admin" class="text-white">Área Administrativa</a>
                     </p>
                 </div>

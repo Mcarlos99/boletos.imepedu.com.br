@@ -1,6 +1,6 @@
 <?php
 /**
- * Sistema de Boletos IMED - Dashboard Mobile-First ATUALIZADO
+ * Sistema de Boletos IMEPEDU - Dashboard Mobile-First ATUALIZADO
  * Arquivo: dashboard.php
  * 
  * Versão com integração completa às APIs de download e PIX
@@ -1368,7 +1368,7 @@ error_log("Dashboard: Resumo final - Polo: {$_SESSION['subdomain']}, Total: " . 
                 const codigo = document.getElementById('pixCodigoTexto').textContent.trim();
                 
                 navigator.share({
-                    title: 'Pagamento PIX - IMED Boletos',
+                    title: 'Pagamento PIX - IMEPEDU Boletos',
                     text: `Código PIX para pagamento:\n\n${codigo}`,
                 }).catch(error => {
                     console.log('Erro ao compartilhar:', error);
@@ -1589,7 +1589,7 @@ error_log("Dashboard: Resumo final - Polo: {$_SESSION['subdomain']}, Total: " . 
         function mostrarInformacoes() {
             const info = `
                 <div class="mb-3">
-                    <h5>Sistema de Boletos IMED</h5>
+                    <h5>Sistema de Boletos IMEPEDU</h5>
                     <p>Versão: 2.1 PWA</p>
                     <p>Última atualização: ${new Date().toLocaleDateString('pt-BR')}</p>
                 </div>
@@ -1605,7 +1605,7 @@ error_log("Dashboard: Resumo final - Polo: {$_SESSION['subdomain']}, Total: " . 
                     </ul>
                 </div>
                 <div class="text-center">
-                    <small class="text-muted">IMED Educação © 2024</small>
+                    <small class="text-muted">IMEPEDU Educação © 2024</small>
                 </div>
             `;
             
@@ -1618,7 +1618,7 @@ error_log("Dashboard: Resumo final - Polo: {$_SESSION['subdomain']}, Total: " . 
         function compartilharApp() {
             if (navigator.share) {
                 navigator.share({
-                    title: 'Sistema de Boletos IMED',
+                    title: 'Sistema de Boletos IMEPEDU',
                     text: 'Acesse seus boletos acadêmicos de forma fácil e rápida!',
                     url: window.location.href
                 });

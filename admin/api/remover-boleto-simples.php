@@ -1,6 +1,6 @@
 <?php
 /**
- * Sistema de Boletos IMED - API Remover Boleto SIMPLIFICADA
+ * Sistema de Boletos IMEPEDU - API Remover Boleto SIMPLIFICADA
  * Arquivo: admin/api/remover-boleto-simples.php
  * 
  * Versão simplificada que funciona sem setup complexo

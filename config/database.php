@@ -1,6 +1,6 @@
 <?php
 /**
- * Sistema de Boletos IMED - Configuração do Banco de Dados
+ * Sistema de Boletos IMEPEDU - Configuração do Banco de Dados
  * Arquivo: config/database.php
  * 
  * Classe responsável pela conexão e gerenciamento do banco de dados
@@ -255,7 +255,7 @@ class Database {
             $tables = ['alunos', 'cursos', 'matriculas', 'boletos', 'administradores', 'logs'];
         }
         
-        $backup = "-- Backup do Sistema de Boletos IMED\n";
+        $backup = "-- Backup do Sistema de Boletos IMEPEDU\n";
         $backup .= "-- Data: " . date('Y-m-d H:i:s') . "\n\n";
         $backup .= "SET FOREIGN_KEY_CHECKS=0;\n\n";
         

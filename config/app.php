@@ -1,5 +1,5 @@
 <?php
-define('APP_NAME', 'Sistema de Boletos IMED');
+define('APP_NAME', 'Sistema de Boletos IMEPEDU');
 define('APP_URL', 'https://boleto.imepedu.com.br/');
 define('APP_ENV', 'production'); // ou 'development'
 

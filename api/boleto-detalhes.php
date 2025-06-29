@@ -1,6 +1,6 @@
 <?php
 /**
- * Sistema de Boletos IMED - API para Detalhes do Boleto (ALUNOS)
+ * Sistema de Boletos IMEPEDU - API para Detalhes do Boleto (ALUNOS)
  * Arquivo: api/boleto-detalhes.php
  * 
  * Versão específica para alunos logados (não administradores)

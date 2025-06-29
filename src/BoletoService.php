@@ -1,6 +1,6 @@
 <?php
 /**
- * Sistema de Boletos IMED - Serviço de Boletos
+ * Sistema de Boletos IMEPEDU - Serviço de Boletos
  * Arquivo: src/BoletoService.php
  * 
  * Classe responsável pelo gerenciamento de boletos

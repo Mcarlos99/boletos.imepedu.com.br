@@ -1,11 +1,11 @@
 /**
- * Sistema de Boletos IMED - Service Worker CORRIGIDO para Upload
+ * Sistema de Boletos IMEPEDU - Service Worker CORRIGIDO para Upload
  * Arquivo: sw.js - VERSÃO CORRIGIDA PARA UPLOAD
  * Versão: 2.2.0 - Solução definitiva para ERR_FAILED no upload
  */
 
-const CACHE_NAME = 'imed-boletos-v2.2.0';
-const DATA_CACHE_NAME = 'imed-boletos-data-v1.4';
+const CACHE_NAME = 'IMEPEDU-boletos-v2.2.0';
+const DATA_CACHE_NAME = 'IMEPEDU-boletos-data-v1.4';
 
 // URLs para cache estático
 const STATIC_CACHE_URLS = [
@@ -63,7 +63,7 @@ const CONFIG = {
     },
     NETWORK_TIMEOUT: 10000,  // Aumentado para 10s
     DEBUG: true,
-    LOG_PREFIX: '[SW-IMED-UPLOAD-FIX]'
+    LOG_PREFIX: '[SW-IMEPEDU-UPLOAD-FIX]'
 };
 
 function logSW(message, data = null) {
@@ -497,7 +497,7 @@ function createOfflinePage() {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Offline - IMED Boletos</title>
+    <title>Offline - IMEPEDU Boletos</title>
     <style>
         body { 
             font-family: Arial, sans-serif; 

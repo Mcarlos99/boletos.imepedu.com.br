@@ -1,6 +1,6 @@
 <?php
 /**
- * Sistema de Boletos IMED - API do Moodle MELHORADA
+ * Sistema de Boletos IMEPEDU - API do Moodle MELHORADA
  * Arquivo: src/MoodleAPI.php
  * 
  * Versão com suporte a múltiplos polos e estruturas flexíveis

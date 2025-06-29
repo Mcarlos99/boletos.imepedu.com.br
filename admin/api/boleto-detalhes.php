@@ -1,6 +1,6 @@
 <?php
 /**
- * Sistema de Boletos IMED - API para Detalhes do Boleto
+ * Sistema de Boletos IMEPEDU - API para Detalhes do Boleto
  * Arquivo: admin/api/boleto-detalhes.php
  */
 

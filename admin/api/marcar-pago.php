@@ -1,6 +1,6 @@
 <?php
 /**
- * Sistema de Boletos IMED - API para Marcar Boleto como Pago
+ * Sistema de Boletos IMEPEDU - API para Marcar Boleto como Pago
  * Arquivo: admin/api/marcar-pago.php
  */
 

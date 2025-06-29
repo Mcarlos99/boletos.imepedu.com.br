@@ -1,6 +1,6 @@
 <?php
 /**
- * Sistema de Boletos IMED - Serviço de Upload de Boletos COM UPLOAD MÚLTIPLO
+ * Sistema de Boletos IMEPEDU - Serviço de Upload de Boletos COM UPLOAD MÚLTIPLO
  * Arquivo: src/BoletoUploadService.php - VERSÃO COMPLETA CORRIGIDA
  * 
  * 🆕 NOVIDADE: Suporte a múltiplos uploads para um único aluno

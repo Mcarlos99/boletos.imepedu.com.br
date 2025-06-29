@@ -1,6 +1,6 @@
 <?php
 /**
- * Sistema de Boletos IMED - API Buscar Cursos IMPLEMENTAÇÃO CORRETA
+ * Sistema de Boletos IMEPEDU - API Buscar Cursos IMPLEMENTAÇÃO CORRETA
  * Arquivo: admin/api/buscar-cursos.php (SUBSTITUIR)
  * 
  * Implementação baseada na estrutura real de cada polo

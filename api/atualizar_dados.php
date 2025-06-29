@@ -1,6 +1,6 @@
 <?php
 /**
- * Sistema de Boletos IMED - API para Atualizar Dados
+ * Sistema de Boletos IMEPEDU - API para Atualizar Dados
  * Arquivo: api/atualizar_dados.php
  * 
  * Endpoint para sincronizar dados do aluno com o Moodle

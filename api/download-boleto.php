@@ -1,6 +1,6 @@
 <?php
 /**
- * Sistema de Boletos IMED - API Download de Boleto PDF
+ * Sistema de Boletos IMEPEDU - API Download de Boleto PDF
  * Arquivo: api/download-boleto.php
  * 
  * API segura para download de PDFs de boletos com controle de acesso
@@ -246,7 +246,7 @@ function gerarPDFBasico($boleto) {
     
     // Conteúdo da página com informações do boleto
     $conteudoPagina = "BT\n/F1 12 Tf\n100 700 Td\n";
-    $conteudoPagina .= "(BOLETO DE PAGAMENTO - IMED EDUCACAO) Tj\n";
+    $conteudoPagina .= "(BOLETO DE PAGAMENTO - IMEPEDU EDUCACAO) Tj\n";
     $conteudoPagina .= "0 -20 Td\n";
     $conteudoPagina .= "(Numero: " . $boleto['numero_boleto'] . ") Tj\n";
     $conteudoPagina .= "0 -20 Td\n";

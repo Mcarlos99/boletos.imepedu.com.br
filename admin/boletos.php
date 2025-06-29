@@ -1,6 +1,6 @@
 <?php
 /**
- * Sistema de Boletos IMED - Gerenciamento de Boletos
+ * Sistema de Boletos IMEPEDU - Gerenciamento de Boletos
  * Arquivo: admin/boletos.php
  */
 
@@ -43,7 +43,7 @@ $cursosDisponiveis = $adminService->buscarTodosCursos();
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gerenciar Boletos - Administração IMED</title>
+    <title>Gerenciar Boletos - Administração IMEPEDU</title>
     
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
@@ -199,7 +199,7 @@ $cursosDisponiveis = $adminService->buscarTodosCursos();
     <!-- Sidebar -->
     <div class="sidebar">
         <div class="sidebar-brand">
-            <h4><i class="fas fa-graduation-cap"></i> IMED Admin</h4>
+            <h4><i class="fas fa-graduation-cap"></i> IMEPEDU Admin</h4>
             <small>Sistema de Boletos</small>
         </div>
         

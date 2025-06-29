@@ -1,6 +1,6 @@
 <?php
 /**
- * Sistema de Boletos IMED - Página de Login
+ * Sistema de Boletos IMEPEDU - Página de Login
  * Arquivo: public/login.php
  * 
  * Este arquivo processa tanto login manual quanto automático do Moodle
@@ -178,7 +178,7 @@ if (isset($subdomain) && !empty($subdomain)) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - Sistema de Boletos IMED</title>
+    <title>Login - Sistema de Boletos IMEPEDU</title>
     
     <!-- Meta tags -->
     <meta name="description" content="Acesse seus boletos acadêmicos de forma segura">
@@ -384,7 +384,7 @@ if (isset($subdomain) && !empty($subdomain)) {
         <div class="login-card">
             <!-- Header -->
             <div class="login-header">
-                <h2><i class="fas fa-graduation-cap"></i> IMED Educação</h2>
+                <h2><i class="fas fa-graduation-cap"></i> IMEPEDU Educação</h2>
                 <p>Sistema de Boletos</p>
             </div>
             

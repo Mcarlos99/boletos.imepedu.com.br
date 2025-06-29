@@ -1,6 +1,6 @@
 <?php
 /**
- * Sistema de Boletos IMED - Configuração do Moodle CORRIGIDA
+ * Sistema de Boletos IMEPEDU - Configuração do Moodle CORRIGIDA
  * Arquivo: config/moodle.php (SUBSTITUIR)
  * 
  * CORREÇÃO: Adicionadas funções necessárias para buscar categorias e cursos
@@ -174,7 +174,7 @@ class MoodleConfig {
         'timeout' => 30,
         'max_retries' => 3,
         'retry_delay' => 2,
-        'user_agent' => 'IMED-Boletos-System/1.0',
+        'user_agent' => 'IMEPEDU-Boletos-System/1.0',
         'verify_ssl' => true,
         'cache_duration' => 300, // 5 minutos
         'fallback_enabled' => true, // 🆕 Permite fallback se função não existir

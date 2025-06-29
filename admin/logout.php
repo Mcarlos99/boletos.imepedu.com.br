@@ -1,6 +1,6 @@
 <?php
 /**
- * Sistema de Boletos IMED - Logout Administrativo
+ * Sistema de Boletos IMEPEDU - Logout Administrativo
  * Arquivo: admin/logout.php
  */
 

@@ -1,6 +1,6 @@
 <?php
 /**
- * Sistema de Boletos IMED - Dashboard Administrativo
+ * Sistema de Boletos IMEPEDU - Dashboard Administrativo
  * Arquivo: admin/dashboard.php
  */
 
@@ -43,7 +43,7 @@ foreach ($polosAtivos as $polo) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Administração - Sistema de Boletos IMED</title>
+    <title>Administração - Sistema de Boletos IMEPEDU</title>
     
     <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -280,7 +280,7 @@ foreach ($polosAtivos as $polo) {
     <!-- Sidebar -->
     <div class="sidebar">
         <div class="sidebar-brand">
-            <h4><i class="fas fa-graduation-cap"></i> IMED Admin</h4>
+            <h4><i class="fas fa-graduation-cap"></i> IMEPEDU Admin</h4>
             <small>Sistema de Boletos</small>
         </div>
         
