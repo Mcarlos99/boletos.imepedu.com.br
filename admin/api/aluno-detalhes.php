@@ -1,6 +1,6 @@
 <?php
 /**
- * Sistema de Boletos IMEPEDU - API para Detalhes do Aluno (ADMINISTRAÇÃO)
+ * Sistema de Boletos IMED - API para Detalhes do Aluno (ADMINISTRAÇÃO)
  * Arquivo: admin/api/aluno-detalhes.php
  * 
  * API específica para administradores visualizarem detalhes completos dos alunos
@@ -993,7 +993,7 @@ function logAcaoAdministrativa($acao, $alunoId, $detalhes = []) {
  * Função de cache para otimizar consultas frequentes
  */
 function obterDadosCache($chave) {
-    $cacheFile = sys_get_temp_dir() . '/IMEPEDU_cache_' . md5($chave) . '.json';
+    $cacheFile = sys_get_temp_dir() . '/imed_cache_' . md5($chave) . '.json';
     
     if (file_exists($cacheFile) && (time() - filemtime($cacheFile)) < 300) { // 5 minutos
         return json_decode(file_get_contents($cacheFile), true);
@@ -1003,7 +1003,7 @@ function obterDadosCache($chave) {
 }
 
 function salvarDadosCache($chave, $dados) {
-    $cacheFile = sys_get_temp_dir() . '/IMEPEDU_cache_' . md5($chave) . '.json';
+    $cacheFile = sys_get_temp_dir() . '/imed_cache_' . md5($chave) . '.json';
     file_put_contents($cacheFile, json_encode($dados));
 }
 
