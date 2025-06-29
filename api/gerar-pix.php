@@ -229,10 +229,10 @@ function obterConfiguracaoPIX($subdomain) {
     // Configurações PIX por polo
     $configuracoes = [
         'breubranco.imepedu.com.br' => [
-            'chave_pix' => '12.345.678/0001-90', // CNPJ da instituição
-            'beneficiario' => 'IMEPEDU EDUCACAO - POLO BREU BRANCO',
+            'chave_pix' => '51.071.986/0001-21', // CNPJ da instituição
+            'beneficiario' => 'MAGALHAES EDUCACAO BREU BRANCO LTDA',
             'cidade' => 'BREU BRANCO',
-            'cep' => '68470000',
+            'cep' => '68488-000',
             'merchant_category_code' => '8299', // Educação
             'country_code' => 'BR',
             'currency' => '986' // Real brasileiro

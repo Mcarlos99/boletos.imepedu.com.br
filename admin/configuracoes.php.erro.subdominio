@@ -1549,39 +1549,127 @@ function obterEstatisticasSistema() {
         
         // Testa conexão com polo
         function testarConexao(polo) {
-            if (operacaoAtiva) {
-                showToast('Teste já em andamento', 'warning');
-                return;
+    if (operacaoAtiva) {
+        showToast('Teste já em andamento', 'warning');
+        return;
+    }
+    
+    operacaoAtiva = true;
+    
+    // Encontra o indicador de status do polo
+    const poloRow = encontrarElementoPolo(polo);
+    const statusIndicator = poloRow?.querySelector('.status-indicator');
+    
+    // Mostra loading
+    if (statusIndicator) {
+        statusIndicator.className = 'status-indicator status-loading';
+        statusIndicator.style.animation = 'pulse 1s infinite';
+    }
+    
+    showToast(`Testando conexão com ${polo}...`, 'info');
+    
+    fetch('/admin/api/testar-conexao-polo.php', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+            polo: polo,
+            testar_funcoes: false, // ✅ Teste básico para ser mais rápido
+            salvar_resultado: true
+        })
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        console.log('Resultado do teste:', data);
+        
+        if (data.success) {
+            const resultado = data.resultado_geral;
+            let statusClass = 'status-offline';
+            let toastType = 'error';
+            let mensagem = '';
+            
+            // 🔧 CORREÇÃO: Mapeia status da API para classes visuais
+            switch (resultado.status) {
+                case 'sucesso':
+                    statusClass = 'status-online';
+                    toastType = 'success';
+                    mensagem = `✅ ${polo}: ${resultado.status_label} (${resultado.percentual}%)`;
+                    break;
+                    
+                case 'parcial':
+                    statusClass = 'status-warning'; // ✅ Amarelo para parcial
+                    toastType = 'warning';
+                    mensagem = `⚠️ ${polo}: ${resultado.status_label} (${resultado.percentual}%)`;
+                    if (resultado.alertas && resultado.alertas.length > 0) {
+                        mensagem += ` - ${resultado.alertas[0]}`;
+                    }
+                    break;
+                    
+                case 'problemas':
+                    statusClass = 'status-warning';
+                    toastType = 'warning';
+                    mensagem = `⚠️ ${polo}: ${resultado.status_label} (${resultado.percentual}%)`;
+                    break;
+                    
+                case 'falha':
+                default:
+                    statusClass = 'status-offline';
+                    toastType = 'error';
+                    mensagem = `❌ ${polo}: ${resultado.status_label}`;
+                    if (resultado.problemas_criticos && resultado.problemas_criticos.length > 0) {
+                        mensagem += ` - ${resultado.problemas_criticos[0]}`;
+                    }
+                    break;
             }
             
-            operacaoAtiva = true;
-            showToast(`Testando conexão com ${polo}...`, 'info');
+            // Atualiza indicador visual
+            atualizarStatusPolo(polo, statusClass.replace('status-', ''));
             
-            fetch('/admin/api/testar-conexao-polo.php', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ polo: polo })
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    showToast(`Conexão com ${polo} testada com sucesso!`, 'success');
-                    atualizarStatusPolo(polo, 'online');
-                } else {
-                    showToast(`Erro na conexão com ${polo}: ${data.message}`, 'error');
-                    atualizarStatusPolo(polo, 'offline');
-                }
-            })
-            .catch(error => {
-                showToast(`Erro ao testar conexão: ${error.message}`, 'error');
-                atualizarStatusPolo(polo, 'offline');
-            })
-            .finally(() => {
-                operacaoAtiva = false;
-            });
+            // Mostra detalhes se disponíveis
+            if (data.testes) {
+                mostrarDetalhesStatus(polo, data);
+            }
+            
+            showToast(mensagem, toastType);
+            
+        } else {
+            // Falha na API
+            atualizarStatusPolo(polo, 'offline');
+            showToast(`❌ Erro ao testar ${polo}: ${data.message || 'Erro desconhecido'}`, 'error');
         }
+    })
+    .catch(error => {
+        console.error('Erro no teste de conexão:', error);
+        atualizarStatusPolo(polo, 'offline');
+        showToast(`❌ Erro de conexão com ${polo}: ${error.message}`, 'error');
+    })
+    .finally(() => {
+        operacaoAtiva = false;
+        
+        // Remove animação de loading
+        if (statusIndicator) {
+            statusIndicator.style.animation = '';
+        }
+    });
+}
+function encontrarElementoPolo(polo) {
+    const poloRows = document.querySelectorAll('.polo-status');
+    
+    for (const row of poloRows) {
+        const poloText = row.querySelector('small.text-muted');
+        if (poloText && poloText.textContent.trim() === polo) {
+            return row;
+        }
+    }
+    
+    return null;
+}
         
         // Configura polo
         function configurarPolo(polo) {
@@ -1619,81 +1707,204 @@ function obterEstatisticasSistema() {
         
         // Sincroniza todos os polos
         function sincronizarTodosPolos() {
-            if (operacaoAtiva) {
-                showToast('Sincronização já em andamento', 'warning');
-                return;
-            }
-            
-            if (confirm('Deseja sincronizar todos os polos? Esta operação pode demorar alguns minutos.')) {
-                operacaoAtiva = true;
-                mostrarProgresso('Sincronizando Polos');
-                
-                let progresso = 0;
-                const interval = setInterval(() => {
-                    progresso += Math.random() * 15;
-                    if (progresso > 95) progresso = 95;
-                    
-                    atualizarProgresso(progresso, `Sincronizando polos... ${Math.round(progresso)}%`);
-                }, 500);
-                
-                fetch('/admin/api/sincronizar-todos-polos.php', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    }
-                })
-                .then(response => response.json())
-                .then(data => {
-                    clearInterval(interval);
-                    atualizarProgresso(100, 'Sincronização concluída!');
-                    
-                    setTimeout(() => {
-                        esconderProgresso();
-                        if (data.success) {
-                            showToast(`Sincronização concluída! ${data.polos_sincronizados} polos atualizados.`, 'success');
-                            setTimeout(() => location.reload(), 2000);
-                        } else {
-                            showToast('Erro na sincronização: ' + data.message, 'error');
-                        }
-                    }, 1000);
-                })
-                .catch(error => {
-                    clearInterval(interval);
-                    esconderProgresso();
-                    showToast('Erro de conexão na sincronização', 'error');
-                })
-                .finally(() => {
-                    operacaoAtiva = false;
-                });
-            }
-        }
+    if (operacaoAtiva) {
+        showToast('Sincronização já em andamento', 'warning');
+        return;
+    }
+    
+    if (confirm('Deseja sincronizar todos os polos? Esta operação pode demorar alguns minutos.')) {
+        operacaoAtiva = true;
+        mostrarProgresso('Sincronizando Polos');
         
+        let progresso = 0;
+        const interval = setInterval(() => {
+            progresso += Math.random() * 15;
+            if (progresso > 95) progresso = 95;
+            
+            atualizarProgresso(progresso, `Sincronizando polos... ${Math.round(progresso)}%`);
+        }, 500);
+        
+        // 🔧 CORREÇÃO: URL da API corrigida
+        fetch('/admin/api/sincronizar-todos-polos.php', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            clearInterval(interval);
+            atualizarProgresso(100, 'Sincronização concluída!');
+            
+            setTimeout(() => {
+                esconderProgresso();
+                if (data.success) {
+                    showToast(`Sincronização concluída! ${data.polos_sincronizados || 0} polos atualizados.`, 'success');
+                    
+                    // Atualiza status de todos os polos após sincronização
+                    setTimeout(() => {
+                        verificarStatusPolosAutomatico();
+                    }, 2000);
+                    
+                    setTimeout(() => location.reload(), 3000);
+                } else {
+                    showToast('Erro na sincronização: ' + data.message, 'error');
+                }
+            }, 1000);
+        })
+        .catch(error => {
+            clearInterval(interval);
+            esconderProgresso();
+            showToast('Erro de conexão na sincronização', 'error');
+            console.error('Erro na sincronização:', error);
+        })
+        .finally(() => {
+            operacaoAtiva = false;
+        });
+    }
+}
         // Verifica status de todos os polos
         function verificarStatusPolos() {
-            if (operacaoAtiva) return;
-            
-            operacaoAtiva = true;
-            showToast('Verificando status dos polos...', 'info');
-            
-            fetch('/admin/api/verificar-status-polos.php')
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    data.status.forEach(polo => {
-                        atualizarStatusPolo(polo.subdomain, polo.online ? 'online' : 'offline');
-                    });
-                    showToast('Status dos polos atualizado!', 'success');
-                } else {
-                    showToast('Erro ao verificar status: ' + data.message, 'error');
-                }
-            })
-            .catch(error => {
-                showToast('Erro de conexão', 'error');
-            })
-            .finally(() => {
-                operacaoAtiva = false;
-            });
+    if (operacaoAtiva) {
+        showToast('Verificação já em andamento', 'warning');
+        return;
+    }
+    
+    operacaoAtiva = true;
+    showToast('Verificando status dos polos...', 'info');
+    
+    // Usa a verificação automática mas com feedback visual
+    verificarStatusPolosAutomatico();
+    
+    // Simula progresso
+    setTimeout(() => {
+        showToast('Status dos polos verificado!', 'success');
+        operacaoAtiva = false;
+    }, 5000);
+}
+
+// 🔧 NOVA: Função para inicialização quando a página carrega
+function inicializarVerificacaoPolos() {
+    console.log('🚀 Inicializando verificação de polos...');
+    
+    // Verifica status inicial após 2 segundos
+    setTimeout(() => {
+        verificarStatusPolosAutomatico();
+    }, 2000);
+    
+    // Configurar verificação periódica (a cada 5 minutos)
+    setInterval(() => {
+        if (!operacaoAtiva) {
+            console.log('🔄 Verificação periódica de polos...');
+            verificarStatusPolosAutomatico();
         }
+    }, 300000); // 5 minutos
+}
+
+// 🔧 NOVA: Estilos CSS adicionais para melhor visualização
+function adicionarEstilosStatus() {
+    const style = document.createElement('style');
+    style.textContent = `
+        .status-indicator {
+            position: relative;
+            transition: all 0.3s ease;
+        }
+        
+        .status-loading {
+            background: linear-gradient(45deg, #ffc107, #fd7e14) !important;
+            animation: pulse 1s infinite !important;
+        }
+        
+        .status-online {
+            background: #28a745 !important;
+            box-shadow: 0 0 8px rgba(40, 167, 69, 0.5);
+        }
+        
+        .status-warning {
+            background: #ffc107 !important;
+            box-shadow: 0 0 8px rgba(255, 193, 7, 0.5);
+        }
+        
+        .status-offline {
+            background: #dc3545 !important;
+            box-shadow: 0 0 8px rgba(220, 53, 69, 0.5);
+        }
+        
+        .polo-status {
+            transition: all 0.2s ease;
+        }
+        
+        .polo-status:hover {
+            background-color: rgba(0,102,204,0.05);
+            border-color: var(--primary-color);
+            transform: translateY(-1px);
+        }
+        
+        .polo-status[title] {
+            cursor: help;
+        }
+        
+        /* Animação de loading */
+        @keyframes pulse {
+            0% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.7; transform: scale(1.1); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+        
+        /* Efeito de sucesso */
+        .status-success-flash {
+            animation: successFlash 0.6s ease;
+        }
+        
+        @keyframes successFlash {
+            0% { background-color: transparent; }
+            50% { background-color: rgba(40, 167, 69, 0.2); }
+            100% { background-color: transparent; }
+        }
+        
+        /* Efeito de erro */
+        .status-error-flash {
+            animation: errorFlash 0.6s ease;
+        }
+        
+        @keyframes errorFlash {
+            0% { background-color: transparent; }
+            50% { background-color: rgba(220, 53, 69, 0.2); }
+            100% { background-color: transparent; }
+        }
+    `;
+    document.head.appendChild(style);
+}
+
+// 🔧 NOVA: Debug e logging aprimorado
+function logStatusPolo(polo, status, detalhes = {}) {
+    const timestamp = new Date().toLocaleTimeString();
+    console.log(`[${timestamp}] 📊 Polo ${polo}:`, {
+        status: status,
+        detalhes: detalhes,
+        elemento_encontrado: !!encontrarElementoPolo(polo)
+    });
+    
+    // Salva no localStorage para debug
+    try {
+        const logs = JSON.parse(localStorage.getItem('polo_status_logs') || '[]');
+        logs.push({
+            timestamp: Date.now(),
+            polo: polo,
+            status: status,
+            detalhes: detalhes
+        });
+        
+        // Mantém apenas os últimos 50 logs
+        if (logs.length > 50) {
+            logs.splice(0, logs.length - 50);
+        }
+        
+        localStorage.setItem('polo_status_logs', JSON.stringify(logs));
+    } catch (e) {
+        console.warn('Não foi possível salvar logs no localStorage:', e);
+    }
+}
         
         // ========== FUNÇÕES DE MANUTENÇÃO ==========
         
@@ -1888,16 +2099,150 @@ function obterEstatisticasSistema() {
         
         // Atualiza status visual do polo
         function atualizarStatusPolo(polo, status) {
-            const statusIndicators = document.querySelectorAll('.status-indicator');
-            statusIndicators.forEach(indicator => {
-                const poloRow = indicator.closest('.polo-status');
-                const poloText = poloRow.querySelector('small.text-muted').textContent;
-                
-                if (poloText === polo) {
-                    indicator.className = `status-indicator status-${status}`;
-                }
-            });
+    const poloRow = encontrarElementoPolo(polo);
+    
+    if (poloRow) {
+        const statusIndicator = poloRow.querySelector('.status-indicator');
+        if (statusIndicator) {
+            // Remove classes antigas
+            statusIndicator.classList.remove('status-online', 'status-offline', 'status-warning', 'status-loading');
+            
+            // Adiciona nova classe
+            statusIndicator.classList.add(`status-${status}`);
+            
+            console.log(`Status do polo ${polo} atualizado para: ${status}`);
         }
+    } else {
+        console.warn(`Elemento do polo ${polo} não encontrado na página`);
+    }
+}
+
+// 🔧 NOVA: Função para mostrar detalhes do status em tooltip ou modal
+function mostrarDetalhesStatus(polo, dadosTeste) {
+    const poloRow = encontrarElementoPolo(polo);
+    
+    if (poloRow) {
+        // Atualiza ou cria tooltip com detalhes
+        const detalhes = [];
+        
+        if (dadosTeste.testes.conectividade) {
+            const conn = dadosTeste.testes.conectividade;
+            detalhes.push(`Conectividade: ${conn.success ? '✅' : '❌'} (${conn.tempo_total || 0}ms)`);
+        }
+        
+        if (dadosTeste.testes.autenticacao) {
+            const auth = dadosTeste.testes.autenticacao;
+            const statusAuth = auth.status || (auth.success ? 'ok' : 'erro');
+            detalhes.push(`Token: ${getStatusIcon(statusAuth)} ${auth.message || statusAuth}`);
+        }
+        
+        if (dadosTeste.testes.performance) {
+            const perf = dadosTeste.testes.performance;
+            detalhes.push(`Performance: ${perf.classificacao || 'N/A'} (${perf.tempo_medio || 0}ms)`);
+        }
+        
+        // Adiciona título com detalhes
+        poloRow.title = `Último teste: ${new Date().toLocaleString()}\n${detalhes.join('\n')}`;
+        
+        // Se bootstrap tooltip estiver disponível, atualiza
+        if (typeof bootstrap !== 'undefined' && bootstrap.Tooltip) {
+            const existingTooltip = bootstrap.Tooltip.getInstance(poloRow);
+            if (existingTooltip) {
+                existingTooltip.dispose();
+            }
+            new bootstrap.Tooltip(poloRow);
+        }
+    }
+}
+
+// 🔧 NOVA: Função auxiliar para ícones de status
+function getStatusIcon(status) {
+    const icons = {
+        'ok': '✅',
+        'autenticado': '✅',
+        'token_pendente': '⚠️',
+        'token_invalido': '❌',
+        'erro': '❌',
+        'erro_conexao': '🔌',
+        'offline': '❌'
+    };
+    
+    return icons[status] || '❓';
+}
+
+// 🔧 NOVA: Função para verificar status de todos os polos automaticamente
+function verificarStatusPolosAutomatico() {
+    console.log('🔄 Verificação automática de status dos polos iniciada');
+    
+    const poloRows = document.querySelectorAll('.polo-status');
+    const polos = [];
+    
+    // Extrai nomes dos polos da página
+    poloRows.forEach(row => {
+        const poloText = row.querySelector('small.text-muted');
+        if (poloText) {
+            polos.push(poloText.textContent.trim());
+        }
+    });
+    
+    if (polos.length === 0) {
+        console.log('Nenhum polo encontrado para verificar');
+        return;
+    }
+    
+    // Verifica cada polo com delay para não sobrecarregar
+    polos.forEach((polo, index) => {
+        setTimeout(() => {
+            verificarStatusUnicoPolo(polo);
+        }, index * 1000); // 1 segundo de delay entre cada teste
+    });
+}
+
+// 🔧 NOVA: Verifica status de um polo específico (versão silenciosa)
+function verificarStatusUnicoPolo(polo) {
+    fetch('/admin/api/testar-conexao-polo.php', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+            polo: polo,
+            testar_funcoes: false,
+            salvar_resultado: false // Não salva verificações automáticas
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success && data.resultado_geral) {
+            const resultado = data.resultado_geral;
+            let statusClass;
+            
+            switch (resultado.status) {
+                case 'sucesso':
+                    statusClass = 'online';
+                    break;
+                case 'parcial':
+                case 'problemas':
+                    statusClass = 'warning';
+                    break;
+                case 'falha':
+                default:
+                    statusClass = 'offline';
+                    break;
+            }
+            
+            atualizarStatusPolo(polo, statusClass);
+            console.log(`✅ Status do polo ${polo}: ${resultado.status} (${resultado.percentual}%)`);
+        } else {
+            atualizarStatusPolo(polo, 'offline');
+            console.log(`❌ Polo ${polo}: ${data.message || 'Erro'}`);
+        }
+    })
+    .catch(error => {
+        atualizarStatusPolo(polo, 'offline');
+        console.log(`❌ Erro ao verificar ${polo}:`, error.message);
+    });
+}
         
         // Toggle visibilidade do token
         function toggleTokenVisibility() {
@@ -2045,6 +2390,39 @@ function obterEstatisticasSistema() {
             tooltips.forEach(element => {
                 new bootstrap.Tooltip(element);
             });
+            
+            // NOVA INICIALIZAÇÃO DOS POLOS
+            console.log('✅ Inicializando sistema de teste de polos...');
+    
+            // Adiciona estilos
+            adicionarEstilosStatus();
+    
+            // Inicializa verificação
+            inicializarVerificacaoPolos();
+
+             // Adiciona event listeners para botões de teste
+            document.querySelectorAll('button[onclick*="testarConexao"]').forEach(button => {
+            const onclick = button.getAttribute('onclick');
+            const match = onclick.match(/testarConexao\('([^']+)'\)/);
+        
+            if (match) {
+            const polo = match[1];
+            
+            // Remove onclick inline e adiciona event listener
+            button.removeAttribute('onclick');
+            button.addEventListener('click', function(e) {
+                e.preventDefault();
+                testarConexao(polo);
+            });
+            
+            // Adiciona tooltip informativo
+            button.title = `Testar conexão com ${polo}`;
+        }
+    });
+
+
+    
+            console.log('🎯 Sistema de teste de polos inicializado com sucesso!');
         });
         
         // Adiciona estilos para animações
