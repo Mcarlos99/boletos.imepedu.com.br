@@ -658,10 +658,10 @@ $estatisticas = obterEstatisticasAlunos();
                                                     <i class="fas fa-sync-alt"></i>
                                                 </button>
                                                 
-                                                <button class="btn btn-outline-secondary btn-sm" 
+                                                    <!-- <button class="btn btn-outline-secondary btn-sm" 
                                                         onclick="editarAluno(<?= $aluno['id'] ?>)" 
                                                         title="Editar">
-                                                    <i class="fas fa-edit"></i>
+                                                    <i class="fas fa-edit"></i> -->
                                                 </button>
                                             </div>
                                         </td>
@@ -858,7 +858,7 @@ $estatisticas = obterEstatisticasAlunos();
                 .then(data => {
                     if (data.success) {
                         exibirDetalhesAluno(data);
-                        showToast('Detalhes carregados!', 'success');
+                        //showToast('Detalhes carregados!', 'success');
                     } else {
                         exibirErroDetalhes(data.message || 'Erro desconhecido');
                         showToast('Erro: ' + (data.message || 'Erro desconhecido'), 'error');
@@ -1696,7 +1696,146 @@ $estatisticas = obterEstatisticasAlunos();
                 sincronizarAlunos();
             }, 1000);
         }
+      
         
+
+        /**
+ * CORREÇÃO DO BACKDROP (Tela Escura) - Modal de Detalhes
+ * Adicionar este código no JavaScript do admin/alunos.php
+ */
+
+// 🔧 CORREÇÃO: Força limpeza completa do modal e backdrop
+function fecharModalDetalhes() {
+    try {
+        // Método 1: Remove modal via Bootstrap
+        const modal = document.getElementById('detalhesAlunoModal');
+        if (modal) {
+            const modalInstance = bootstrap.Modal.getInstance(modal);
+            if (modalInstance) {
+                modalInstance.hide();
+            }
+        }
+        
+        // Método 2: Remove backdrop manualmente após um delay
+        setTimeout(() => {
+            // Remove todos os backdrops órfãos
+            const backdrops = document.querySelectorAll('.modal-backdrop');
+            backdrops.forEach(backdrop => {
+                backdrop.remove();
+            });
+            
+            // Remove classes do body
+            document.body.classList.remove('modal-open');
+            document.body.style.overflow = '';
+            document.body.style.paddingRight = '';
+            
+            // Limpa variáveis
+            currentAlunoId = null;
+            
+        }, 100);
+        
+    } catch (error) {
+        console.error('Erro ao fechar modal:', error);
+        // Força limpeza em caso de erro
+        forcarLimpezaCompleta();
+    }
+}
+
+// 🔧 CORREÇÃO: Limpeza forçada em caso de emergência
+function forcarLimpezaCompleta() {
+    // Remove TODOS os modais e backdrops
+    document.querySelectorAll('.modal').forEach(modal => {
+        modal.classList.remove('show');
+        modal.style.display = 'none';
+        modal.setAttribute('aria-hidden', 'true');
+        modal.removeAttribute('aria-modal');
+    });
+    
+    document.querySelectorAll('.modal-backdrop').forEach(backdrop => {
+        backdrop.remove();
+    });
+    
+    // Limpa classes do body
+    document.body.classList.remove('modal-open');
+    document.body.style.overflow = '';
+    document.body.style.paddingRight = '';
+    document.body.style.marginRight = '';
+    
+    console.log('✅ Limpeza forçada executada');
+}
+
+// 🔧 CORREÇÃO: Intercepta evento de fechamento do modal
+document.addEventListener('DOMContentLoaded', function() {
+    const modalDetalhes = document.getElementById('detalhesAlunoModal');
+    
+    if (modalDetalhes) {
+        // Event listener para quando modal é escondido
+        modalDetalhes.addEventListener('hidden.bs.modal', function(e) {
+            setTimeout(() => {
+                // Verifica se ainda há backdrops órfãos
+                const backdropsOrfaos = document.querySelectorAll('.modal-backdrop');
+                if (backdropsOrfaos.length > 0) {
+                    console.log('🔧 Removendo backdrops órfãos:', backdropsOrfaos.length);
+                    backdropsOrfaos.forEach(backdrop => backdrop.remove());
+                }
+                
+                // Garante que body está limpo
+                if (document.body.classList.contains('modal-open')) {
+                    document.body.classList.remove('modal-open');
+                    document.body.style.overflow = '';
+                    document.body.style.paddingRight = '';
+                }
+            }, 150);
+        });
+        
+        // Event listener para botão X
+        const btnClose = modalDetalhes.querySelector('.btn-close');
+        if (btnClose) {
+            btnClose.addEventListener('click', function(e) {
+                e.preventDefault();
+                fecharModalDetalhes();
+            });
+        }
+        
+        // Event listener para botão Fechar
+        const btnFechar = modalDetalhes.querySelector('.modal-footer .btn-secondary');
+        if (btnFechar) {
+            btnFechar.addEventListener('click', function(e) {
+                e.preventDefault();
+                fecharModalDetalhes();
+            });
+        }
+        
+        // Event listener para ESC
+        modalDetalhes.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                fecharModalDetalhes();
+            }
+        });
+        
+        // Event listener para clique no backdrop
+        modalDetalhes.addEventListener('click', function(e) {
+            if (e.target === this) {
+                fecharModalDetalhes();
+            }
+        });
+    }
+});
+
+// 🔧 CORREÇÃO: Substitui função verDetalhes original se necessário
+const originalVerDetalhes = window.verDetalhes;
+window.verDetalhes = function(alunoId) {
+    // Limpa qualquer backdrop órfão antes de abrir novo modal
+    forcarLimpezaCompleta();
+    
+    // Chama função original
+    if (originalVerDetalhes) {
+        originalVerDetalhes(alunoId);
+    }
+};
+
+
     </script>
 </body>
 </html>
