@@ -165,9 +165,9 @@ DirectoryIndex index.php
     # Configurações específicas para upload
     php_value upload_tmp_dir "/tmp"
     php_flag file_uploads On
-    php_value max_file_uploads 20
+    php_value max_file_uploads 50
     php_value upload_max_filesize 10M
-    php_value post_max_size 12M
+    php_value post_max_size 128M
     php_value max_execution_time 300
     php_value max_input_time 300
     php_value memory_limit 512M
@@ -209,10 +209,10 @@ RewriteEngine On
 
 # Permite uploads grandes (ajuste conforme necessário)
 php_value upload_max_filesize 10M
-php_value post_max_size 12M
-php_value max_execution_time 120
-php_value max_input_time 120
-php_value memory_limit 256M
+php_value post_max_size 128M
+php_value max_execution_time 300
+php_value max_input_time 300
+php_value memory_limit 512M
 
 # ==== HEADERS DE SEGURANÇA E CACHE ====
 
