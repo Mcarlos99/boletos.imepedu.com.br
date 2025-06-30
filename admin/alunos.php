@@ -15,6 +15,9 @@ require_once '../config/database.php';
 require_once '../config/moodle.php';
 require_once '../src/AdminService.php';
 require_once '../src/AlunoService.php';
+require_once 'includes/verificar-permissao.php';
+
+
 
 $adminService = new AdminService();
 $alunoService = new AlunoService();
@@ -41,8 +44,8 @@ $cursosDisponiveis = $adminService->buscarTodosCursos();
 function buscarAlunosComFiltros($filtros, $pagina, $itensPorPagina) {
     $db = (new Database())->getConnection();
     
-    $where = ['1=1'];
-    $params = [];
+    $where = array('1=1');
+    $params = array();
     
     // Aplica filtros
     if (!empty($filtros['polo'])) {
@@ -83,44 +86,87 @@ function buscarAlunosComFiltros($filtros, $pagina, $itensPorPagina) {
     $whereClause = implode(' AND ', $where);
     
     // Conta total
-    $stmtCount = $db->prepare("
-        SELECT COUNT(DISTINCT a.id) as total
-        FROM alunos a
-        WHERE {$whereClause}
-    ");
+    $sqlCount = "SELECT COUNT(DISTINCT a.id) as total FROM alunos a WHERE " . $whereClause;
+    $stmtCount = $db->prepare($sqlCount);
     $stmtCount->execute($params);
     $total = $stmtCount->fetch()['total'];
     
-    // Busca registros
+    // QUERY PRINCIPAL CORRIGIDA
     $offset = ($pagina - 1) * $itensPorPagina;
-    $stmt = $db->prepare("
-        SELECT a.*,
-               COUNT(DISTINCT m.id) as total_matriculas,
-               COUNT(DISTINCT b.id) as total_boletos,
-               COUNT(CASE WHEN b.status = 'pago' THEN 1 END) as boletos_pagos,
-               COUNT(CASE WHEN b.status = 'pendente' THEN 1 END) as boletos_pendentes,
-               COUNT(CASE WHEN b.status = 'vencido' THEN 1 END) as boletos_vencidos,
-               COALESCE(SUM(CASE WHEN b.status = 'pago' THEN COALESCE(b.valor_pago, b.valor) ELSE 0 END), 0) as valor_pago_total,
-               COALESCE(SUM(CASE WHEN b.status IN ('pendente', 'vencido') THEN b.valor ELSE 0 END), 0) as valor_pendente_total
-        FROM alunos a
-        LEFT JOIN matriculas m ON a.id = m.aluno_id AND m.status = 'ativa'
-        LEFT JOIN boletos b ON a.id = b.aluno_id
-        WHERE {$whereClause}
-        GROUP BY a.id
-        ORDER BY a.created_at DESC
-        LIMIT ? OFFSET ?
-    ");
-    $params[] = $itensPorPagina;
-    $params[] = $offset;
-    $stmt->execute($params);
     
-    return [
-        'alunos' => $stmt->fetchAll(PDO::FETCH_ASSOC),
+    // Primeira consulta: busca dados básicos dos alunos
+    $sqlAlunos = "SELECT a.*, COUNT(DISTINCT m.id) as total_matriculas 
+                  FROM alunos a
+                  LEFT JOIN matriculas m ON a.id = m.aluno_id AND m.status = 'ativa'
+                  WHERE " . $whereClause . "
+                  GROUP BY a.id
+                  ORDER BY a.created_at DESC
+                  LIMIT ? OFFSET ?";
+    
+    $stmtAlunos = $db->prepare($sqlAlunos);
+    $paramsAlunos = $params;
+    $paramsAlunos[] = $itensPorPagina;
+    $paramsAlunos[] = $offset;
+    $stmtAlunos->execute($paramsAlunos);
+    $alunos = $stmtAlunos->fetchAll(PDO::FETCH_ASSOC);
+    
+    // Segunda consulta: busca estatísticas de boletos para cada aluno
+    if (!empty($alunos)) {
+        $alunoIds = array_column($alunos, 'id');
+        $placeholders = str_repeat('?,', count($alunoIds) - 1) . '?';
+        
+        $sqlBoletos = "SELECT 
+                        aluno_id,
+                        COUNT(*) as total_boletos,
+                        COUNT(CASE WHEN status = 'pago' THEN 1 END) as boletos_pagos,
+                        COUNT(CASE WHEN status = 'pendente' THEN 1 END) as boletos_pendentes,
+                        COUNT(CASE WHEN status = 'vencido' THEN 1 END) as boletos_vencidos,
+                        COALESCE(SUM(CASE WHEN status = 'pago' THEN COALESCE(valor_pago, valor) ELSE 0 END), 0) as valor_pago_total,
+                        COALESCE(SUM(CASE WHEN status IN ('pendente', 'vencido') THEN valor ELSE 0 END), 0) as valor_pendente_total
+                       FROM boletos 
+                       WHERE aluno_id IN (" . $placeholders . ")
+                       GROUP BY aluno_id";
+        
+        $stmtBoletos = $db->prepare($sqlBoletos);
+        $stmtBoletos->execute($alunoIds);
+        $estatisticasBoletos = $stmtBoletos->fetchAll(PDO::FETCH_ASSOC);
+        
+        // Combina dados dos alunos com estatísticas de boletos
+        $estatisticasIndexadas = array();
+        foreach ($estatisticasBoletos as $stat) {
+            $estatisticasIndexadas[$stat['aluno_id']] = $stat;
+        }
+        
+        // Adiciona estatísticas aos dados dos alunos
+        for ($i = 0; $i < count($alunos); $i++) {
+            $alunoId = $alunos[$i]['id'];
+            if (isset($estatisticasIndexadas[$alunoId])) {
+                $stats = $estatisticasIndexadas[$alunoId];
+                $alunos[$i]['total_boletos'] = $stats['total_boletos'];
+                $alunos[$i]['boletos_pagos'] = $stats['boletos_pagos'];
+                $alunos[$i]['boletos_pendentes'] = $stats['boletos_pendentes'];
+                $alunos[$i]['boletos_vencidos'] = $stats['boletos_vencidos'];
+                $alunos[$i]['valor_pago_total'] = $stats['valor_pago_total'];
+                $alunos[$i]['valor_pendente_total'] = $stats['valor_pendente_total'];
+            } else {
+                // Aluno sem boletos
+                $alunos[$i]['total_boletos'] = 0;
+                $alunos[$i]['boletos_pagos'] = 0;
+                $alunos[$i]['boletos_pendentes'] = 0;
+                $alunos[$i]['boletos_vencidos'] = 0;
+                $alunos[$i]['valor_pago_total'] = 0;
+                $alunos[$i]['valor_pendente_total'] = 0;
+            }
+        }
+    }
+    
+    return array(
+        'alunos' => $alunos,
         'total' => $total,
         'pagina' => $pagina,
         'total_paginas' => ceil($total / $itensPorPagina),
         'itens_por_pagina' => $itensPorPagina
-    ];
+    );
 }
 
 /**
