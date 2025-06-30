@@ -18,6 +18,9 @@ require_once '../config/database.php';
 require_once '../config/moodle.php';
 require_once '../src/AdminService.php';
 require_once '../src/BoletoUploadService.php';
+require_once 'includes/verificar-permissao.php';
+
+
 
 $adminService = new AdminService();
 $uploadService = new BoletoUploadService();

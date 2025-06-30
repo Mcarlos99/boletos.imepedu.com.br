@@ -10,6 +10,7 @@ session_start();
 if (isset($_SESSION['admin_id'])) {
     try {
         require_once '../config/database.php';
+        require_once 'includes/verificar-permissao.php';
         
         $db = (new Database())->getConnection();
         $stmt = $db->prepare("

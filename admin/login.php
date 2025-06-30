@@ -15,6 +15,7 @@ if (isset($_SESSION['admin_id'])) {
 require_once '../config/database.php';
 require_once '../src/AdminService.php';
 
+
 $erro = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {

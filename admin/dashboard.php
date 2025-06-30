@@ -19,6 +19,7 @@ if (!isset($_SESSION['admin_id'])) {
 require_once '../config/database.php';
 require_once '../config/moodle.php';
 require_once '../src/AdminService.php';
+require_once 'includes/verificar-permissao.php';
 
 $adminService = new AdminService();
 $admin = $adminService->buscarAdminPorId($_SESSION['admin_id']);

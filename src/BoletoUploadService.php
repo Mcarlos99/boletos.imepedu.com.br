@@ -1,9 +1,10 @@
 <?php
 /**
- * Sistema de Boletos IMEPEDU - Serviço de Upload de Boletos COM UPLOAD MÚLTIPLO
- * Arquivo: src/BoletoUploadService.php - VERSÃO COMPLETA CORRIGIDA
+ * Sistema de Boletos IMEPEDU - Serviço de Upload de Boletos SEM VERIFICAÇÃO DE CURSO
+ * Arquivo: src/BoletoUploadService.php - VERSÃO FLEXÍVEL PARA TRANSFERÊNCIAS
  * 
- * 🆕 NOVIDADE: Suporte a múltiplos uploads para um único aluno
+ * 🆕 ALTERAÇÃO: Removida verificação rígida de matrícula curso x aluno
+ * Permite gerar boletos para alunos em qualquer curso do polo
  */
 
 require_once __DIR__ . '/../config/database.php';
@@ -38,8 +39,8 @@ class BoletoUploadService {
             // Validações
             $dadosValidados = $this->validarDadosIndividual($post, $files);
             
-            // Verifica se aluno existe e está matriculado no curso
-            $aluno = $this->verificarAlunoECurso($dadosValidados['cpf'], $dadosValidados['curso_id'], $dadosValidados['polo']);
+            // 🔧 ALTERAÇÃO: Verificação flexível sem validação de curso específico
+            $aluno = $this->verificarAlunoFlexivel($dadosValidados['cpf'], $dadosValidados['curso_id'], $dadosValidados['polo']);
             
             // Verifica se número do boleto já existe
             $this->verificarNumeroBoletoUnico($dadosValidados['numero_boleto']);
@@ -63,7 +64,7 @@ class BoletoUploadService {
             $this->db->commit();
             
             // Log da operação
-            $this->registrarLog('upload_individual', $boletoId, "Boleto {$dadosValidados['numero_boleto']} enviado para {$aluno['nome']}");
+            $this->registrarLog('upload_individual_flexivel', $boletoId, "Boleto {$dadosValidados['numero_boleto']} enviado para {$aluno['nome']} (upload flexível)");
             
             return [
                 'success' => true,
@@ -85,21 +86,21 @@ class BoletoUploadService {
     }
     
     /**
-     * 🆕 NOVO: Processa upload múltiplo para um único aluno
+     * Processa upload múltiplo para um único aluno
      */
     public function processarUploadMultiploAluno($post, $files) {
         try {
             $this->db->beginTransaction();
             
-            error_log("🆕 UPLOAD MÚLTIPLO: Iniciando processamento");
+            error_log("🆕 UPLOAD MÚLTIPLO FLEXÍVEL: Iniciando processamento");
             
             // Validações básicas
             $dadosBase = $this->validarDadosMultiploAluno($post, $files);
             
-            // Verifica se aluno existe e está matriculado no curso
-            $aluno = $this->verificarAlunoECurso($dadosBase['cpf'], $dadosBase['curso_id'], $dadosBase['polo']);
+            // 🔧 ALTERAÇÃO: Verificação flexível
+            $aluno = $this->verificarAlunoFlexivel($dadosBase['cpf'], $dadosBase['curso_id'], $dadosBase['polo']);
             
-            error_log("UPLOAD MÚLTIPLO: Aluno validado - {$aluno['nome']} (ID: {$aluno['id']})");
+            error_log("UPLOAD MÚLTIPLO: Aluno validado (flexível) - {$aluno['nome']} (ID: {$aluno['id']})");
             
             // Processa dados dos arquivos individuais
             $dadosArquivos = $this->extrairDadosArquivosMultiplo($post);
@@ -179,7 +180,7 @@ class BoletoUploadService {
             $this->db->commit();
             
             // Log da operação
-            $this->registrarLog('upload_multiplo_aluno', null, "Upload múltiplo para {$aluno['nome']}: {$sucessos} sucessos, {$erros} erros");
+            $this->registrarLog('upload_multiplo_aluno_flexivel', null, "Upload múltiplo flexível para {$aluno['nome']}: {$sucessos} sucessos, {$erros} erros");
             
             error_log("UPLOAD MÚLTIPLO: Concluído - {$sucessos} sucessos, {$erros} erros");
             
@@ -223,8 +224,8 @@ class BoletoUploadService {
                         // Extrai dados do nome do arquivo
                         $dadosArquivo = $this->extrairDadosNomeArquivo($arquivo['name']);
                         
-                        // Verifica aluno
-                        $aluno = $this->verificarAlunoECurso($dadosArquivo['cpf'], $dadosBase['curso_id'], $dadosBase['polo']);
+                        // 🔧 ALTERAÇÃO: Verificação flexível
+                        $aluno = $this->verificarAlunoFlexivel($dadosArquivo['cpf'], $dadosBase['curso_id'], $dadosBase['polo']);
                         
                         // Verifica número único
                         $this->verificarNumeroBoletoUnico($dadosArquivo['numero_boleto']);
@@ -265,7 +266,7 @@ class BoletoUploadService {
             $this->db->commit();
             
             // Log da operação
-            $this->registrarLog('upload_lote', null, "Upload em lote: {$sucessos} sucessos, {$erros} erros");
+            $this->registrarLog('upload_lote_flexivel', null, "Upload em lote flexível: {$sucessos} sucessos, {$erros} erros");
             
             return [
                 'success' => true,
@@ -280,6 +281,110 @@ class BoletoUploadService {
             error_log("Erro no upload em lote: " . $e->getMessage());
             throw new Exception($e->getMessage());
         }
+    }
+    
+    /**
+     * 🔧 NOVA FUNÇÃO: Verificação flexível do aluno
+     * Permite gerar boletos para qualquer aluno do polo, independente do curso específico
+     */
+    private function verificarAlunoFlexivel($cpf, $cursoId, $polo) {
+        $alunoService = new AlunoService();
+        
+        // Busca aluno por CPF e polo
+        $aluno = $alunoService->buscarAlunoPorCPFESubdomain($cpf, $polo);
+        
+        if (!$aluno) {
+            error_log("BoletoUpload: Aluno não encontrado - CPF: {$cpf}, Polo: {$polo}");
+            throw new Exception("Aluno com CPF {$cpf} não encontrado no polo {$polo}");
+        }
+        
+        error_log("BoletoUpload: ✅ Aluno encontrado (modo flexível) - {$aluno['nome']} (ID: {$aluno['id']})");
+        
+        // 🔧 ALTERAÇÃO PRINCIPAL: Verifica apenas se o aluno tem QUALQUER matrícula no polo
+        $stmt = $this->db->prepare("
+            SELECT COUNT(*) as count,
+                   GROUP_CONCAT(c.nome SEPARATOR ', ') as cursos_matriculados
+            FROM matriculas m 
+            INNER JOIN cursos c ON m.curso_id = c.id
+            WHERE m.aluno_id = ? 
+            AND c.subdomain = ?
+            AND m.status = 'ativa'
+        ");
+        $stmt->execute([$aluno['id'], $polo]);
+        $resultado = $stmt->fetch();
+        $matriculasAtivas = $resultado['count'];
+        $cursosMatriculados = $resultado['cursos_matriculados'];
+        
+        error_log("BoletoUpload: Matrículas ativas no polo: {$matriculasAtivas}");
+        error_log("BoletoUpload: Cursos matriculados: {$cursosMatriculados}");
+        
+        if ($matriculasAtivas > 0) {
+            error_log("BoletoUpload: ✅ Aluno tem matrículas ativas no polo - APROVADO (modo flexível)");
+            
+            // Verifica se o curso de destino existe
+            $stmtCurso = $this->db->prepare("
+                SELECT nome FROM cursos 
+                WHERE id = ? AND subdomain = ?
+            ");
+            $stmtCurso->execute([$cursoId, $polo]);
+            $cursoDestino = $stmtCurso->fetch();
+            
+            if (!$cursoDestino) {
+                throw new Exception("Curso de destino não encontrado no polo {$polo}");
+            }
+            
+            error_log("BoletoUpload: ✅ Curso destino válido: {$cursoDestino['nome']}");
+            error_log("BoletoUpload: ℹ️ MODO FLEXÍVEL: Aluno será vinculado ao curso mesmo sem matrícula específica");
+            
+            return $aluno;
+        }
+        
+        // Se não tem matrículas, tenta sincronizar do Moodle
+        error_log("BoletoUpload: 🔄 Sem matrículas locais, tentando sincronizar do Moodle");
+        
+        try {
+            require_once __DIR__ . '/../config/moodle.php';
+            require_once __DIR__ . '/MoodleAPI.php';
+            
+            $moodleAPI = new MoodleAPI($polo);
+            $dadosAlunoMoodle = $moodleAPI->buscarAlunoPorCPF($cpf);
+            
+            if ($dadosAlunoMoodle && !empty($dadosAlunoMoodle['cursos'])) {
+                error_log("BoletoUpload: 📚 Dados encontrados no Moodle, sincronizando...");
+                
+                // Sincroniza dados do aluno
+                $alunoService->salvarOuAtualizarAluno($dadosAlunoMoodle);
+                
+                error_log("BoletoUpload: ✅ Sincronização concluída - APROVADO (modo flexível após sync)");
+                return $aluno;
+            } else {
+                error_log("BoletoUpload: ❌ Aluno não encontrado no Moodle");
+            }
+            
+        } catch (Exception $e) {
+            error_log("BoletoUpload: ⚠️ Erro ao sincronizar com Moodle: " . $e->getMessage());
+        }
+        
+        // 🔧 ALTERAÇÃO: Em vez de falhar, permite criar boleto com aviso
+        error_log("BoletoUpload: ⚠️ MODO FLEXÍVEL: Permitindo boleto mesmo sem matrícula ativa");
+        
+        // Verifica se o curso existe no polo
+        $stmtCurso = $this->db->prepare("
+            SELECT nome FROM cursos 
+            WHERE id = ? AND subdomain = ?
+        ");
+        $stmtCurso->execute([$cursoId, $polo]);
+        $cursoDestino = $stmtCurso->fetch();
+        
+        if (!$cursoDestino) {
+            throw new Exception("Curso de destino não encontrado no polo {$polo}");
+        }
+        
+        // Log de aviso sobre situação especial
+        $this->registrarLog('boleto_aluno_sem_matricula', $aluno['id'], "AVISO: Boleto gerado para aluno sem matrícula ativa no curso {$cursoDestino['nome']} - Possível transferência ou situação especial");
+        
+        error_log("BoletoUpload: ✅ APROVADO (modo flexível) - Aluno: {$aluno['nome']}, Curso: {$cursoDestino['nome']}");
+        return $aluno;
     }
     
     /**
@@ -316,7 +421,7 @@ class BoletoUploadService {
     }
     
     /**
-     * 🆕 NOVO: Processa upload de arquivo do upload múltiplo
+     * Processa upload de arquivo do upload múltiplo
      */
     private function processarUploadArquivoMultiplo($arquivo, $numeroBoleto) {
         // Validações do arquivo
@@ -407,7 +512,7 @@ class BoletoUploadService {
     }
     
     /**
-     * 🆕 NOVO: Organiza array de arquivos do upload múltiplo
+     * Organiza array de arquivos do upload múltiplo
      */
     private function organizarArquivosMultiplo($files) {
         $arquivos = [];
@@ -478,7 +583,7 @@ class BoletoUploadService {
     }
     
     /**
-     * 🆕 NOVO: Extrai dados individuais dos arquivos do formulário múltiplo
+     * Extrai dados individuais dos arquivos do formulário múltiplo
      */
     private function extrairDadosArquivosMultiplo($post) {
         $dadosArquivos = [];
@@ -504,7 +609,7 @@ class BoletoUploadService {
     }
     
     /**
-     * 🆕 NOVO: Valida dados individuais de cada arquivo
+     * Valida dados individuais de cada arquivo
      */
     private function validarDadosArquivoIndividual($dadosArquivo, $nomeArquivo) {
         $erros = [];
@@ -647,7 +752,7 @@ class BoletoUploadService {
     }
     
     /**
-     * 🆕 NOVO: Valida dados do upload múltiplo para um aluno
+     * Valida dados do upload múltiplo para um aluno
      */
     private function validarDadosMultiploAluno($post, $files) {
         $erros = [];
@@ -718,184 +823,6 @@ class BoletoUploadService {
             'vencimento' => $post['vencimento'],
             'descricao' => $post['descricao'] ?? ''
         ];
-    }
-    
-    /**
-     * Verifica se aluno existe e está matriculado no curso
-     */
-    private function verificarAlunoECurso($cpf, $cursoId, $polo) {
-        $alunoService = new AlunoService();
-        
-        // Busca aluno por CPF e polo
-        $aluno = $alunoService->buscarAlunoPorCPFESubdomain($cpf, $polo);
-        
-        if (!$aluno) {
-            throw new Exception("Aluno com CPF {$cpf} não encontrado no polo {$polo}");
-        }
-        
-        error_log("BoletoUpload: Verificando matrícula - Aluno ID: {$aluno['id']}, Curso ID: {$cursoId}, Polo: {$polo}");
-        
-        // CORREÇÃO: Verificação de matrícula usando estrutura correta do Moodle
-        // Método 1: Verificação via tabela matriculas do sistema local
-        $stmt = $this->db->prepare("
-            SELECT COUNT(*) as count 
-            FROM matriculas m 
-            INNER JOIN cursos c ON m.curso_id = c.id
-            WHERE m.aluno_id = ? 
-            AND c.id = ? 
-            AND c.subdomain = ?
-            AND m.status = 'ativa'
-        ");
-        $stmt->execute([$aluno['id'], $cursoId, $polo]);
-        $matriculaLocal = $stmt->fetch()['count'];
-        
-        error_log("BoletoUpload: Matrícula local encontrada: {$matriculaLocal}");
-        
-        if ($matriculaLocal > 0) {
-            error_log("BoletoUpload: ✅ Matrícula confirmada via sistema local");
-            return $aluno;
-        }
-        
-        // CORREÇÃO: Se não encontrou localmente, verifica no Moodle e sincroniza
-        error_log("BoletoUpload: 🔄 Tentando sincronizar matrícula do Moodle");
-        
-        try {
-            require_once __DIR__ . '/../config/moodle.php';
-            require_once __DIR__ . '/MoodleAPI.php';
-            
-            // Conecta com o Moodle para verificar matrícula real
-            $moodleAPI = new MoodleAPI($polo);
-            
-            // Busca dados atualizados do aluno no Moodle
-            $dadosAlunoMoodle = $moodleAPI->buscarAlunoPorCPF($cpf);
-            
-            if ($dadosAlunoMoodle && !empty($dadosAlunoMoodle['cursos'])) {
-                error_log("BoletoUpload: 📚 Cursos encontrados no Moodle: " . count($dadosAlunoMoodle['cursos']));
-                
-                // Verifica se o curso solicitado está entre os cursos do Moodle
-                $cursoEncontrado = false;
-                
-                // Busca informações do curso local
-                $stmtCurso = $this->db->prepare("
-                    SELECT moodle_course_id, nome, nome_curto 
-                    FROM cursos 
-                    WHERE id = ? AND subdomain = ?
-                ");
-                $stmtCurso->execute([$cursoId, $polo]);
-                $cursoLocal = $stmtCurso->fetch();
-                
-                if ($cursoLocal) {
-                    error_log("BoletoUpload: 🎯 Curso local: {$cursoLocal['nome']} (Moodle ID: {$cursoLocal['moodle_course_id']})");
-                    
-                    foreach ($dadosAlunoMoodle['cursos'] as $cursoMoodle) {
-                        error_log("BoletoUpload: 🔍 Verificando curso Moodle: {$cursoMoodle['nome']} (ID: {$cursoMoodle['moodle_course_id']})");
-                        
-                        // Verifica correspondência por ID do Moodle
-                        if ($cursoMoodle['moodle_course_id'] == $cursoLocal['moodle_course_id']) {
-                            $cursoEncontrado = true;
-                            error_log("BoletoUpload: ✅ Correspondência encontrada por Moodle ID");
-                            break;
-                        }
-                        
-                        // Verificação por nome (fallback)
-                        $nomeCursoMoodle = $this->normalizarNome($cursoMoodle['nome']);
-                        $nomeCursoLocal = $this->normalizarNome($cursoLocal['nome']);
-                        
-                        if ($nomeCursoMoodle === $nomeCursoLocal) {
-                            $cursoEncontrado = true;
-                            error_log("BoletoUpload: ✅ Correspondência encontrada por nome");
-                            break;
-                        }
-                        
-                        // Verificação por nome curto (fallback)
-                        if (!empty($cursoMoodle['nome_curto']) && !empty($cursoLocal['nome_curto'])) {
-                            $nomeCurtoMoodle = $this->normalizarNome($cursoMoodle['nome_curto']);
-                            $nomeCurtoLocal = $this->normalizarNome($cursoLocal['nome_curto']);
-                            
-                            if ($nomeCurtoMoodle === $nomeCurtoLocal) {
-                                $cursoEncontrado = true;
-                                error_log("BoletoUpload: ✅ Correspondência encontrada por nome curto");
-                                break;
-                            }
-                        }
-                    }
-                    
-                    if ($cursoEncontrado) {
-                        // Sincroniza dados do aluno no sistema local
-                        error_log("BoletoUpload: 🔄 Sincronizando dados do aluno");
-                        $alunoService->salvarOuAtualizarAluno($dadosAlunoMoodle);
-                        
-                        error_log("BoletoUpload: ✅ Matrícula confirmada e sincronizada do Moodle");
-                        return $aluno;
-                    } else {
-                        error_log("BoletoUpload: ❌ Curso não encontrado entre os cursos do aluno no Moodle");
-                        
-                        // Log dos cursos disponíveis para debug
-                        $cursosDisponiveis = array_map(function($c) {
-                            return $c['nome'] . " (ID: " . $c['moodle_course_id'] . ")";
-                        }, $dadosAlunoMoodle['cursos']);
-                        error_log("BoletoUpload: 📋 Cursos disponíveis: " . implode(', ', $cursosDisponiveis));
-                    }
-                } else {
-                    error_log("BoletoUpload: ❌ Curso local não encontrado");
-                }
-            } else {
-                error_log("BoletoUpload: ❌ Nenhum curso encontrado para o aluno no Moodle");
-            }
-            
-        } catch (Exception $e) {
-            error_log("BoletoUpload: ⚠️ Erro ao verificar no Moodle: " . $e->getMessage());
-            // Em caso de erro do Moodle, continua com verificação básica
-        }
-        
-        // NOVA VERIFICAÇÃO: Busca flexível por qualquer curso do aluno no polo
-        $stmt = $this->db->prepare("
-            SELECT c.nome, c.moodle_course_id
-            FROM matriculas m 
-            INNER JOIN cursos c ON m.curso_id = c.id
-            WHERE m.aluno_id = ? 
-            AND c.subdomain = ?
-            AND m.status = 'ativa'
-        ");
-        $stmt->execute([$aluno['id'], $polo]);
-        $cursosAluno = $stmt->fetchAll();
-        
-        if (!empty($cursosAluno)) {
-            $nomesCursos = array_map(function($c) {
-                return $c['nome'] . " (Moodle ID: " . $c['moodle_course_id'] . ")";
-            }, $cursosAluno);
-            
-            throw new Exception("Aluno {$aluno['nome']} está matriculado em outros cursos deste polo, mas não no curso selecionado. Cursos disponíveis: " . implode(', ', $nomesCursos));
-        }
-        
-        throw new Exception("Aluno {$aluno['nome']} não possui matrículas ativas no polo {$polo}. Verifique se o aluno está matriculado no curso correto no Moodle.");
-    }
-    
-    /**
-     * Normaliza nome para comparação
-     */
-    private function normalizarNome($nome) {
-        $nome = trim(strtolower($nome));
-        
-        // Remove acentos
-        $acentos = [
-            'á' => 'a', 'à' => 'a', 'ã' => 'a', 'â' => 'a', 'ä' => 'a',
-            'é' => 'e', 'è' => 'e', 'ê' => 'e', 'ë' => 'e',
-            'í' => 'i', 'ì' => 'i', 'î' => 'i', 'ï' => 'i',
-            'ó' => 'o', 'ò' => 'o', 'õ' => 'o', 'ô' => 'o', 'ö' => 'o',
-            'ú' => 'u', 'ù' => 'u', 'û' => 'u', 'ü' => 'u',
-            'ç' => 'c', 'ñ' => 'n'
-        ];
-        
-        $nome = str_replace(array_keys($acentos), array_values($acentos), $nome);
-        
-        // Remove caracteres especiais
-        $nome = preg_replace('/[^a-z0-9\s]/', '', $nome);
-        
-        // Remove espaços extras
-        $nome = preg_replace('/\s+/', ' ', $nome);
-        
-        return trim($nome);
     }
     
     /**
@@ -1003,12 +930,21 @@ class BoletoUploadService {
             $params[] = $termoBusca;
         }
         
-        // 🆕 Filtro por upload múltiplo
+        // Filtro por upload múltiplo
         if (!empty($filtros['upload_multiplo'])) {
             $where[] = "EXISTS (
                 SELECT 1 FROM logs l 
                 WHERE l.boleto_id = b.id 
-                AND l.tipo = 'upload_multiplo_aluno'
+                AND l.tipo LIKE '%multiplo%'
+            )";
+        }
+        
+        // Filtro por boletos flexíveis
+        if (!empty($filtros['flexivel'])) {
+            $where[] = "EXISTS (
+                SELECT 1 FROM logs l 
+                WHERE l.boleto_id = b.id 
+                AND l.tipo LIKE '%flexivel%'
             )";
         }
         
@@ -1029,7 +965,9 @@ class BoletoUploadService {
         $offset = ($pagina - 1) * $itensPorPagina;
         $stmt = $this->db->prepare("
             SELECT b.*, a.nome as aluno_nome, a.cpf, c.nome as curso_nome, c.subdomain,
-                   ad.nome as admin_nome
+                   ad.nome as admin_nome,
+                   -- Indica se é boleto flexível
+                   (SELECT COUNT(*) FROM logs l WHERE l.boleto_id = b.id AND l.tipo LIKE '%flexivel%') as eh_flexivel
             FROM boletos b
             INNER JOIN alunos a ON b.aluno_id = a.id
             INNER JOIN cursos c ON b.curso_id = c.id
@@ -1056,7 +994,9 @@ class BoletoUploadService {
      */
     public function buscarBoletoPorId($boletoId) {
         $stmt = $this->db->prepare("
-            SELECT b.*, a.nome as aluno_nome, a.cpf, c.nome as curso_nome, c.subdomain
+            SELECT b.*, a.nome as aluno_nome, a.cpf, c.nome as curso_nome, c.subdomain,
+                   -- Verifica se é boleto flexível
+                   (SELECT COUNT(*) FROM logs l WHERE l.boleto_id = b.id AND l.tipo LIKE '%flexivel%') as eh_flexivel
             FROM boletos b
             INNER JOIN alunos a ON b.aluno_id = a.id
             INNER JOIN cursos c ON b.curso_id = c.id
@@ -1088,7 +1028,8 @@ class BoletoUploadService {
         }
         
         // Log do download
-        $this->registrarLog('download_boleto', $boletoId, "Download do boleto {$boleto['numero_boleto']}");
+        $tipoLog = $boleto['eh_flexivel'] > 0 ? 'download_boleto_flexivel' : 'download_boleto';
+        $this->registrarLog($tipoLog, $boletoId, "Download do boleto {$boleto['numero_boleto']}");
         
         return [
             'caminho' => $caminhoArquivo,
@@ -1098,7 +1039,7 @@ class BoletoUploadService {
     }
     
     /**
-     * 🆕 MÉTODO ADICIONAL: Força sincronização completa do aluno
+     * Força sincronização completa do aluno
      */
     public function forcarSincronizacaoAluno($cpf, $polo) {
         try {
@@ -1123,6 +1064,77 @@ class BoletoUploadService {
         } catch (Exception $e) {
             error_log("BoletoUpload: ❌ Erro na sincronização: " . $e->getMessage());
             return false;
+        }
+    }
+    
+    /**
+     * 🔧 NOVA FUNÇÃO: Obtém estatísticas de boletos flexíveis
+     */
+    public function obterEstatisticasFlexiveis() {
+        try {
+            $stmt = $this->db->prepare("
+                SELECT 
+                    COUNT(DISTINCT b.id) as total_boletos_flexiveis,
+                    COUNT(DISTINCT b.aluno_id) as total_alunos_beneficiados,
+                    COUNT(DISTINCT b.curso_id) as total_cursos_envolvidos,
+                    SUM(b.valor) as valor_total_flexivel,
+                    c.subdomain as polo,
+                    c.nome as curso_mais_usado
+                FROM boletos b
+                INNER JOIN cursos c ON b.curso_id = c.id
+                INNER JOIN logs l ON l.boleto_id = b.id
+                WHERE l.tipo LIKE '%flexivel%'
+                GROUP BY c.subdomain, c.nome
+                ORDER BY COUNT(b.id) DESC
+            ");
+            $stmt->execute();
+            
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+        } catch (Exception $e) {
+            error_log("Erro ao obter estatísticas flexíveis: " . $e->getMessage());
+            return [];
+        }
+    }
+    
+    /**
+     * 🔧 NOVA FUNÇÃO: Lista alunos com boletos flexíveis
+     */
+    public function listarAlunosComBoletosFlexiveis($polo = null) {
+        try {
+            $sql = "
+                SELECT DISTINCT
+                    a.nome,
+                    a.cpf,
+                    c.subdomain as polo,
+                    COUNT(b.id) as total_boletos_flexiveis,
+                    SUM(b.valor) as valor_total,
+                    GROUP_CONCAT(DISTINCT cur.nome SEPARATOR ', ') as cursos_com_boletos
+                FROM alunos a
+                INNER JOIN boletos b ON a.id = b.aluno_id
+                INNER JOIN cursos c ON b.curso_id = c.id
+                INNER JOIN cursos cur ON b.curso_id = cur.id
+                INNER JOIN logs l ON l.boleto_id = b.id
+                WHERE l.tipo LIKE '%flexivel%'
+            ";
+            
+            $params = [];
+            
+            if ($polo) {
+                $sql .= " AND c.subdomain = ?";
+                $params[] = $polo;
+            }
+            
+            $sql .= " GROUP BY a.id, a.nome, a.cpf, c.subdomain ORDER BY COUNT(b.id) DESC";
+            
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+            
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+        } catch (Exception $e) {
+            error_log("Erro ao listar alunos com boletos flexíveis: " . $e->getMessage());
+            return [];
         }
     }
     

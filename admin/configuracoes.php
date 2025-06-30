@@ -14,6 +14,7 @@ if (!isset($_SESSION['admin_id'])) {
 require_once '../config/database.php';
 require_once '../config/moodle.php';
 require_once '../src/AdminService.php';
+require_once 'includes/verificar-permissao.php';
 
 $adminService = new AdminService();
 $admin = $adminService->buscarAdminPorId($_SESSION['admin_id']);
@@ -460,6 +461,12 @@ function obterEstatisticasSistema() {
                 <a href="/admin/configuracoes.php" class="nav-link active">
                     <i class="fas fa-cog"></i>
                     Configurações
+                </a>
+                <?php if ($adminAtual['nivel_acesso'] === 'super_admin'): ?>
+            <div class="nav-item">
+                <a href="/admin/usuarios.php" class="nav-link active">
+                    <i class="fas fa-users-cog"></i>
+                    Usuários Admin
                 </a>
             </div>
             <div class="nav-item">
