@@ -11,6 +11,10 @@ if (!isset($_SESSION['admin_id'])) {
     header('Location: /admin/login.php');
     exit;
 }
+// Adicione após verificar se admin está logado:
+    $poloRestrito = $admin['polo_restrito'] ?? null;
+    $temRestricao = $admin['nivel_acesso'] !== 'super_admin' && !empty($poloRestrito);
+    
 
 require_once '../config/database.php';
 require_once '../config/moodle.php';
@@ -25,15 +29,16 @@ if (!$admin) {
     exit;
 }
 
-// Busca estatísticas gerais
-$estatisticas = $adminService->obterEstatisticasGerais();
-$boletosRecentes = $adminService->buscarBoletosRecentes(10);
-$alunosRecentes = $adminService->buscarAlunosRecentes(5);
+// Busca estatísticas gerais COM FILTRO DE POLO
+$estatisticas = $adminService->obterEstatisticasComFiltroPolo($_SESSION['admin_id']);
+$boletosRecentes = $adminService->buscarBoletosRecentesComFiltro($_SESSION['admin_id'], 10);
+$alunosRecentes = $adminService->buscarAlunosRecentesComFiltro($_SESSION['admin_id'], 5);
 
-// Busca estatísticas por polo
+// Busca estatísticas por polo (apenas polos disponíveis para o admin)
 $estatisticasPolos = [];
-$polosAtivos = MoodleConfig::getActiveSubdomains();
-foreach ($polosAtivos as $polo) {
+$polosDisponiveis = $adminService->getPolosDisponiveis($_SESSION['admin_id']);
+
+foreach ($polosDisponiveis as $polo) {
     $estatisticasPolos[$polo] = $adminService->obterEstatisticasPolo($polo);
 }
 ?>
@@ -291,12 +296,14 @@ foreach ($polosAtivos as $polo) {
                     Dashboard
                 </a>
             </div>
-            <div class="nav-item">
-                <a href="/admin/boletos.php" class="nav-link">
-                    <i class="fas fa-file-invoice-dollar"></i>
-                    Gerenciar Boletos
-                </a>
-            </div>
+            <?php if ($usuarioService->temPermissao($admin, 'ver_boletos')): ?>
+<div class="nav-item">
+    <a href="/admin/boletos.php" class="nav-link">
+        <i class="fas fa-file-invoice-dollar"></i>
+        Gerenciar Boletos
+    </a>
+</div>
+<?php endif; ?>
             <div class="nav-item">
                 <a href="/admin/upload-boletos.php" class="nav-link">
                     <i class="fas fa-upload"></i>
@@ -321,6 +328,7 @@ foreach ($polosAtivos as $polo) {
                     Relatórios
                 </a>
             </div>
+            
             <div class="nav-item">
                 <a href="/admin/configuracoes.php" class="nav-link">
                     <i class="fas fa-cog"></i>
@@ -351,6 +359,14 @@ foreach ($polosAtivos as $polo) {
         <div class="topbar">
             <div>
                 <h3 class="mb-0">Dashboard Administrativo</h3>
+                <?php if ($temRestricao): ?>
+                <?php $configPolo = MoodleConfig::getConfig($poloRestrito); ?>
+                <div class="alert alert-info mb-3">
+                <i class="fas fa-info-circle"></i>
+                Visualizando dados apenas do polo: <strong><?= htmlspecialchars($configPolo['name'] ?? $poloRestrito) ?></strong>
+                </div>
+                <?php endif; ?>
+
                 <small class="text-muted">Visão geral do sistema de boletos</small>
             </div>
             <div class="user-info">
