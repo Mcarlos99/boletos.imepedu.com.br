@@ -116,6 +116,44 @@ class BoletoUploadService {
             if (isset($files['arquivos_multiplos'])) {
                 $arquivos = $this->organizarArquivosMultiplo($files['arquivos_multiplos']);
                 
+             // ANTES do foreach dos arquivos, adicionar:
+if (isset($files['arquivos_multiplos'])) {
+    $arquivos = $this->organizarArquivosMultiplo($files['arquivos_multiplos']);
+    $quantidadeArquivos = count($arquivos);
+    
+    // 🆕 GERA NÚMEROS SEQUENCIAIS GARANTIDOS
+    $numerosDisponiveis = $this->gerarNumerosSequenciaisLote($quantidadeArquivos);
+    
+    error_log("UPLOAD MÚLTIPLO: {$quantidadeArquivos} arquivos, números: " . implode(', ', $numerosDisponiveis));
+    
+    foreach ($arquivos as $index => $arquivo) {
+        try {
+            error_log("UPLOAD MÚLTIPLO: Processando arquivo {$index}: {$arquivo['name']}");
+            
+            // Busca dados específicos deste arquivo
+            $dadosArquivo = $dadosArquivos[$index] ?? null;
+            
+            if (!$dadosArquivo) {
+                throw new Exception("Dados não encontrados para o arquivo {$arquivo['name']}");
+            }
+            
+            // 🔧 CORREÇÃO: USA NÚMERO SEQUENCIAL GARANTIDO
+            if (empty($dadosArquivo['numero_boleto']) || $dadosArquivo['numero_boleto'] === 'auto') {
+                $dadosArquivo['numero_boleto'] = $numerosDisponiveis[$index] ?? $this->gerarNumeroSequencialSeguro();
+                error_log("UPLOAD MÚLTIPLO: Número auto-gerado: {$dadosArquivo['numero_boleto']}");
+            } else {
+                // Verifica se número manual é único
+                $this->verificarNumeroBoletoUnico($dadosArquivo['numero_boleto']);
+            }
+            
+            // ... resto do processamento continua igual
+            
+        } catch (Exception $e) {
+            // ... tratamento de erro continua igual
+        }
+    }
+}   
+
                 foreach ($arquivos as $index => $arquivo) {
                     try {
                         error_log("UPLOAD MÚLTIPLO: Processando arquivo {$index}: {$arquivo['name']}");
@@ -1198,5 +1236,82 @@ class BoletoUploadService {
             return [];
         }
     }
+
+    private function gerarNumeroSequencialSeguro($prefixoData = null) {
+        try {
+            if (!$prefixoData) {
+                $prefixoData = date('Ymd'); // AAAAMMDD (8 dígitos)
+            }
+            
+            // Busca o maior número sequencial para esta data
+            $stmt = $this->db->prepare("
+                SELECT MAX(CAST(SUBSTRING(numero_boleto, 9) AS UNSIGNED)) as ultimo_sequencial
+                FROM boletos 
+                WHERE numero_boleto LIKE ?
+            ");
+            $stmt->execute([$prefixoData . '%']);
+            $resultado = $stmt->fetch();
+            
+            $ultimoSequencial = $resultado['ultimo_sequencial'] ?? 0;
+            $novoSequencial = $ultimoSequencial + 1;
+            
+            // Garante 4 dígitos sequenciais (0001-9999)
+            $sequencialFormatado = str_pad($novoSequencial, 4, '0', STR_PAD_LEFT);
+            
+            // Formato final: AAAAMMDD + 4 dígitos = 12 dígitos total
+            $numeroCompleto = $prefixoData . $sequencialFormatado;
+            
+            error_log("NUMERAÇÃO SEGURA: Prefixo: {$prefixoData}, Último: {$ultimoSequencial}, Novo: {$numeroCompleto}");
+            
+            return $numeroCompleto;
+            
+        } catch (Exception $e) {
+            error_log("ERRO na numeração segura: " . $e->getMessage());
+            
+            // Fallback: usa timestamp + random para garantir unicidade
+            $timestamp = substr(time(), -6); // Últimos 6 dígitos do timestamp
+            $random = str_pad(mt_rand(1, 999999), 6, '0', STR_PAD_LEFT);
+            
+            return $timestamp . $random; // 12 dígitos
+        }
+    }
+    
+    /**
+     * 🔧 ADICIONAR NO ARQUIVO: src/BoletoUploadService.php
+     * Função para gerar múltiplos números sequenciais de uma vez
+     */
+    private function gerarNumerosSequenciaisLote($quantidade, $prefixoData = null) {
+        try {
+            if (!$prefixoData) {
+                $prefixoData = date('Ymd');
+            }
+            
+            // Busca próximo número disponível
+            $stmt = $this->db->prepare("
+                SELECT MAX(CAST(SUBSTRING(numero_boleto, 9) AS UNSIGNED)) as ultimo_sequencial
+                FROM boletos 
+                WHERE numero_boleto LIKE ?
+            ");
+            $stmt->execute([$prefixoData . '%']);
+            $resultado = $stmt->fetch();
+            
+            $proximoSequencial = ($resultado['ultimo_sequencial'] ?? 0) + 1;
+            
+            $numeros = [];
+            for ($i = 0; $i < $quantidade; $i++) {
+                $sequencial = $proximoSequencial + $i;
+                $sequencialFormatado = str_pad($sequencial, 4, '0', STR_PAD_LEFT);
+                $numeros[] = $prefixoData . $sequencialFormatado;
+            }
+            
+            error_log("LOTE DE NÚMEROS: Gerados " . count($numeros) . " números sequenciais");
+            return $numeros;
+            
+        } catch (Exception $e) {
+            error_log("ERRO no lote de números: " . $e->getMessage());
+            return [];
+        }
+    }
+
 }
 ?>

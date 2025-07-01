@@ -300,6 +300,16 @@ php_value memory_limit 512M
 
 <IfModule mod_rewrite.c>
     RewriteBase /
+
+    # Rota para geração de números sequenciais
+    RewriteRule ^admin/api/gerar-numeros-sequenciais/?$ admin/api/gerar-numeros-sequenciais.php [L]
+
+    # Força cache-busting para APIs de numeração
+    <LocationMatch "^/admin/api/gerar-numeros">
+        Header always set Cache-Control "no-cache, no-store, must-revalidate, private"
+        Header always set Pragma "no-cache"
+        Header always set X-Numbers-API "no-cache"
+    </LocationMatch>
     
     # 🔧 CORREÇÃO: Força parâmetros únicos para upload para evitar cache
     RewriteCond %{REQUEST_URI} ^/admin/upload-boletos\.php$

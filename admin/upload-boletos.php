@@ -857,9 +857,12 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                                         <button type="button" class="btn btn-outline-success btn-sm" onclick="aplicarValoresGlobais()">
                                             <i class="fas fa-magic"></i> Aplicar Valores Globais
                                         </button>
-                                        <button type="button" class="btn btn-outline-info btn-sm" onclick="gerarNumerosSequenciais()">
-                                            <i class="fas fa-sort-numeric-up"></i> Números Sequenciais
-                                        </button>
+        <!-- 🔧 BOTÃO PRINCIPAL CORRIGIDO -->
+        <button type="button" class="btn btn-outline-info btn-sm" onclick="gerarNumerosSequenciais()" title="Números baseados na data atual (recomendado)">
+            <i class="fas fa-sort-numeric-up"></i> Números Sequenciais
+        </button>
+    </div>
+    <div class="col-md-6 text-end">
                                     </div>
                                     <div class="col-md-6 text-end">
                                         <button type="button" class="btn btn-outline-secondary btn-sm" onclick="limparArquivosMultiplo()">
@@ -1557,34 +1560,123 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
             showToast('Valores globais aplicados a todos os arquivos!', 'success');
         }
         
-        function gerarNumerosSequenciais() {
-            if (fileListMultiplo.length === 0) {
-                showToast('Adicione arquivos primeiro', 'warning');
-                return;
-            }
-            
-            const dataBase = new Date();
-            const numeroBase = dataBase.getFullYear().toString() + 
-                              String(dataBase.getMonth() + 1).padStart(2, '0') + 
-                              String(dataBase.getDate()).padStart(2, '0');
-            
-            const vencimentoBase = document.getElementById('vencimento_global').value;
-            
+// 🔧 FUNÇÃO CORRIGIDA NO JAVASCRIPT
+function gerarNumerosSequenciais() {
+    if (fileListMultiplo.length === 0) {
+        showToast('Adicione arquivos primeiro', 'warning');
+        return;
+    }
+    
+    showToast('Gerando números sequenciais...', 'info');
+    
+    // 🔧 CORREÇÃO: Número sempre usa data ATUAL, vencimento usa data base
+    const dataAtual = new Date().toISOString().slice(0,10).replace(/-/g, '');
+    const vencimentoBase = document.getElementById('vencimento_global').value;
+    
+    console.log('🎯 CORREÇÃO APLICADA:');
+    console.log('Data para NÚMERO (sempre atual):', dataAtual);
+    console.log('Data para VENCIMENTO (configurável):', vencimentoBase);
+    
+    fetch('/admin/api/gerar-numeros-sequenciais.php', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            quantidade: fileListMultiplo.length,
+            prefixo_data: dataAtual, // 🔧 SEMPRE usa data atual para número
+            vencimento_base: vencimentoBase // 🆕 Vencimento separado
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success && data.numeros) {
+            // Aplica números sequenciais (baseados na data atual)
             fileListMultiplo.forEach((fileData, index) => {
-                // Gera número sequencial
-                fileData.numero_boleto = numeroBase + String(index + 1).padStart(4, '0');
-                
-                // Se tem vencimento base, gera vencimentos mensais
-                if (vencimentoBase) {
-                    const dataVencimento = new Date(vencimentoBase);
-                    dataVencimento.setMonth(dataVencimento.getMonth() + index);
-                    fileData.vencimento = dataVencimento.toISOString().split('T')[0];
+                if (data.numeros[index]) {
+                    fileData.numero_boleto = data.numeros[index];
                 }
             });
             
+            // 🔧 CORREÇÃO: Vencimentos usam data base se configurada
+            if (vencimentoBase && vencimentoBase.trim() !== '') {
+                fileListMultiplo.forEach((fileData, index) => {
+                    const dataVencimento = new Date(vencimentoBase);
+                    dataVencimento.setMonth(dataVencimento.getMonth() + index);
+                    fileData.vencimento = dataVencimento.toISOString().split('T')[0];
+                });
+            }
+            
             atualizarListaArquivosMultiplo();
-            showToast('Números sequenciais e vencimentos gerados!', 'success');
+            showToast(`${data.numeros.length} números gerados! (Data atual: ${dataAtual})`, 'success');
+            
+        } else {
+            throw new Error(data.message || 'Erro ao gerar números');
         }
+    })
+    .catch(error => {
+        console.error('Erro:', error);
+        showToast('Erro ao gerar números: ' + error.message, 'error');
+    });
+}
+// 🆕 NOVA FUNÇÃO: Usar vencimento para número (comportamento antigo)
+function gerarNumerosComDataVencimento() {
+    if (fileListMultiplo.length === 0) {
+        showToast('Adicione arquivos primeiro', 'warning');
+        return;
+    }
+    
+    const vencimentoBase = document.getElementById('vencimento_global').value;
+    
+    if (!vencimentoBase) {
+        showToast('Configure a data de vencimento base primeiro', 'warning');
+        return;
+    }
+    
+    const dataDoVencimento = vencimentoBase.replace(/-/g, '');
+    
+    if (confirm(`Usar data ${vencimentoBase} para gerar números de boleto?\n\nNúmeros ficarão: ${dataDoVencimento}XXXX`)) {
+        
+        fetch('/admin/api/gerar-numeros-sequenciais.php', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                quantidade: fileListMultiplo.length,
+                prefixo_data: dataDoVencimento,
+                usar_data_vencimento: true
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.numeros) {
+                fileListMultiplo.forEach((fileData, index) => {
+                    if (data.numeros[index]) {
+                        fileData.numero_boleto = data.numeros[index];
+                    }
+                });
+                
+                // Vencimentos com intervalos mensais
+                fileListMultiplo.forEach((fileData, index) => {
+                    const dataVencimento = new Date(vencimentoBase);
+                    dataVencimento.setMonth(dataVencimento.getMonth() + index);
+                    fileData.vencimento = dataVencimento.toISOString().split('T')[0];
+                });
+                
+                atualizarListaArquivosMultiplo();
+                showToast(`Números gerados com data do vencimento: ${dataDoVencimento}`, 'success');
+                
+            } else {
+                throw new Error(data.message || 'Erro ao gerar números');
+            }
+        })
+        .catch(error => {
+            console.error('Erro:', error);
+            showToast('Erro: ' + error.message, 'error');
+        });
+    }
+}
         
         // ========== CONFIGURAÇÃO DO DROPZONE PARA LOTE ==========
         

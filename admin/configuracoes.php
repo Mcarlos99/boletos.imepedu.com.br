@@ -469,6 +469,7 @@ function obterEstatisticasSistema() {
                     Usuários Admin
                 </a>
             </div>
+            <?php endif; ?>
             <div class="nav-item">
                 <a href="/admin/logs.php" class="nav-link">
                     <i class="fas fa-list-alt"></i>
