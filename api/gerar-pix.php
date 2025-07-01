@@ -216,7 +216,7 @@ try {
 }
 
 /**
- * Calcula desconto PIX baseado nas configurações e regras
+ * Calcula desconto PIX baseado nas configurações personalizadas do boleto
  */
 function calcularDescontoPIX($boleto, $db) {
     $valorOriginal = (float)$boleto['valor'];
@@ -250,43 +250,39 @@ function calcularDescontoPIX($boleto, $db) {
         ];
     }
     
-    // Busca configuração de desconto para o polo
+    // Busca configurações personalizadas do boleto
     $stmt = $db->prepare("
-        SELECT * FROM configuracoes_desconto_pix 
-        WHERE polo_subdomain = ? AND ativo = 1
-        ORDER BY id DESC
-        LIMIT 1
+        SELECT pix_valor_desconto, pix_valor_minimo 
+        FROM boletos 
+        WHERE id = ?
     ");
-    $stmt->execute([$boleto['curso_subdomain']]);
-    $config = $stmt->fetch(PDO::FETCH_ASSOC);
+    $stmt->execute([$boleto['id']]);
+    $configBoleto = $stmt->fetch(PDO::FETCH_ASSOC);
     
-    if (!$config) {
+    if (!$configBoleto || !$configBoleto['pix_valor_desconto'] || $configBoleto['pix_valor_desconto'] <= 0) {
         return [
             'tem_desconto' => false,
             'valor_original' => $valorOriginal,
             'valor_desconto' => 0.00,
             'valor_final' => $valorOriginal,
-            'motivo' => 'Desconto não configurado para este polo'
+            'motivo' => 'Valor do desconto não configurado para este boleto'
         ];
     }
     
-    // Verifica valor mínimo
-    if ($valorOriginal < $config['valor_minimo_boleto']) {
+    // Verifica valor mínimo se configurado
+    $valorMinimo = (float)($configBoleto['pix_valor_minimo'] ?? 0);
+    if ($valorMinimo > 0 && $valorOriginal < $valorMinimo) {
         return [
             'tem_desconto' => false,
             'valor_original' => $valorOriginal,
             'valor_desconto' => 0.00,
             'valor_final' => $valorOriginal,
-            'motivo' => 'Valor mínimo não atingido (mín: R$ ' . number_format($config['valor_minimo_boleto'], 2, ',', '.') . ')'
+            'motivo' => 'Valor mínimo não atingido (mín: R$ ' . number_format($valorMinimo, 2, ',', '.') . ')'
         ];
     }
     
-    // Calcula o desconto
-    if ($config['tipo_desconto'] === 'fixo') {
-        $valorDesconto = (float)$config['valor_desconto_fixo'];
-    } else {
-        $valorDesconto = ($valorOriginal * (float)$config['percentual_desconto']) / 100;
-    }
+    // Aplica o desconto personalizado
+    $valorDesconto = (float)$configBoleto['pix_valor_desconto'];
     
     // Garante que o valor final não seja menor que R$ 10,00
     $valorFinal = $valorOriginal - $valorDesconto;
@@ -306,9 +302,7 @@ function calcularDescontoPIX($boleto, $db) {
     }
     
     $temDesconto = true;
-    $motivo = $config['tipo_desconto'] === 'fixo' ? 
-        'Desconto fixo de R$ ' . number_format($valorDesconto, 2, ',', '.') . ' para pagamento via PIX' :
-        'Desconto de ' . $config['percentual_desconto'] . '% para pagamento via PIX';
+    $motivo = "Desconto PIX de R$ " . number_format($valorDesconto, 2, ',', '.') . " aplicado";
     
     return [
         'tem_desconto' => $temDesconto,

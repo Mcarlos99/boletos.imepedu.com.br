@@ -1,6 +1,6 @@
 <?php
 /**
- * Sistema de Boletos IMEPEDU - Serviço de Upload com Desconto PIX
+ * Sistema de Boletos IMEPEDU - Serviço de Upload com Desconto PIX Personalizado
  * Arquivo: src/BoletoUploadService.php
  */
 
@@ -26,7 +26,7 @@ class BoletoUploadService {
     }
     
     /**
-     * Processa upload individual com desconto PIX
+     * Processa upload individual com desconto PIX personalizado
      */
     public function processarUploadIndividual($post, $files) {
         try {
@@ -49,20 +49,25 @@ class BoletoUploadService {
                 'status' => 'pendente',
                 'admin_id' => $_SESSION['admin_id'] ?? null,
                 'pix_desconto_disponivel' => $dadosValidados['pix_desconto_disponivel'],
-                'pix_desconto_usado' => 0
+                'pix_desconto_usado' => 0,
+                'pix_valor_desconto' => $dadosValidados['valor_desconto_pix'] ?? null,
+                'pix_valor_minimo' => $dadosValidados['valor_minimo_desconto'] ?? null
             ]);
             
             $this->db->commit();
             
+            $descontoTexto = $dadosValidados['pix_desconto_disponivel'] ? 
+                "SIM (R$ " . number_format($dadosValidados['valor_desconto_pix'] ?? 0, 2, ',', '.') . ")" : "NÃO";
+            
             $this->registrarLog('upload_individual_com_desconto', $boletoId, 
-                "Boleto {$dadosValidados['numero_boleto']} - Desconto PIX: " . 
-                ($dadosValidados['pix_desconto_disponivel'] ? 'SIM' : 'NÃO'));
+                "Boleto {$dadosValidados['numero_boleto']} - Desconto PIX: {$descontoTexto}");
             
             return [
                 'success' => true,
                 'message' => 'Boleto enviado com sucesso!',
                 'boleto_id' => $boletoId,
-                'pix_desconto_disponivel' => $dadosValidados['pix_desconto_disponivel']
+                'pix_desconto_disponivel' => $dadosValidados['pix_desconto_disponivel'],
+                'valor_desconto' => $dadosValidados['valor_desconto_pix'] ?? 0
             ];
             
         } catch (Exception $e) {
@@ -78,7 +83,7 @@ class BoletoUploadService {
     }
     
     /**
-     * Processa upload múltiplo com desconto PIX individual
+     * Processa upload múltiplo com desconto PIX personalizado por arquivo
      */
     public function processarUploadMultiploAluno($post, $files) {
         try {
@@ -126,8 +131,10 @@ class BoletoUploadService {
                             'arquivo_pdf' => $nomeArquivoSalvo,
                             'status' => 'pendente',
                             'admin_id' => $_SESSION['admin_id'] ?? null,
-                            'pix_desconto_disponivel' => $dadosArquivo['pix_desconto_disponivel'] ?? 1,
-                            'pix_desconto_usado' => 0
+                            'pix_desconto_disponivel' => $dadosArquivo['pix_desconto_disponivel'] ?? 0,
+                            'pix_desconto_usado' => 0,
+                            'pix_valor_desconto' => $dadosArquivo['valor_desconto_pix'] ?? null,
+                            'pix_valor_minimo' => $dadosArquivo['valor_minimo_desconto'] ?? null
                         ]);
                         
                         $boletosGerados[] = [
@@ -136,7 +143,8 @@ class BoletoUploadService {
                             'valor' => $dadosArquivo['valor'],
                             'vencimento' => $dadosArquivo['vencimento'],
                             'arquivo' => $arquivo['name'],
-                            'pix_desconto_disponivel' => $dadosArquivo['pix_desconto_disponivel'] ?? 1
+                            'pix_desconto_disponivel' => $dadosArquivo['pix_desconto_disponivel'] ?? 0,
+                            'valor_desconto_pix' => $dadosArquivo['valor_desconto_pix'] ?? 0
                         ];
                         
                         $sucessos++;
@@ -212,8 +220,10 @@ class BoletoUploadService {
                             'arquivo_pdf' => $nomeArquivoSalvo,
                             'status' => 'pendente',
                             'admin_id' => $_SESSION['admin_id'] ?? null,
-                            'pix_desconto_disponivel' => $dadosBase['pix_desconto_disponivel_global'] ?? 1,
-                            'pix_desconto_usado' => 0
+                            'pix_desconto_disponivel' => $dadosBase['pix_desconto_global'] ?? 0,
+                            'pix_desconto_usado' => 0,
+                            'pix_valor_desconto' => $dadosBase['valor_desconto_lote'] ?? null,
+                            'pix_valor_minimo' => $dadosBase['valor_minimo_lote'] ?? null
                         ]);
                         
                         $sucessos++;
@@ -234,9 +244,11 @@ class BoletoUploadService {
             
             $this->db->commit();
             
+            $descontoTexto = ($dadosBase['pix_desconto_global'] ?? 0) ? 
+                "SIM (R$ " . number_format($dadosBase['valor_desconto_lote'] ?? 0, 2, ',', '.') . ")" : "NÃO";
+            
             $this->registrarLog('upload_lote_com_desconto', null, 
-                "Upload em lote: {$sucessos} sucessos, {$erros} erros - Desconto global: " . 
-                ($dadosBase['pix_desconto_disponivel_global'] ?? 1 ? 'SIM' : 'NÃO'));
+                "Upload em lote: {$sucessos} sucessos, {$erros} erros - Desconto global: {$descontoTexto}");
             
             return [
                 'success' => true,
@@ -258,7 +270,8 @@ class BoletoUploadService {
      */
     public function verificarDescontoPixDisponivel($boletoId) {
         $stmt = $this->db->prepare("
-            SELECT pix_desconto_disponivel, pix_desconto_usado, vencimento, status
+            SELECT pix_desconto_disponivel, pix_desconto_usado, pix_valor_desconto, 
+                   pix_valor_minimo, vencimento, status, valor
             FROM boletos 
             WHERE id = ?
         ");
@@ -269,21 +282,26 @@ class BoletoUploadService {
             return false;
         }
         
-        // Verifica se desconto está disponível e não foi usado
         if ($boleto['pix_desconto_disponivel'] != 1 || $boleto['pix_desconto_usado'] == 1) {
             return false;
         }
         
-        // Verifica se boleto não está pago ou cancelado
         if (in_array($boleto['status'], ['pago', 'cancelado'])) {
             return false;
         }
         
-        // Verifica se ainda está no prazo (até o vencimento)
         $hoje = new DateTime();
         $vencimento = new DateTime($boleto['vencimento']);
         
-        return $hoje <= $vencimento;
+        if ($hoje > $vencimento) {
+            return false;
+        }
+        
+        if ($boleto['pix_valor_minimo'] && $boleto['valor'] < $boleto['pix_valor_minimo']) {
+            return false;
+        }
+        
+        return true;
     }
     
     /**
@@ -307,16 +325,14 @@ class BoletoUploadService {
     }
     
     /**
-     * Calcula valor com desconto PIX
+     * Calcula valor com desconto PIX personalizado
      */
-    public function calcularValorComDesconto($boletoId, $subdomain) {
-        // Busca dados do boleto
+    public function calcularValorComDesconto($boletoId) {
         $stmt = $this->db->prepare("
-            SELECT b.valor, b.vencimento, b.pix_desconto_disponivel, b.pix_desconto_usado,
-                   c.subdomain
-            FROM boletos b
-            INNER JOIN cursos c ON b.curso_id = c.id
-            WHERE b.id = ?
+            SELECT valor, vencimento, pix_desconto_disponivel, pix_desconto_usado,
+                   pix_valor_desconto, pix_valor_minimo
+            FROM boletos 
+            WHERE id = ?
         ");
         $stmt->execute([$boletoId]);
         $boleto = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -331,32 +347,58 @@ class BoletoUploadService {
         $temDesconto = false;
         $motivo = '';
         
-        // Verifica se tem desconto disponível
-        if ($this->verificarDescontoPixDisponivel($boletoId)) {
-            // Busca configuração de desconto para o polo
-            $configDesconto = $this->obterConfiguracaoDesconto($subdomain);
-            
-            if ($configDesconto && $configDesconto['ativo']) {
-                // Verifica valor mínimo
-                if ($valorOriginal >= $configDesconto['valor_minimo_boleto']) {
-                    if ($configDesconto['tipo_desconto'] === 'fixo') {
-                        $valorDesconto = min($configDesconto['valor_desconto_fixo'], $valorOriginal - 10.00);
-                    } else {
-                        $valorDesconto = ($valorOriginal * $configDesconto['percentual_desconto']) / 100;
-                        $valorDesconto = min($valorDesconto, $valorOriginal - 10.00);
-                    }
-                    
-                    $valorFinal = $valorOriginal - $valorDesconto;
-                    $temDesconto = true;
-                    $motivo = "Desconto PIX de R$ " . number_format($valorDesconto, 2, ',', '.') . " aplicado";
-                } else {
-                    $motivo = "Valor mínimo não atingido (mín: R$ " . number_format($configDesconto['valor_minimo_boleto'], 2, ',', '.') . ")";
-                }
+        if (!$this->verificarDescontoPixDisponivel($boletoId)) {
+            if ($boleto['pix_desconto_usado']) {
+                $motivo = "Desconto já utilizado";
+            } elseif (!$boleto['pix_desconto_disponivel']) {
+                $motivo = "Desconto não habilitado para este boleto";
+            } elseif (in_array($boleto['status'], ['pago', 'cancelado'])) {
+                $motivo = "Boleto não está pendente";
             } else {
-                $motivo = "Desconto não configurado para este polo";
+                $hoje = new DateTime();
+                $vencimento = new DateTime($boleto['vencimento']);
+                
+                if ($hoje > $vencimento) {
+                    $motivo = "Boleto vencido - desconto não disponível";
+                } elseif ($boleto['pix_valor_minimo'] && $valorOriginal < $boleto['pix_valor_minimo']) {
+                    $motivo = "Valor mínimo não atingido (mín: R$ " . number_format($boleto['pix_valor_minimo'], 2, ',', '.') . ")";
+                } else {
+                    $motivo = "Desconto não disponível";
+                }
             }
+            
+            return [
+                'tem_desconto' => false,
+                'valor_original' => $valorOriginal,
+                'valor_desconto' => 0.00,
+                'valor_final' => $valorOriginal,
+                'motivo' => $motivo
+            ];
+        }
+        
+        if ($boleto['pix_valor_desconto'] && $boleto['pix_valor_desconto'] > 0) {
+            $valorDesconto = (float)$boleto['pix_valor_desconto'];
+            
+            $valorFinal = $valorOriginal - $valorDesconto;
+            if ($valorFinal < 10.00) {
+                $valorDesconto = $valorOriginal - 10.00;
+                $valorFinal = 10.00;
+                
+                if ($valorDesconto <= 0) {
+                    return [
+                        'tem_desconto' => false,
+                        'valor_original' => $valorOriginal,
+                        'valor_desconto' => 0.00,
+                        'valor_final' => $valorOriginal,
+                        'motivo' => 'Valor do boleto muito baixo para aplicar desconto'
+                    ];
+                }
+            }
+            
+            $temDesconto = true;
+            $motivo = "Desconto PIX de R$ " . number_format($valorDesconto, 2, ',', '.') . " aplicado";
         } else {
-            $motivo = "Desconto não disponível ou já utilizado";
+            $motivo = "Valor do desconto não configurado";
         }
         
         return [
@@ -369,24 +411,8 @@ class BoletoUploadService {
         ];
     }
     
-    /**
-     * Obtém configuração de desconto para o polo
-     */
-    private function obterConfiguracaoDesconto($subdomain) {
-        $stmt = $this->db->prepare("
-            SELECT * FROM configuracoes_desconto_pix 
-            WHERE polo_subdomain = ? AND ativo = 1
-            ORDER BY id DESC
-            LIMIT 1
-        ");
-        $stmt->execute([$subdomain]);
-        
-        return $stmt->fetch(PDO::FETCH_ASSOC);
-    }
+    // MÉTODOS PRIVADOS
     
-    /**
-     * Verifica aluno flexível
-     */
     private function verificarAlunoFlexivel($cpf, $cursoId, $polo) {
         $alunoService = new AlunoService();
         
@@ -420,22 +446,6 @@ class BoletoUploadService {
             }
             
             return $aluno;
-        }
-        
-        try {
-            require_once __DIR__ . '/../config/moodle.php';
-            require_once __DIR__ . '/MoodleAPI.php';
-            
-            $moodleAPI = new MoodleAPI($polo);
-            $dadosAlunoMoodle = $moodleAPI->buscarAlunoPorCPF($cpf);
-            
-            if ($dadosAlunoMoodle && !empty($dadosAlunoMoodle['cursos'])) {
-                $alunoService->salvarOuAtualizarAluno($dadosAlunoMoodle);
-                return $aluno;
-            }
-            
-        } catch (Exception $e) {
-            error_log("Erro ao sincronizar com Moodle: " . $e->getMessage());
         }
         
         $stmtCurso = $this->db->prepare("
@@ -625,7 +635,11 @@ class BoletoUploadService {
                 'vencimento' => trim($post["arquivo_{$index}_vencimento"] ?? ''),
                 'descricao' => trim($post["arquivo_{$index}_descricao"] ?? ''),
                 'pix_desconto_disponivel' => isset($post["arquivo_{$index}_pix_desconto"]) ? 
-                    intval($post["arquivo_{$index}_pix_desconto"]) : 1
+                    intval($post["arquivo_{$index}_pix_desconto"]) : 0,
+                'valor_desconto_pix' => isset($post["arquivo_{$index}_valor_desconto"]) ? 
+                    floatval($post["arquivo_{$index}_valor_desconto"]) : null,
+                'valor_minimo_desconto' => isset($post["arquivo_{$index}_valor_minimo"]) ? 
+                    floatval($post["arquivo_{$index}_valor_minimo"]) : null
             ];
             $index++;
         }
@@ -650,6 +664,11 @@ class BoletoUploadService {
             $erros[] = "Data de vencimento não pode ser anterior a hoje";
         }
         
+        if ($dadosArquivo['pix_desconto_disponivel'] && 
+            (!isset($dadosArquivo['valor_desconto_pix']) || $dadosArquivo['valor_desconto_pix'] <= 0)) {
+            $erros[] = "Valor do desconto PIX é obrigatório quando desconto está habilitado";
+        }
+        
         if (!empty($erros)) {
             throw new Exception("Arquivo {$nomeArquivo}: " . implode(', ', $erros));
         }
@@ -666,7 +685,8 @@ class BoletoUploadService {
         $camposOpcionais = [
             'descricao', 'arquivo_pdf', 'admin_id', 'updated_at',
             'data_pagamento', 'valor_pago', 'observacoes',
-            'pix_desconto_disponivel', 'pix_desconto_usado'
+            'pix_desconto_disponivel', 'pix_desconto_usado',
+            'pix_valor_desconto', 'pix_valor_minimo'
         ];
         
         $campos = [];
@@ -743,6 +763,24 @@ class BoletoUploadService {
             throw new Exception("Data de vencimento não pode ser anterior a hoje");
         }
         
+        // Validação do desconto PIX
+        $pixDesconto = isset($post['pix_desconto_disponivel']) ? intval($post['pix_desconto_disponivel']) : 0;
+        $valorDesconto = null;
+        $valorMinimo = null;
+        
+        if ($pixDesconto) {
+            if (empty($post['valor_desconto_pix']) || floatval($post['valor_desconto_pix']) <= 0) {
+                throw new Exception("Valor do desconto PIX é obrigatório quando desconto está habilitado");
+            }
+            
+            $valorDesconto = floatval($post['valor_desconto_pix']);
+            $valorMinimo = floatval($post['valor_minimo_desconto'] ?? 50.00);
+            
+            if ($valorDesconto >= $valor) {
+                throw new Exception("Valor do desconto não pode ser maior ou igual ao valor do boleto");
+            }
+        }
+        
         return [
             'polo' => $post['polo'],
             'curso_id' => intval($post['curso_id']),
@@ -751,8 +789,9 @@ class BoletoUploadService {
             'vencimento' => $post['vencimento'],
             'numero_boleto' => $post['numero_boleto'],
             'descricao' => $post['descricao'] ?? '',
-            'pix_desconto_disponivel' => isset($post['pix_desconto_disponivel']) ? 
-                intval($post['pix_desconto_disponivel']) : 1
+            'pix_desconto_disponivel' => $pixDesconto,
+            'valor_desconto_pix' => $valorDesconto,
+            'valor_minimo_desconto' => $valorMinimo
         ];
     }
     
@@ -812,14 +851,33 @@ class BoletoUploadService {
             throw new Exception("Data de vencimento não pode ser anterior a hoje");
         }
         
+        // Validação do desconto PIX global
+        $pixDesconto = isset($post['pix_desconto_global']) ? intval($post['pix_desconto_global']) : 0;
+        $valorDesconto = null;
+        $valorMinimo = null;
+        
+        if ($pixDesconto) {
+            if (empty($post['valor_desconto_lote']) || floatval($post['valor_desconto_lote']) <= 0) {
+                throw new Exception("Valor do desconto PIX é obrigatório quando desconto está habilitado");
+            }
+            
+            $valorDesconto = floatval($post['valor_desconto_lote']);
+            $valorMinimo = floatval($post['valor_minimo_lote'] ?? 50.00);
+            
+            if ($valorDesconto >= $valor) {
+                throw new Exception("Valor do desconto não pode ser maior ou igual ao valor do boleto");
+            }
+        }
+        
         return [
             'polo' => $post['polo'],
             'curso_id' => intval($post['curso_id']),
             'valor' => $valor,
             'vencimento' => $post['vencimento'],
             'descricao' => $post['descricao'] ?? '',
-            'pix_desconto_disponivel_global' => isset($post['pix_desconto_global']) ? 
-                intval($post['pix_desconto_global']) : 1
+            'pix_desconto_global' => $pixDesconto,
+            'valor_desconto_lote' => $valorDesconto,
+            'valor_minimo_lote' => $valorMinimo
         ];
     }
     
@@ -848,7 +906,8 @@ class BoletoUploadService {
             return [
                 'id', 'aluno_id', 'curso_id', 'numero_boleto', 'valor', 
                 'vencimento', 'status', 'descricao', 'arquivo_pdf', 
-                'admin_id', 'created_at', 'updated_at', 'pix_desconto_disponivel', 'pix_desconto_usado'
+                'admin_id', 'created_at', 'updated_at', 'pix_desconto_disponivel', 
+                'pix_desconto_usado', 'pix_valor_desconto', 'pix_valor_minimo'
             ];
         }
     }
@@ -936,7 +995,9 @@ class BoletoUploadService {
             SELECT b.*, a.nome as aluno_nome, a.cpf, c.nome as curso_nome, c.subdomain,
                    ad.nome as admin_nome,
                    b.pix_desconto_disponivel,
-                   b.pix_desconto_usado
+                   b.pix_desconto_usado,
+                   b.pix_valor_desconto,
+                   b.pix_valor_minimo
             FROM boletos b
             INNER JOIN alunos a ON b.aluno_id = a.id
             INNER JOIN cursos c ON b.curso_id = c.id
@@ -962,7 +1023,9 @@ class BoletoUploadService {
         $stmt = $this->db->prepare("
             SELECT b.*, a.nome as aluno_nome, a.cpf, c.nome as curso_nome, c.subdomain,
                    b.pix_desconto_disponivel,
-                   b.pix_desconto_usado
+                   b.pix_desconto_usado,
+                   b.pix_valor_desconto,
+                   b.pix_valor_minimo
             FROM boletos b
             INNER JOIN alunos a ON b.aluno_id = a.id
             INNER JOIN cursos c ON b.curso_id = c.id
