@@ -1,7 +1,10 @@
 <?php
 /**
- * Sistema de Boletos IMEPEDU - Serviço de Upload com Desconto PIX
- * Arquivo: src/BoletoUploadService.php
+ * Sistema de Boletos IMEPEDU - Serviço de Upload de Boletos SEM VERIFICAÇÃO DE CURSO
+ * Arquivo: src/BoletoUploadService.php - VERSÃO FLEXÍVEL PARA TRANSFERÊNCIAS
+ * 
+ * 🆕 ALTERAÇÃO: Removida verificação rígida de matrícula curso x aluno
+ * Permite gerar boletos para alunos em qualquer curso do polo
  */
 
 require_once __DIR__ . '/../config/database.php';
@@ -20,24 +23,32 @@ class BoletoUploadService {
         $this->maxFileSize = 5 * 1024 * 1024; // 5MB
         $this->allowedTypes = ['application/pdf'];
         
+        // Cria diretório se não existir
         if (!is_dir($this->uploadDir)) {
             mkdir($this->uploadDir, 0755, true);
         }
     }
     
     /**
-     * Processa upload individual com desconto PIX
+     * Processa upload individual
      */
     public function processarUploadIndividual($post, $files) {
         try {
             $this->db->beginTransaction();
             
+            // Validações
             $dadosValidados = $this->validarDadosIndividual($post, $files);
+            
+            // 🔧 ALTERAÇÃO: Verificação flexível sem validação de curso específico
             $aluno = $this->verificarAlunoFlexivel($dadosValidados['cpf'], $dadosValidados['curso_id'], $dadosValidados['polo']);
+            
+            // Verifica se número do boleto já existe
             $this->verificarNumeroBoletoUnico($dadosValidados['numero_boleto']);
             
+            // Processa upload do arquivo
             $nomeArquivo = $this->processarUploadArquivo($files['arquivo_pdf'], $dadosValidados['numero_boleto']);
             
+            // Salva boleto no banco
             $boletoId = $this->salvarBoleto([
                 'aluno_id' => $aluno['id'],
                 'curso_id' => $dadosValidados['curso_id'],
@@ -47,27 +58,24 @@ class BoletoUploadService {
                 'descricao' => $dadosValidados['descricao'],
                 'arquivo_pdf' => $nomeArquivo,
                 'status' => 'pendente',
-                'admin_id' => $_SESSION['admin_id'] ?? null,
-                'pix_desconto_disponivel' => $dadosValidados['pix_desconto_disponivel'],
-                'pix_desconto_usado' => 0
+                'admin_id' => $_SESSION['admin_id'] ?? null
             ]);
             
             $this->db->commit();
             
-            $this->registrarLog('upload_individual_com_desconto', $boletoId, 
-                "Boleto {$dadosValidados['numero_boleto']} - Desconto PIX: " . 
-                ($dadosValidados['pix_desconto_disponivel'] ? 'SIM' : 'NÃO'));
+            // Log da operação
+            $this->registrarLog('upload_individual_flexivel', $boletoId, "Boleto {$dadosValidados['numero_boleto']} enviado para {$aluno['nome']} (upload flexível)");
             
             return [
                 'success' => true,
                 'message' => 'Boleto enviado com sucesso!',
-                'boleto_id' => $boletoId,
-                'pix_desconto_disponivel' => $dadosValidados['pix_desconto_disponivel']
+                'boleto_id' => $boletoId
             ];
             
         } catch (Exception $e) {
             $this->db->rollback();
             
+            // Remove arquivo se foi criado
             if (isset($nomeArquivo) && file_exists($this->uploadDir . $nomeArquivo)) {
                 unlink($this->uploadDir . $nomeArquivo);
             }
@@ -78,44 +86,95 @@ class BoletoUploadService {
     }
     
     /**
-     * Processa upload múltiplo com desconto PIX individual
+     * Processa upload múltiplo para um único aluno
      */
     public function processarUploadMultiploAluno($post, $files) {
         try {
             $this->db->beginTransaction();
             
+            error_log("🆕 UPLOAD MÚLTIPLO FLEXÍVEL: Iniciando processamento");
+            
+            // Validações básicas
             $dadosBase = $this->validarDadosMultiploAluno($post, $files);
+            
+            // 🔧 ALTERAÇÃO: Verificação flexível
             $aluno = $this->verificarAlunoFlexivel($dadosBase['cpf'], $dadosBase['curso_id'], $dadosBase['polo']);
+            
+            error_log("UPLOAD MÚLTIPLO: Aluno validado (flexível) - {$aluno['nome']} (ID: {$aluno['id']})");
+            
+            // Processa dados dos arquivos individuais
             $dadosArquivos = $this->extrairDadosArquivosMultiplo($post);
+            
+            error_log("UPLOAD MÚLTIPLO: " . count($dadosArquivos) . " arquivos para processar");
             
             $sucessos = 0;
             $erros = 0;
             $detalhesErros = [];
             $boletosGerados = [];
             
+            // Processa cada arquivo
             if (isset($files['arquivos_multiplos'])) {
                 $arquivos = $this->organizarArquivosMultiplo($files['arquivos_multiplos']);
-                $quantidadeArquivos = count($arquivos);
-                $numerosDisponiveis = $this->gerarNumerosSequenciaisLote($quantidadeArquivos);
                 
+             // ANTES do foreach dos arquivos, adicionar:
+if (isset($files['arquivos_multiplos'])) {
+    $arquivos = $this->organizarArquivosMultiplo($files['arquivos_multiplos']);
+    $quantidadeArquivos = count($arquivos);
+    
+    // 🆕 GERA NÚMEROS SEQUENCIAIS GARANTIDOS
+    $numerosDisponiveis = $this->gerarNumerosSequenciaisLote($quantidadeArquivos);
+    
+    error_log("UPLOAD MÚLTIPLO: {$quantidadeArquivos} arquivos, números: " . implode(', ', $numerosDisponiveis));
+    
+    foreach ($arquivos as $index => $arquivo) {
+        try {
+            error_log("UPLOAD MÚLTIPLO: Processando arquivo {$index}: {$arquivo['name']}");
+            
+            // Busca dados específicos deste arquivo
+            $dadosArquivo = $dadosArquivos[$index] ?? null;
+            
+            if (!$dadosArquivo) {
+                throw new Exception("Dados não encontrados para o arquivo {$arquivo['name']}");
+            }
+            
+            // 🔧 CORREÇÃO: USA NÚMERO SEQUENCIAL GARANTIDO
+            if (empty($dadosArquivo['numero_boleto']) || $dadosArquivo['numero_boleto'] === 'auto') {
+                $dadosArquivo['numero_boleto'] = $numerosDisponiveis[$index] ?? $this->gerarNumeroSequencialSeguro();
+                error_log("UPLOAD MÚLTIPLO: Número auto-gerado: {$dadosArquivo['numero_boleto']}");
+            } else {
+                // Verifica se número manual é único
+                $this->verificarNumeroBoletoUnico($dadosArquivo['numero_boleto']);
+            }
+            
+            // ... resto do processamento continua igual
+            
+        } catch (Exception $e) {
+            // ... tratamento de erro continua igual
+        }
+    }
+}   
+
                 foreach ($arquivos as $index => $arquivo) {
                     try {
+                        error_log("UPLOAD MÚLTIPLO: Processando arquivo {$index}: {$arquivo['name']}");
+                        
+                        // Busca dados específicos deste arquivo
                         $dadosArquivo = $dadosArquivos[$index] ?? null;
                         
                         if (!$dadosArquivo) {
                             throw new Exception("Dados não encontrados para o arquivo {$arquivo['name']}");
                         }
                         
-                        if (empty($dadosArquivo['numero_boleto']) || $dadosArquivo['numero_boleto'] === 'auto') {
-                            $dadosArquivo['numero_boleto'] = $numerosDisponiveis[$index] ?? $this->gerarNumeroSequencialSeguro();
-                        } else {
-                            $this->verificarNumeroBoletoUnico($dadosArquivo['numero_boleto']);
-                        }
-                        
+                        // Valida dados obrigatórios
                         $this->validarDadosArquivoIndividual($dadosArquivo, $arquivo['name']);
                         
+                        // Verifica se número do boleto já existe
+                        $this->verificarNumeroBoletoUnico($dadosArquivo['numero_boleto']);
+                        
+                        // Processa upload do arquivo
                         $nomeArquivoSalvo = $this->processarUploadArquivoMultiplo($arquivo, $dadosArquivo['numero_boleto']);
                         
+                        // Salva boleto
                         $boletoId = $this->salvarBoleto([
                             'aluno_id' => $aluno['id'],
                             'curso_id' => $dadosBase['curso_id'],
@@ -125,9 +184,7 @@ class BoletoUploadService {
                             'descricao' => $dadosArquivo['descricao'],
                             'arquivo_pdf' => $nomeArquivoSalvo,
                             'status' => 'pendente',
-                            'admin_id' => $_SESSION['admin_id'] ?? null,
-                            'pix_desconto_disponivel' => $dadosArquivo['pix_desconto_disponivel'] ?? 1,
-                            'pix_desconto_usado' => 0
+                            'admin_id' => $_SESSION['admin_id'] ?? null
                         ]);
                         
                         $boletosGerados[] = [
@@ -135,11 +192,11 @@ class BoletoUploadService {
                             'numero_boleto' => $dadosArquivo['numero_boleto'],
                             'valor' => $dadosArquivo['valor'],
                             'vencimento' => $dadosArquivo['vencimento'],
-                            'arquivo' => $arquivo['name'],
-                            'pix_desconto_disponivel' => $dadosArquivo['pix_desconto_disponivel'] ?? 1
+                            'arquivo' => $arquivo['name']
                         ];
                         
                         $sucessos++;
+                        error_log("UPLOAD MÚLTIPLO: ✅ Sucesso - Boleto {$dadosArquivo['numero_boleto']} criado (ID: {$boletoId})");
                         
                     } catch (Exception $e) {
                         $erros++;
@@ -148,6 +205,9 @@ class BoletoUploadService {
                             'erro' => $e->getMessage()
                         ];
                         
+                        error_log("UPLOAD MÚLTIPLO: ❌ Erro no arquivo {$arquivo['name']}: " . $e->getMessage());
+                        
+                        // Remove arquivo se foi criado
                         if (isset($nomeArquivoSalvo) && file_exists($this->uploadDir . $nomeArquivoSalvo)) {
                             unlink($this->uploadDir . $nomeArquivoSalvo);
                         }
@@ -157,8 +217,10 @@ class BoletoUploadService {
             
             $this->db->commit();
             
-            $this->registrarLog('upload_multiplo_com_desconto', null, 
-                "Upload múltiplo para {$aluno['nome']}: {$sucessos} sucessos, {$erros} erros");
+            // Log da operação
+            $this->registrarLog('upload_multiplo_aluno_flexivel', null, "Upload múltiplo flexível para {$aluno['nome']}: {$sucessos} sucessos, {$erros} erros");
+            
+            error_log("UPLOAD MÚLTIPLO: Concluído - {$sucessos} sucessos, {$erros} erros");
             
             return [
                 'success' => true,
@@ -178,30 +240,38 @@ class BoletoUploadService {
     }
     
     /**
-     * Processa upload em lote com configuração global de desconto
+     * Processa upload em lote
      */
     public function processarUploadLote($post, $files) {
         try {
             $this->db->beginTransaction();
             
+            // Validações básicas
             $dadosBase = $this->validarDadosLote($post, $files);
             
             $sucessos = 0;
             $erros = 0;
             $detalhesErros = [];
             
+            // Processa cada arquivo
             if (isset($files['arquivos_pdf'])) {
                 $arquivos = $this->organizarArquivosLote($files['arquivos_pdf']);
                 
                 foreach ($arquivos as $arquivo) {
                     try {
+                        // Extrai dados do nome do arquivo
                         $dadosArquivo = $this->extrairDadosNomeArquivo($arquivo['name']);
+                        
+                        // 🔧 ALTERAÇÃO: Verificação flexível
                         $aluno = $this->verificarAlunoFlexivel($dadosArquivo['cpf'], $dadosBase['curso_id'], $dadosBase['polo']);
                         
+                        // Verifica número único
                         $this->verificarNumeroBoletoUnico($dadosArquivo['numero_boleto']);
                         
+                        // Upload do arquivo
                         $nomeArquivoSalvo = $this->processarUploadArquivoLote($arquivo, $dadosArquivo['numero_boleto']);
                         
+                        // Salva boleto
                         $boletoId = $this->salvarBoleto([
                             'aluno_id' => $aluno['id'],
                             'curso_id' => $dadosBase['curso_id'],
@@ -211,9 +281,7 @@ class BoletoUploadService {
                             'descricao' => $dadosBase['descricao'],
                             'arquivo_pdf' => $nomeArquivoSalvo,
                             'status' => 'pendente',
-                            'admin_id' => $_SESSION['admin_id'] ?? null,
-                            'pix_desconto_disponivel' => $dadosBase['pix_desconto_disponivel_global'] ?? 1,
-                            'pix_desconto_usado' => 0
+                            'admin_id' => $_SESSION['admin_id'] ?? null
                         ]);
                         
                         $sucessos++;
@@ -225,6 +293,7 @@ class BoletoUploadService {
                             'erro' => $e->getMessage()
                         ];
                         
+                        // Remove arquivo se foi criado
                         if (isset($nomeArquivoSalvo) && file_exists($this->uploadDir . $nomeArquivoSalvo)) {
                             unlink($this->uploadDir . $nomeArquivoSalvo);
                         }
@@ -234,9 +303,8 @@ class BoletoUploadService {
             
             $this->db->commit();
             
-            $this->registrarLog('upload_lote_com_desconto', null, 
-                "Upload em lote: {$sucessos} sucessos, {$erros} erros - Desconto global: " . 
-                ($dadosBase['pix_desconto_disponivel_global'] ?? 1 ? 'SIM' : 'NÃO'));
+            // Log da operação
+            $this->registrarLog('upload_lote_flexivel', null, "Upload em lote flexível: {$sucessos} sucessos, {$erros} erros");
             
             return [
                 'success' => true,
@@ -254,150 +322,26 @@ class BoletoUploadService {
     }
     
     /**
-     * Verifica se boleto tem desconto PIX disponível
-     */
-    public function verificarDescontoPixDisponivel($boletoId) {
-        $stmt = $this->db->prepare("
-            SELECT pix_desconto_disponivel, pix_desconto_usado, vencimento, status
-            FROM boletos 
-            WHERE id = ?
-        ");
-        $stmt->execute([$boletoId]);
-        $boleto = $stmt->fetch(PDO::FETCH_ASSOC);
-        
-        if (!$boleto) {
-            return false;
-        }
-        
-        // Verifica se desconto está disponível e não foi usado
-        if ($boleto['pix_desconto_disponivel'] != 1 || $boleto['pix_desconto_usado'] == 1) {
-            return false;
-        }
-        
-        // Verifica se boleto não está pago ou cancelado
-        if (in_array($boleto['status'], ['pago', 'cancelado'])) {
-            return false;
-        }
-        
-        // Verifica se ainda está no prazo (até o vencimento)
-        $hoje = new DateTime();
-        $vencimento = new DateTime($boleto['vencimento']);
-        
-        return $hoje <= $vencimento;
-    }
-    
-    /**
-     * Marca desconto PIX como usado
-     */
-    public function marcarDescontoPixUsado($boletoId) {
-        $stmt = $this->db->prepare("
-            UPDATE boletos 
-            SET pix_desconto_usado = 1, updated_at = NOW()
-            WHERE id = ? AND pix_desconto_disponivel = 1 AND pix_desconto_usado = 0
-        ");
-        $stmt->execute([$boletoId]);
-        
-        if ($stmt->rowCount() > 0) {
-            $this->registrarLog('desconto_pix_usado', $boletoId, 
-                "Desconto PIX utilizado para o boleto");
-            return true;
-        }
-        
-        return false;
-    }
-    
-    /**
-     * Calcula valor com desconto PIX
-     */
-    public function calcularValorComDesconto($boletoId, $subdomain) {
-        // Busca dados do boleto
-        $stmt = $this->db->prepare("
-            SELECT b.valor, b.vencimento, b.pix_desconto_disponivel, b.pix_desconto_usado,
-                   c.subdomain
-            FROM boletos b
-            INNER JOIN cursos c ON b.curso_id = c.id
-            WHERE b.id = ?
-        ");
-        $stmt->execute([$boletoId]);
-        $boleto = $stmt->fetch(PDO::FETCH_ASSOC);
-        
-        if (!$boleto) {
-            throw new Exception('Boleto não encontrado');
-        }
-        
-        $valorOriginal = (float)$boleto['valor'];
-        $valorFinal = $valorOriginal;
-        $valorDesconto = 0.00;
-        $temDesconto = false;
-        $motivo = '';
-        
-        // Verifica se tem desconto disponível
-        if ($this->verificarDescontoPixDisponivel($boletoId)) {
-            // Busca configuração de desconto para o polo
-            $configDesconto = $this->obterConfiguracaoDesconto($subdomain);
-            
-            if ($configDesconto && $configDesconto['ativo']) {
-                // Verifica valor mínimo
-                if ($valorOriginal >= $configDesconto['valor_minimo_boleto']) {
-                    if ($configDesconto['tipo_desconto'] === 'fixo') {
-                        $valorDesconto = min($configDesconto['valor_desconto_fixo'], $valorOriginal - 10.00);
-                    } else {
-                        $valorDesconto = ($valorOriginal * $configDesconto['percentual_desconto']) / 100;
-                        $valorDesconto = min($valorDesconto, $valorOriginal - 10.00);
-                    }
-                    
-                    $valorFinal = $valorOriginal - $valorDesconto;
-                    $temDesconto = true;
-                    $motivo = "Desconto PIX de R$ " . number_format($valorDesconto, 2, ',', '.') . " aplicado";
-                } else {
-                    $motivo = "Valor mínimo não atingido (mín: R$ " . number_format($configDesconto['valor_minimo_boleto'], 2, ',', '.') . ")";
-                }
-            } else {
-                $motivo = "Desconto não configurado para este polo";
-            }
-        } else {
-            $motivo = "Desconto não disponível ou já utilizado";
-        }
-        
-        return [
-            'tem_desconto' => $temDesconto,
-            'valor_original' => $valorOriginal,
-            'valor_desconto' => $valorDesconto,
-            'valor_final' => $valorFinal,
-            'motivo' => $motivo,
-            'desconto_valido_ate' => $boleto['vencimento']
-        ];
-    }
-    
-    /**
-     * Obtém configuração de desconto para o polo
-     */
-    private function obterConfiguracaoDesconto($subdomain) {
-        $stmt = $this->db->prepare("
-            SELECT * FROM configuracoes_desconto_pix 
-            WHERE polo_subdomain = ? AND ativo = 1
-            ORDER BY id DESC
-            LIMIT 1
-        ");
-        $stmt->execute([$subdomain]);
-        
-        return $stmt->fetch(PDO::FETCH_ASSOC);
-    }
-    
-    /**
-     * Verifica aluno flexível
+     * 🔧 NOVA FUNÇÃO: Verificação flexível do aluno
+     * Permite gerar boletos para qualquer aluno do polo, independente do curso específico
      */
     private function verificarAlunoFlexivel($cpf, $cursoId, $polo) {
         $alunoService = new AlunoService();
         
+        // Busca aluno por CPF e polo
         $aluno = $alunoService->buscarAlunoPorCPFESubdomain($cpf, $polo);
         
         if (!$aluno) {
+            error_log("BoletoUpload: Aluno não encontrado - CPF: {$cpf}, Polo: {$polo}");
             throw new Exception("Aluno com CPF {$cpf} não encontrado no polo {$polo}");
         }
         
+        error_log("BoletoUpload: ✅ Aluno encontrado (modo flexível) - {$aluno['nome']} (ID: {$aluno['id']})");
+        
+        // 🔧 ALTERAÇÃO PRINCIPAL: Verifica apenas se o aluno tem QUALQUER matrícula no polo
         $stmt = $this->db->prepare("
-            SELECT COUNT(*) as count
+            SELECT COUNT(*) as count,
+                   GROUP_CONCAT(c.nome SEPARATOR ', ') as cursos_matriculados
             FROM matriculas m 
             INNER JOIN cursos c ON m.curso_id = c.id
             WHERE m.aluno_id = ? 
@@ -405,9 +349,17 @@ class BoletoUploadService {
             AND m.status = 'ativa'
         ");
         $stmt->execute([$aluno['id'], $polo]);
-        $matriculasAtivas = $stmt->fetch()['count'];
+        $resultado = $stmt->fetch();
+        $matriculasAtivas = $resultado['count'];
+        $cursosMatriculados = $resultado['cursos_matriculados'];
+        
+        error_log("BoletoUpload: Matrículas ativas no polo: {$matriculasAtivas}");
+        error_log("BoletoUpload: Cursos matriculados: {$cursosMatriculados}");
         
         if ($matriculasAtivas > 0) {
+            error_log("BoletoUpload: ✅ Aluno tem matrículas ativas no polo - APROVADO (modo flexível)");
+            
+            // Verifica se o curso de destino existe
             $stmtCurso = $this->db->prepare("
                 SELECT nome FROM cursos 
                 WHERE id = ? AND subdomain = ?
@@ -419,8 +371,14 @@ class BoletoUploadService {
                 throw new Exception("Curso de destino não encontrado no polo {$polo}");
             }
             
+            error_log("BoletoUpload: ✅ Curso destino válido: {$cursoDestino['nome']}");
+            error_log("BoletoUpload: ℹ️ MODO FLEXÍVEL: Aluno será vinculado ao curso mesmo sem matrícula específica");
+            
             return $aluno;
         }
+        
+        // Se não tem matrículas, tenta sincronizar do Moodle
+        error_log("BoletoUpload: 🔄 Sem matrículas locais, tentando sincronizar do Moodle");
         
         try {
             require_once __DIR__ . '/../config/moodle.php';
@@ -430,14 +388,25 @@ class BoletoUploadService {
             $dadosAlunoMoodle = $moodleAPI->buscarAlunoPorCPF($cpf);
             
             if ($dadosAlunoMoodle && !empty($dadosAlunoMoodle['cursos'])) {
+                error_log("BoletoUpload: 📚 Dados encontrados no Moodle, sincronizando...");
+                
+                // Sincroniza dados do aluno
                 $alunoService->salvarOuAtualizarAluno($dadosAlunoMoodle);
+                
+                error_log("BoletoUpload: ✅ Sincronização concluída - APROVADO (modo flexível após sync)");
                 return $aluno;
+            } else {
+                error_log("BoletoUpload: ❌ Aluno não encontrado no Moodle");
             }
             
         } catch (Exception $e) {
-            error_log("Erro ao sincronizar com Moodle: " . $e->getMessage());
+            error_log("BoletoUpload: ⚠️ Erro ao sincronizar com Moodle: " . $e->getMessage());
         }
         
+        // 🔧 ALTERAÇÃO: Em vez de falhar, permite criar boleto com aviso
+        error_log("BoletoUpload: ⚠️ MODO FLEXÍVEL: Permitindo boleto mesmo sem matrícula ativa");
+        
+        // Verifica se o curso existe no polo
         $stmtCurso = $this->db->prepare("
             SELECT nome FROM cursos 
             WHERE id = ? AND subdomain = ?
@@ -449,13 +418,18 @@ class BoletoUploadService {
             throw new Exception("Curso de destino não encontrado no polo {$polo}");
         }
         
-        $this->registrarLog('boleto_aluno_sem_matricula', $aluno['id'], 
-            "Boleto gerado para aluno sem matrícula ativa no curso {$cursoDestino['nome']}");
+        // Log de aviso sobre situação especial
+        $this->registrarLog('boleto_aluno_sem_matricula', $aluno['id'], "AVISO: Boleto gerado para aluno sem matrícula ativa no curso {$cursoDestino['nome']} - Possível transferência ou situação especial");
         
+        error_log("BoletoUpload: ✅ APROVADO (modo flexível) - Aluno: {$aluno['nome']}, Curso: {$cursoDestino['nome']}");
         return $aluno;
     }
     
+    /**
+     * Processa upload de arquivo individual
+     */
     private function processarUploadArquivo($arquivo, $numeroBoleto) {
+        // Validações do arquivo
         if ($arquivo['size'] > $this->maxFileSize) {
             throw new Exception("Arquivo muito grande (máximo 5MB)");
         }
@@ -468,20 +442,27 @@ class BoletoUploadService {
             throw new Exception("Tipo de arquivo não permitido. Apenas PDF é aceito");
         }
         
+        // Gera nome único para o arquivo
         $extensao = pathinfo($arquivo['name'], PATHINFO_EXTENSION);
         $nomeArquivo = $numeroBoleto . '_' . uniqid() . '.' . $extensao;
         $caminhoCompleto = $this->uploadDir . $nomeArquivo;
         
+        // Move arquivo
         if (!move_uploaded_file($arquivo['tmp_name'], $caminhoCompleto)) {
             throw new Exception("Erro ao salvar arquivo");
         }
         
+        // Define permissões
         chmod($caminhoCompleto, 0644);
         
         return $nomeArquivo;
     }
     
+    /**
+     * Processa upload de arquivo do upload múltiplo
+     */
     private function processarUploadArquivoMultiplo($arquivo, $numeroBoleto) {
+        // Validações do arquivo
         if ($arquivo['size'] > $this->maxFileSize) {
             throw new Exception("Arquivo {$arquivo['name']} muito grande (máximo 5MB)");
         }
@@ -494,21 +475,30 @@ class BoletoUploadService {
             throw new Exception("Arquivo {$arquivo['name']} não é um PDF válido");
         }
         
+        // Gera nome único para o arquivo
         $extensao = pathinfo($arquivo['name'], PATHINFO_EXTENSION);
         $timestamp = date('YmdHis');
         $nomeArquivo = $numeroBoleto . '_' . $timestamp . '_' . uniqid() . '.' . $extensao;
         $caminhoCompleto = $this->uploadDir . $nomeArquivo;
         
+        // Move arquivo
         if (!move_uploaded_file($arquivo['tmp_name'], $caminhoCompleto)) {
             throw new Exception("Erro ao salvar arquivo {$arquivo['name']}");
         }
         
+        // Define permissões
         chmod($caminhoCompleto, 0644);
+        
+        error_log("UPLOAD MÚLTIPLO: Arquivo salvo - {$nomeArquivo}");
         
         return $nomeArquivo;
     }
     
+    /**
+     * Processa upload de arquivo em lote
+     */
     private function processarUploadArquivoLote($arquivo, $numeroBoleto) {
+        // Validações do arquivo
         if ($arquivo['size'] > $this->maxFileSize) {
             throw new Exception("Arquivo {$arquivo['name']} muito grande (máximo 5MB)");
         }
@@ -521,19 +511,25 @@ class BoletoUploadService {
             throw new Exception("Arquivo {$arquivo['name']} não é um PDF válido");
         }
         
+        // Gera nome único para o arquivo
         $extensao = pathinfo($arquivo['name'], PATHINFO_EXTENSION);
         $nomeArquivo = $numeroBoleto . '_' . uniqid() . '.' . $extensao;
         $caminhoCompleto = $this->uploadDir . $nomeArquivo;
         
+        // Move arquivo
         if (!move_uploaded_file($arquivo['tmp_name'], $caminhoCompleto)) {
             throw new Exception("Erro ao salvar arquivo {$arquivo['name']}");
         }
         
+        // Define permissões
         chmod($caminhoCompleto, 0644);
         
         return $nomeArquivo;
     }
     
+    /**
+     * Organiza array de arquivos do upload múltiplo (lote)
+     */
     private function organizarArquivosLote($files) {
         $arquivos = [];
         $count = count($files['name']);
@@ -553,9 +549,13 @@ class BoletoUploadService {
         return $arquivos;
     }
     
+    /**
+     * Organiza array de arquivos do upload múltiplo
+     */
     private function organizarArquivosMultiplo($files) {
         $arquivos = [];
         
+        // Verifica se é um array de arquivos ou arquivo único
         if (is_array($files['name'])) {
             $count = count($files['name']);
             
@@ -571,6 +571,7 @@ class BoletoUploadService {
                 }
             }
         } else {
+            // Arquivo único
             if ($files['error'] === UPLOAD_ERR_OK) {
                 $arquivos[] = [
                     'name' => $files['name'],
@@ -582,9 +583,14 @@ class BoletoUploadService {
             }
         }
         
+        error_log("UPLOAD MÚLTIPLO: " . count($arquivos) . " arquivos organizados");
+        
         return $arquivos;
     }
     
+    /**
+     * Extrai dados do nome do arquivo (CPF_NUMEROBANTO.pdf)
+     */
     private function extrairDadosNomeArquivo($nomeArquivo) {
         $nomeBase = pathinfo($nomeArquivo, PATHINFO_FILENAME);
         $partes = explode('_', $nomeBase);
@@ -614,25 +620,35 @@ class BoletoUploadService {
         ];
     }
     
+    /**
+     * Extrai dados individuais dos arquivos do formulário múltiplo
+     */
     private function extrairDadosArquivosMultiplo($post) {
         $dadosArquivos = [];
         $index = 0;
         
+        // Extrai dados de cada arquivo baseado no padrão arquivo_X_campo
         while (isset($post["arquivo_{$index}_numero"])) {
             $dadosArquivos[$index] = [
                 'numero_boleto' => trim($post["arquivo_{$index}_numero"] ?? ''),
                 'valor' => floatval($post["arquivo_{$index}_valor"] ?? 0),
                 'vencimento' => trim($post["arquivo_{$index}_vencimento"] ?? ''),
-                'descricao' => trim($post["arquivo_{$index}_descricao"] ?? ''),
-                'pix_desconto_disponivel' => isset($post["arquivo_{$index}_pix_desconto"]) ? 
-                    intval($post["arquivo_{$index}_pix_desconto"]) : 1
+                'descricao' => trim($post["arquivo_{$index}_descricao"] ?? '')
             ];
+            
+            error_log("UPLOAD MÚLTIPLO: Dados arquivo {$index} - Número: {$dadosArquivos[$index]['numero_boleto']}, Valor: {$dadosArquivos[$index]['valor']}");
+            
             $index++;
         }
+        
+        error_log("UPLOAD MÚLTIPLO: Total de dados extraídos: " . count($dadosArquivos));
         
         return $dadosArquivos;
     }
     
+    /**
+     * Valida dados individuais de cada arquivo
+     */
     private function validarDadosArquivoIndividual($dadosArquivo, $nomeArquivo) {
         $erros = [];
         
@@ -655,9 +671,14 @@ class BoletoUploadService {
         }
     }
     
+    /**
+     * Salva boleto no banco de dados
+     */
     private function salvarBoleto($dados) {
+        // Verifica quais colunas existem na tabela
         $colunas = $this->obterColunasTabelaBoletos();
         
+        // Monta SQL dinamicamente baseado nas colunas disponíveis
         $camposObrigatorios = [
             'aluno_id', 'curso_id', 'numero_boleto', 'valor', 
             'vencimento', 'status', 'created_at'
@@ -665,14 +686,14 @@ class BoletoUploadService {
         
         $camposOpcionais = [
             'descricao', 'arquivo_pdf', 'admin_id', 'updated_at',
-            'data_pagamento', 'valor_pago', 'observacoes',
-            'pix_desconto_disponivel', 'pix_desconto_usado'
+            'data_pagamento', 'valor_pago', 'observacoes'
         ];
         
         $campos = [];
         $valores = [];
         $params = [];
         
+        // Adiciona campos obrigatórios
         foreach ($camposObrigatorios as $campo) {
             if (in_array($campo, $colunas)) {
                 $campos[] = $campo;
@@ -686,6 +707,7 @@ class BoletoUploadService {
             }
         }
         
+        // Adiciona campos opcionais se existirem
         foreach ($camposOpcionais as $campo) {
             if (in_array($campo, $colunas) && isset($dados[$campo])) {
                 $campos[] = $campo;
@@ -701,15 +723,26 @@ class BoletoUploadService {
         
         $sql = "INSERT INTO boletos (" . implode(', ', $campos) . ") VALUES (" . implode(', ', $valores) . ")";
         
+        error_log("SALVAR BOLETO: SQL - " . $sql);
+        error_log("SALVAR BOLETO: Params - " . print_r($params, true));
+        
         $stmt = $this->db->prepare($sql);
         $stmt->execute($params);
         
-        return $this->db->lastInsertId();
+        $boletoId = $this->db->lastInsertId();
+        
+        error_log("SALVAR BOLETO: Boleto salvo com ID: {$boletoId}");
+        
+        return $boletoId;
     }
     
+    /**
+     * Valida dados do upload individual
+     */
     private function validarDadosIndividual($post, $files) {
         $erros = [];
         
+        // Validações obrigatórias
         if (empty($post['polo'])) $erros[] = "Polo é obrigatório";
         if (empty($post['curso_id'])) $erros[] = "Curso é obrigatório";
         if (empty($post['aluno_cpf'])) $erros[] = "CPF do aluno é obrigatório";
@@ -717,6 +750,7 @@ class BoletoUploadService {
         if (empty($post['vencimento'])) $erros[] = "Data de vencimento é obrigatória";
         if (empty($post['numero_boleto'])) $erros[] = "Número do boleto é obrigatório";
         
+        // Valida arquivo
         if (!isset($files['arquivo_pdf']) || $files['arquivo_pdf']['error'] !== UPLOAD_ERR_OK) {
             $erros[] = "Arquivo PDF é obrigatório";
         }
@@ -725,6 +759,7 @@ class BoletoUploadService {
             throw new Exception(implode(', ', $erros));
         }
         
+        // Validações específicas
         $cpf = preg_replace('/[^0-9]/', '', $post['aluno_cpf']);
         if (strlen($cpf) !== 11) {
             throw new Exception("CPF deve conter 11 dígitos");
@@ -750,19 +785,22 @@ class BoletoUploadService {
             'valor' => $valor,
             'vencimento' => $post['vencimento'],
             'numero_boleto' => $post['numero_boleto'],
-            'descricao' => $post['descricao'] ?? '',
-            'pix_desconto_disponivel' => isset($post['pix_desconto_disponivel']) ? 
-                intval($post['pix_desconto_disponivel']) : 1
+            'descricao' => $post['descricao'] ?? ''
         ];
     }
     
+    /**
+     * Valida dados do upload múltiplo para um aluno
+     */
     private function validarDadosMultiploAluno($post, $files) {
         $erros = [];
         
+        // Validações obrigatórias
         if (empty($post['polo'])) $erros[] = "Polo é obrigatório";
         if (empty($post['curso_id'])) $erros[] = "Curso é obrigatório";
         if (empty($post['aluno_cpf'])) $erros[] = "CPF do aluno é obrigatório";
         
+        // Valida se tem arquivos
         if (!isset($files['arquivos_multiplos']) || empty($files['arquivos_multiplos']['name'][0])) {
             $erros[] = "Pelo menos um arquivo PDF é obrigatório";
         }
@@ -771,6 +809,7 @@ class BoletoUploadService {
             throw new Exception(implode(', ', $erros));
         }
         
+        // Validações específicas
         $cpf = preg_replace('/[^0-9]/', '', $post['aluno_cpf']);
         if (strlen($cpf) !== 11) {
             throw new Exception("CPF deve conter 11 dígitos");
@@ -787,6 +826,9 @@ class BoletoUploadService {
         ];
     }
     
+    /**
+     * Valida dados do upload em lote
+     */
     private function validarDadosLote($post, $files) {
         $erros = [];
         
@@ -817,12 +859,13 @@ class BoletoUploadService {
             'curso_id' => intval($post['curso_id']),
             'valor' => $valor,
             'vencimento' => $post['vencimento'],
-            'descricao' => $post['descricao'] ?? '',
-            'pix_desconto_disponivel_global' => isset($post['pix_desconto_global']) ? 
-                intval($post['pix_desconto_global']) : 1
+            'descricao' => $post['descricao'] ?? ''
         ];
     }
     
+    /**
+     * Verifica se número do boleto é único
+     */
     private function verificarNumeroBoletoUnico($numeroBoleto) {
         $stmt = $this->db->prepare("SELECT COUNT(*) as count FROM boletos WHERE numero_boleto = ?");
         $stmt->execute([$numeroBoleto]);
@@ -832,6 +875,9 @@ class BoletoUploadService {
         }
     }
     
+    /**
+     * Obtém colunas da tabela boletos
+     */
     private function obterColunasTabelaBoletos() {
         try {
             $stmt = $this->db->query("SHOW COLUMNS FROM boletos");
@@ -845,14 +891,18 @@ class BoletoUploadService {
         } catch (Exception $e) {
             error_log("Erro ao obter colunas da tabela boletos: " . $e->getMessage());
             
+            // Retorna colunas básicas como fallback
             return [
                 'id', 'aluno_id', 'curso_id', 'numero_boleto', 'valor', 
                 'vencimento', 'status', 'descricao', 'arquivo_pdf', 
-                'admin_id', 'created_at', 'updated_at', 'pix_desconto_disponivel', 'pix_desconto_usado'
+                'admin_id', 'created_at', 'updated_at'
             ];
         }
     }
     
+    /**
+     * Valida CPF
+     */
     private function validarCPF($cpf) {
         $cpf = preg_replace('/[^0-9]/', '', $cpf);
         
@@ -872,10 +922,14 @@ class BoletoUploadService {
         return true;
     }
     
+    /**
+     * Lista boletos com paginação e filtros
+     */
     public function listarBoletos($filtros = [], $pagina = 1, $itensPorPagina = 20) {
         $where = ['1=1'];
         $params = [];
         
+        // Aplica filtros
         if (!empty($filtros['polo'])) {
             $where[] = "c.subdomain = ?";
             $params[] = $filtros['polo'];
@@ -914,13 +968,27 @@ class BoletoUploadService {
             $params[] = $termoBusca;
         }
         
-        if (isset($filtros['com_desconto_pix'])) {
-            $where[] = "b.pix_desconto_disponivel = ?";
-            $params[] = $filtros['com_desconto_pix'] ? 1 : 0;
+        // Filtro por upload múltiplo
+        if (!empty($filtros['upload_multiplo'])) {
+            $where[] = "EXISTS (
+                SELECT 1 FROM logs l 
+                WHERE l.boleto_id = b.id 
+                AND l.tipo LIKE '%multiplo%'
+            )";
+        }
+        
+        // Filtro por boletos flexíveis
+        if (!empty($filtros['flexivel'])) {
+            $where[] = "EXISTS (
+                SELECT 1 FROM logs l 
+                WHERE l.boleto_id = b.id 
+                AND l.tipo LIKE '%flexivel%'
+            )";
         }
         
         $whereClause = implode(' AND ', $where);
         
+        // Conta total
         $stmtCount = $this->db->prepare("
             SELECT COUNT(*) as total
             FROM boletos b
@@ -931,12 +999,13 @@ class BoletoUploadService {
         $stmtCount->execute($params);
         $total = $stmtCount->fetch()['total'];
         
+        // Busca registros
         $offset = ($pagina - 1) * $itensPorPagina;
         $stmt = $this->db->prepare("
             SELECT b.*, a.nome as aluno_nome, a.cpf, c.nome as curso_nome, c.subdomain,
                    ad.nome as admin_nome,
-                   b.pix_desconto_disponivel,
-                   b.pix_desconto_usado
+                   -- Indica se é boleto flexível
+                   (SELECT COUNT(*) FROM logs l WHERE l.boleto_id = b.id AND l.tipo LIKE '%flexivel%') as eh_flexivel
             FROM boletos b
             INNER JOIN alunos a ON b.aluno_id = a.id
             INNER JOIN cursos c ON b.curso_id = c.id
@@ -958,11 +1027,14 @@ class BoletoUploadService {
         ];
     }
     
+    /**
+     * Busca boleto por ID com verificações de segurança
+     */
     public function buscarBoletoPorId($boletoId) {
         $stmt = $this->db->prepare("
             SELECT b.*, a.nome as aluno_nome, a.cpf, c.nome as curso_nome, c.subdomain,
-                   b.pix_desconto_disponivel,
-                   b.pix_desconto_usado
+                   -- Verifica se é boleto flexível
+                   (SELECT COUNT(*) FROM logs l WHERE l.boleto_id = b.id AND l.tipo LIKE '%flexivel%') as eh_flexivel
             FROM boletos b
             INNER JOIN alunos a ON b.aluno_id = a.id
             INNER JOIN cursos c ON b.curso_id = c.id
@@ -973,6 +1045,9 @@ class BoletoUploadService {
         return $stmt->fetch(PDO::FETCH_ASSOC);
     }
     
+    /**
+     * Download seguro de boleto
+     */
     public function downloadBoleto($boletoId) {
         $boleto = $this->buscarBoletoPorId($boletoId);
         
@@ -990,7 +1065,9 @@ class BoletoUploadService {
             throw new Exception("Arquivo PDF não encontrado no servidor");
         }
         
-        $this->registrarLog('download_boleto', $boletoId, "Download do boleto {$boleto['numero_boleto']}");
+        // Log do download
+        $tipoLog = $boleto['eh_flexivel'] > 0 ? 'download_boleto_flexivel' : 'download_boleto';
+        $this->registrarLog($tipoLog, $boletoId, "Download do boleto {$boleto['numero_boleto']}");
         
         return [
             'caminho' => $caminhoArquivo,
@@ -999,71 +1076,112 @@ class BoletoUploadService {
         ];
     }
     
-    private function gerarNumeroSequencialSeguro($prefixoData = null) {
+    /**
+     * Força sincronização completa do aluno
+     */
+    public function forcarSincronizacaoAluno($cpf, $polo) {
         try {
-            if (!$prefixoData) {
-                $prefixoData = date('Ymd');
+            error_log("BoletoUpload: 🔄 Forçando sincronização completa do aluno CPF: {$cpf}");
+            
+            require_once __DIR__ . '/MoodleAPI.php';
+            
+            $moodleAPI = new MoodleAPI($polo);
+            $dadosAlunoMoodle = $moodleAPI->buscarAlunoPorCPF($cpf);
+            
+            if ($dadosAlunoMoodle) {
+                $alunoService = new AlunoService();
+                $alunoId = $alunoService->salvarOuAtualizarAluno($dadosAlunoMoodle);
+                
+                error_log("BoletoUpload: ✅ Sincronização completa realizada");
+                return $alunoId;
+            } else {
+                error_log("BoletoUpload: ❌ Aluno não encontrado no Moodle");
+                return false;
             }
             
-            $stmt = $this->db->prepare("
-                SELECT MAX(CAST(SUBSTRING(numero_boleto, 9) AS UNSIGNED)) as ultimo_sequencial
-                FROM boletos 
-                WHERE numero_boleto LIKE ?
-            ");
-            $stmt->execute([$prefixoData . '%']);
-            $resultado = $stmt->fetch();
-            
-            $ultimoSequencial = $resultado['ultimo_sequencial'] ?? 0;
-            $novoSequencial = $ultimoSequencial + 1;
-            
-            $sequencialFormatado = str_pad($novoSequencial, 4, '0', STR_PAD_LEFT);
-            $numeroCompleto = $prefixoData . $sequencialFormatado;
-            
-            return $numeroCompleto;
-            
         } catch (Exception $e) {
-            error_log("ERRO na numeração segura: " . $e->getMessage());
-            
-            $timestamp = substr(time(), -6);
-            $random = str_pad(mt_rand(1, 999999), 6, '0', STR_PAD_LEFT);
-            
-            return $timestamp . $random;
+            error_log("BoletoUpload: ❌ Erro na sincronização: " . $e->getMessage());
+            return false;
         }
     }
     
-    private function gerarNumerosSequenciaisLote($quantidade, $prefixoData = null) {
+    /**
+     * 🔧 NOVA FUNÇÃO: Obtém estatísticas de boletos flexíveis
+     */
+    public function obterEstatisticasFlexiveis() {
         try {
-            if (!$prefixoData) {
-                $prefixoData = date('Ymd');
-            }
-            
             $stmt = $this->db->prepare("
-                SELECT MAX(CAST(SUBSTRING(numero_boleto, 9) AS UNSIGNED)) as ultimo_sequencial
-                FROM boletos 
-                WHERE numero_boleto LIKE ?
+                SELECT 
+                    COUNT(DISTINCT b.id) as total_boletos_flexiveis,
+                    COUNT(DISTINCT b.aluno_id) as total_alunos_beneficiados,
+                    COUNT(DISTINCT b.curso_id) as total_cursos_envolvidos,
+                    SUM(b.valor) as valor_total_flexivel,
+                    c.subdomain as polo,
+                    c.nome as curso_mais_usado
+                FROM boletos b
+                INNER JOIN cursos c ON b.curso_id = c.id
+                INNER JOIN logs l ON l.boleto_id = b.id
+                WHERE l.tipo LIKE '%flexivel%'
+                GROUP BY c.subdomain, c.nome
+                ORDER BY COUNT(b.id) DESC
             ");
-            $stmt->execute([$prefixoData . '%']);
-            $resultado = $stmt->fetch();
+            $stmt->execute();
             
-            $proximoSequencial = ($resultado['ultimo_sequencial'] ?? 0) + 1;
-            
-            $numeros = [];
-            for ($i = 0; $i < $quantidade; $i++) {
-                $sequencial = $proximoSequencial + $i;
-                $sequencialFormatado = str_pad($sequencial, 4, '0', STR_PAD_LEFT);
-                $numeros[] = $prefixoData . $sequencialFormatado;
-            }
-            
-            return $numeros;
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
             
         } catch (Exception $e) {
-            error_log("ERRO no lote de números: " . $e->getMessage());
+            error_log("Erro ao obter estatísticas flexíveis: " . $e->getMessage());
             return [];
         }
     }
     
+    /**
+     * 🔧 NOVA FUNÇÃO: Lista alunos com boletos flexíveis
+     */
+    public function listarAlunosComBoletosFlexiveis($polo = null) {
+        try {
+            $sql = "
+                SELECT DISTINCT
+                    a.nome,
+                    a.cpf,
+                    c.subdomain as polo,
+                    COUNT(b.id) as total_boletos_flexiveis,
+                    SUM(b.valor) as valor_total,
+                    GROUP_CONCAT(DISTINCT cur.nome SEPARATOR ', ') as cursos_com_boletos
+                FROM alunos a
+                INNER JOIN boletos b ON a.id = b.aluno_id
+                INNER JOIN cursos c ON b.curso_id = c.id
+                INNER JOIN cursos cur ON b.curso_id = cur.id
+                INNER JOIN logs l ON l.boleto_id = b.id
+                WHERE l.tipo LIKE '%flexivel%'
+            ";
+            
+            $params = [];
+            
+            if ($polo) {
+                $sql .= " AND c.subdomain = ?";
+                $params[] = $polo;
+            }
+            
+            $sql .= " GROUP BY a.id, a.nome, a.cpf, c.subdomain ORDER BY COUNT(b.id) DESC";
+            
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+            
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+        } catch (Exception $e) {
+            error_log("Erro ao listar alunos com boletos flexíveis: " . $e->getMessage());
+            return [];
+        }
+    }
+    
+    /**
+     * Registra log de operação
+     */
     private function registrarLog($tipo, $boletoId, $descricao) {
         try {
+            // Verifica colunas disponíveis na tabela logs
             $columns = $this->getTableColumns('logs');
             
             $insertFields = ['tipo', 'descricao', 'created_at'];
@@ -1103,6 +1221,9 @@ class BoletoUploadService {
         }
     }
     
+    /**
+     * Obtém colunas de uma tabela
+     */
     private function getTableColumns($tableName) {
         try {
             $stmt = $this->db->query("SHOW COLUMNS FROM {$tableName}");
@@ -1115,5 +1236,82 @@ class BoletoUploadService {
             return [];
         }
     }
+
+    private function gerarNumeroSequencialSeguro($prefixoData = null) {
+        try {
+            if (!$prefixoData) {
+                $prefixoData = date('Ymd'); // AAAAMMDD (8 dígitos)
+            }
+            
+            // Busca o maior número sequencial para esta data
+            $stmt = $this->db->prepare("
+                SELECT MAX(CAST(SUBSTRING(numero_boleto, 9) AS UNSIGNED)) as ultimo_sequencial
+                FROM boletos 
+                WHERE numero_boleto LIKE ?
+            ");
+            $stmt->execute([$prefixoData . '%']);
+            $resultado = $stmt->fetch();
+            
+            $ultimoSequencial = $resultado['ultimo_sequencial'] ?? 0;
+            $novoSequencial = $ultimoSequencial + 1;
+            
+            // Garante 4 dígitos sequenciais (0001-9999)
+            $sequencialFormatado = str_pad($novoSequencial, 4, '0', STR_PAD_LEFT);
+            
+            // Formato final: AAAAMMDD + 4 dígitos = 12 dígitos total
+            $numeroCompleto = $prefixoData . $sequencialFormatado;
+            
+            error_log("NUMERAÇÃO SEGURA: Prefixo: {$prefixoData}, Último: {$ultimoSequencial}, Novo: {$numeroCompleto}");
+            
+            return $numeroCompleto;
+            
+        } catch (Exception $e) {
+            error_log("ERRO na numeração segura: " . $e->getMessage());
+            
+            // Fallback: usa timestamp + random para garantir unicidade
+            $timestamp = substr(time(), -6); // Últimos 6 dígitos do timestamp
+            $random = str_pad(mt_rand(1, 999999), 6, '0', STR_PAD_LEFT);
+            
+            return $timestamp . $random; // 12 dígitos
+        }
+    }
+    
+    /**
+     * 🔧 ADICIONAR NO ARQUIVO: src/BoletoUploadService.php
+     * Função para gerar múltiplos números sequenciais de uma vez
+     */
+    private function gerarNumerosSequenciaisLote($quantidade, $prefixoData = null) {
+        try {
+            if (!$prefixoData) {
+                $prefixoData = date('Ymd');
+            }
+            
+            // Busca próximo número disponível
+            $stmt = $this->db->prepare("
+                SELECT MAX(CAST(SUBSTRING(numero_boleto, 9) AS UNSIGNED)) as ultimo_sequencial
+                FROM boletos 
+                WHERE numero_boleto LIKE ?
+            ");
+            $stmt->execute([$prefixoData . '%']);
+            $resultado = $stmt->fetch();
+            
+            $proximoSequencial = ($resultado['ultimo_sequencial'] ?? 0) + 1;
+            
+            $numeros = [];
+            for ($i = 0; $i < $quantidade; $i++) {
+                $sequencial = $proximoSequencial + $i;
+                $sequencialFormatado = str_pad($sequencial, 4, '0', STR_PAD_LEFT);
+                $numeros[] = $prefixoData . $sequencialFormatado;
+            }
+            
+            error_log("LOTE DE NÚMEROS: Gerados " . count($numeros) . " números sequenciais");
+            return $numeros;
+            
+        } catch (Exception $e) {
+            error_log("ERRO no lote de números: " . $e->getMessage());
+            return [];
+        }
+    }
+
 }
 ?>

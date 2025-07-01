@@ -1,14 +1,11 @@
 <?php
 /**
- * Sistema de Boletos IMEPEDU - Upload de Boletos PDF COM MÚLTIPLOS UPLOADS POR ALUNO
- * Arquivo: admin/upload-boletos.php - VERSÃO COMPLETA MELHORADA
- * 
- * NOVIDADE: Adicionada funcionalidade para múltiplos uploads para um único aluno
+ * Sistema de Boletos IMEPEDU - Upload de Boletos com Desconto PIX
+ * Arquivo: admin/upload-boletos.php
  */
 
 session_start();
 
-// Verifica se admin está logado
 if (!isset($_SESSION['admin_id'])) {
     header('Location: /admin/login.php');
     exit;
@@ -33,19 +30,15 @@ if (!$admin) {
 $sucesso = '';
 $erro = '';
 
-// Processa upload
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         if (isset($_POST['acao']) && $_POST['acao'] === 'upload_individual') {
-            // Upload individual
             $resultado = $uploadService->processarUploadIndividual($_POST, $_FILES);
             $sucesso = $resultado['message'];
         } elseif (isset($_POST['acao']) && $_POST['acao'] === 'upload_lote') {
-            // Upload em lote
             $resultado = $uploadService->processarUploadLote($_POST, $_FILES);
             $sucesso = "Upload em lote processado! {$resultado['sucessos']} boletos enviados, {$resultado['erros']} erros.";
         } elseif (isset($_POST['acao']) && $_POST['acao'] === 'upload_multiplo_aluno') {
-            // 🆕 NOVO: Upload múltiplo para um único aluno
             $resultado = $uploadService->processarUploadMultiploAluno($_POST, $_FILES);
             $sucesso = "Upload múltiplo processado! {$resultado['sucessos']} boletos enviados para {$resultado['aluno_nome']}, {$resultado['erros']} erros.";
         }
@@ -54,10 +47,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// Busca dados para formulários
 $polosAtivos = MoodleConfig::getActiveSubdomains();
 $cursosDisponiveis = $adminService->buscarTodosCursos();
 $alunosRecentes = $adminService->buscarAlunosRecentes(20);
+
+// Busca configurações de desconto PIX
+$db = (new Database())->getConnection();
+$stmt = $db->prepare("SELECT * FROM configuracoes_desconto_pix WHERE ativo = 1 ORDER BY polo_subdomain");
+$stmt->execute();
+$configuracoesDesconto = $stmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
 
 <!DOCTYPE html>
@@ -67,16 +65,10 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Upload de Boletos - Administração IMEPEDU</title>
     
-    <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    
-    <!-- Font Awesome -->
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    
-    <!-- Dropzone CSS -->
     <link href="https://cdnjs.cloudflare.com/ajax/libs/dropzone/5.9.3/dropzone.min.css" rel="stylesheet">
     
-    <!-- Custom CSS -->
     <style>
         :root {
             --primary-color: #0066cc;
@@ -205,7 +197,6 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
             color: var(--primary-color);
         }
         
-        /* 🆕 Estilos para múltiplos uploads */
         .upload-zone-multiple {
             border: 2px dashed #28a745;
             background: rgba(40,167,69,0.05);
@@ -276,7 +267,6 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
             color: white;
         }
         
-        /* 🆕 Botão especial para upload múltiplo */
         .btn-upload-multiple {
             background: linear-gradient(135deg, var(--info-color), #138496);
             border: none;
@@ -290,12 +280,6 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
             transform: translateY(-2px);
             box-shadow: 0 5px 15px rgba(23,162,184,0.3);
             color: white;
-        }
-        
-        .progress {
-            height: 10px;
-            border-radius: 5px;
-            margin-top: 1rem;
         }
         
         .file-preview {
@@ -368,7 +352,6 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
             color: white;
         }
         
-        /* 🆕 Tab especial para múltiplos uploads */
         .nav-tabs .nav-link.tab-multiple {
             position: relative;
         }
@@ -398,47 +381,33 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
             background: rgba(0,102,204,0.05) !important;
         }
         
-        /* Debug section styling */
-        .debug-section {
-            border-left: 4px solid #ffc107;
-            background: linear-gradient(90deg, rgba(255,193,7,0.05) 0%, transparent 100%);
+        .pix-desconto-section {
+            background: linear-gradient(135deg, #e8f5e8, #f0f8f0);
+            border: 1px solid #28a745;
+            border-radius: 8px;
+            padding: 1rem;
+            margin: 1rem 0;
         }
-
-        #debugConteudo {
-            line-height: 1.4;
-            white-space: pre-wrap;
-            word-wrap: break-word;
+        
+        .pix-desconto-title {
+            color: #28a745;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
         }
-
-        #debugConteudo .text-success {
-            color: #28a745 !important;
+        
+        .pix-desconto-info {
+            background: rgba(40, 167, 69, 0.1);
+            border-radius: 6px;
+            padding: 0.75rem;
+            margin-top: 0.5rem;
         }
-
-        #debugConteudo .text-danger {
-            color: #dc3545 !important;
-        }
-
-        #debugConteudo .text-warning {
-            color: #ffc107 !important;
-        }
-
-        #debugConteudo .text-info {
-            color: #17a2b8 !important;
-        }
-
-        #debugConteudo .text-primary {
-            color: #007bff !important;
-        }
-
-        .debug-quick-link {
-            display: inline-block;
-            margin-top: 5px;
-            font-size: 0.85rem;
-            text-decoration: none;
-        }
-
-        .debug-quick-link:hover {
-            text-decoration: underline;
+        
+        .config-desconto-display {
+            background: #f8f9fa;
+            border-radius: 6px;
+            padding: 0.75rem;
+            margin-top: 0.5rem;
+            font-size: 0.9rem;
         }
         
         @media (max-width: 768px) {
@@ -533,7 +502,7 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
         <div class="topbar">
             <div>
                 <h3 class="mb-0">Upload de Boletos</h3>
-                <small class="text-muted">Envie arquivos PDF de boletos para os alunos</small>
+                <small class="text-muted">Envie arquivos PDF de boletos com controle de desconto PIX</small>
             </div>
             <div class="user-info">
                 <div class="user-avatar">
@@ -561,69 +530,42 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
             </div>
         <?php endif; ?>
         
-        <!-- Seção de Debug - Matrícula -->
-        <div class="card mb-4 debug-section">
+        <!-- Configurações de Desconto PIX -->
+        <?php if (!empty($configuracoesDesconto)): ?>
+        <div class="card mb-4">
             <div class="card-body">
-                <h6 class="card-title text-warning">
-                    <i class="fas fa-bug"></i> Debug de Matrícula
+                <h6 class="card-title text-success">
+                    <i class="fas fa-qrcode"></i> Configurações de Desconto PIX Ativas
                 </h6>
-                <p class="text-muted mb-3">
-                    Use esta ferramenta para diagnosticar problemas de matrícula quando aparecer o erro 
-                    "Aluno não está matriculado neste curso".
-                </p>
-                
                 <div class="row">
-                    <div class="col-md-4">
-                        <label class="form-label">CPF do Aluno</label>
-                        <input type="text" class="form-control" id="debug_cpf" placeholder="000.000.000-00" maxlength="14">
-                    </div>
-                    <div class="col-md-4">
-                        <label class="form-label">Polo</label>
-                        <select class="form-control" id="debug_polo">
-                            <option value="">Selecione o polo</option>
-                            <?php foreach ($polosAtivos as $polo): ?>
-                                <?php $config = MoodleConfig::getConfig($polo); ?>
-                                <option value="<?= $polo ?>">
-                                    <?= htmlspecialchars($config['name'] ?? $polo) ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                    <div class="col-md-4">
-                        <label class="form-label">&nbsp;</label>
-                        <div class="d-grid gap-2">
-                            <button class="btn btn-warning" onclick="debugMatricula('verificar')">
-                                <i class="fas fa-search"></i> Verificar
-                            </button>
+                    <?php foreach ($configuracoesDesconto as $config): ?>
+                    <div class="col-md-6 col-lg-4 mb-3">
+                        <div class="config-desconto-display">
+                            <strong><?= htmlspecialchars(str_replace('.imepedu.com.br', '', $config['polo_subdomain'])) ?></strong><br>
+                            <small>
+                                Desconto: 
+                                <?php if ($config['tipo_desconto'] === 'fixo'): ?>
+                                    R$ <?= number_format($config['valor_desconto_fixo'], 2, ',', '.') ?>
+                                <?php else: ?>
+                                    <?= number_format($config['percentual_desconto'], 1) ?>%
+                                <?php endif; ?>
+                                <br>
+                                Valor mínimo: R$ <?= number_format($config['valor_minimo_boleto'], 2, ',', '.') ?>
+                            </small>
                         </div>
                     </div>
-                </div>
-                
-                <div class="mt-3">
-                    <button class="btn btn-info btn-sm me-2" onclick="debugMatricula('sincronizar')">
-                        <i class="fas fa-sync"></i> Forçar Sincronização
-                    </button>
-                    <button class="btn btn-secondary btn-sm" onclick="limparDebug()">
-                        <i class="fas fa-times"></i> Limpar
-                    </button>
-                </div>
-                
-                <!-- Área de Resultados -->
-                <div id="debugResultados" class="mt-4" style="display: none;">
-                    <h6><i class="fas fa-terminal"></i> Resultados do Debug:</h6>
-                    <div class="bg-dark text-light p-3 rounded" style="font-family: monospace; font-size: 12px; max-height: 500px; overflow-y: auto;">
-                        <div id="debugConteudo"></div>
-                    </div>
+                    <?php endforeach; ?>
                 </div>
             </div>
         </div>
+        <?php endif; ?>
         
         <!-- Guias de Upload -->
         <div class="card">
             <div class="card-header">
                 <h5 class="mb-0">
                     <i class="fas fa-upload"></i>
-                    Upload de Boletos PDF
+                    Upload de Boletos PDF com Desconto PIX
                 </h5>
             </div>
 
@@ -636,7 +578,6 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                         </button>
                     </li>
                     
-                    <!-- 🆕 NOVA ABA: Upload Múltiplo para Um Aluno -->
                     <li class="nav-item" role="presentation">
                         <button class="nav-link tab-multiple" id="multiplo-aluno-tab" data-bs-toggle="tab" 
                                 data-bs-target="#multiplo-aluno" type="button" role="tab">
@@ -746,6 +687,27 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                                        placeholder="Ex: Mensalidade Janeiro 2024">
                             </div>
                             
+                            <!-- Seção de Desconto PIX -->
+                            <div class="pix-desconto-section">
+                                <div class="pix-desconto-title">
+                                    <i class="fas fa-qrcode"></i> Configuração de Desconto PIX
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="pix_desconto_disponivel" 
+                                           name="pix_desconto_disponivel" value="1" checked>
+                                    <label class="form-check-label" for="pix_desconto_disponivel">
+                                        <strong>Desconto PIX Disponível</strong>
+                                    </label>
+                                </div>
+                                <div class="pix-desconto-info" id="infoDescontoPix">
+                                    <small>
+                                        <i class="fas fa-info-circle"></i>
+                                        Quando marcado, o aluno poderá obter desconto ao pagar via PIX até a data de vencimento.
+                                        O valor do desconto será calculado automaticamente conforme configuração do polo.
+                                    </small>
+                                </div>
+                            </div>
+                            
                             <!-- Upload Zone -->
                             <div class="mb-3">
                                 <label class="form-label">
@@ -769,19 +731,17 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                         </form>
                     </div>
                     
-                    <!-- 🆕 NOVA ABA: Upload Múltiplo para Um Aluno -->
+                    <!-- Upload Múltiplo para Um Aluno -->
                     <div class="tab-pane fade" id="multiplo-aluno" role="tabpanel">
                         <div class="alert alert-info">
                             <i class="fas fa-info-circle"></i>
                             <strong>Upload Múltiplo para Um Aluno:</strong> Envie vários boletos para o mesmo aluno de uma só vez. 
-                            Ideal para enviar múltiplas mensalidades ou diferentes tipos de boletos para um único estudante.
-                            <br><small>⚡ <strong>Novidade:</strong> Agora você pode definir valores e vencimentos diferentes para cada boleto!</small>
+                            Você pode configurar desconto PIX individualmente para cada boleto.
                         </div>
                         
                         <form method="POST" enctype="multipart/form-data" id="uploadMultiploAlunoForm">
                             <input type="hidden" name="acao" value="upload_multiplo_aluno">
                             
-                            <!-- Dados do Aluno -->
                             <div class="section-title">
                                 <i class="fas fa-user"></i> 1. Dados do Aluno
                             </div>
@@ -822,14 +782,10 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                                         </label>
                                         <input type="text" class="form-control" id="aluno_cpf_multiplo" name="aluno_cpf" 
                                                placeholder="000.000.000-00" maxlength="14" required>
-                                        <small class="debug-quick-link" onclick="autoPreencherDebugMultiplo()">
-                                            <i class="fas fa-bug"></i> Debug Matrícula
-                                        </small>
                                     </div>
                                 </div>
                             </div>
                             
-                            <!-- Upload de Múltiplos Arquivos -->
                             <div class="section-title mt-4">
                                 <i class="fas fa-files"></i> 2. Arquivos PDF dos Boletos
                             </div>
@@ -847,7 +803,6 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                                 </div>
                             </div>
                             
-                            <!-- Lista de Arquivos Selecionados -->
                             <div id="fileListMultiplo" class="file-list" style="display: none;">
                                 <h6><i class="fas fa-list"></i> Arquivos Selecionados:</h6>
                                 <div id="fileListContent"></div>
@@ -857,12 +812,9 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                                         <button type="button" class="btn btn-outline-success btn-sm" onclick="aplicarValoresGlobais()">
                                             <i class="fas fa-magic"></i> Aplicar Valores Globais
                                         </button>
-        <!-- 🔧 BOTÃO PRINCIPAL CORRIGIDO -->
-        <button type="button" class="btn btn-outline-info btn-sm" onclick="gerarNumerosSequenciais()" title="Números baseados na data atual (recomendado)">
-            <i class="fas fa-sort-numeric-up"></i> Números Sequenciais
-        </button>
-    </div>
-    <div class="col-md-6 text-end">
+                                        <button type="button" class="btn btn-outline-info btn-sm" onclick="gerarNumerosSequenciais()">
+                                            <i class="fas fa-sort-numeric-up"></i> Números Sequenciais
+                                        </button>
                                     </div>
                                     <div class="col-md-6 text-end">
                                         <button type="button" class="btn btn-outline-secondary btn-sm" onclick="limparArquivosMultiplo()">
@@ -872,13 +824,12 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                                 </div>
                             </div>
                             
-                            <!-- Configurações Globais -->
                             <div class="section-title mt-4">
                                 <i class="fas fa-cogs"></i> 3. Configurações Globais (Opcional)
                             </div>
                             
                             <div class="row">
-                                <div class="col-md-4">
+                                <div class="col-md-3">
                                     <div class="mb-3">
                                         <label for="valor_global" class="form-label">
                                             <i class="fas fa-dollar-sign"></i> Valor Padrão
@@ -889,7 +840,7 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                                     </div>
                                 </div>
                                 
-                                <div class="col-md-4">
+                                <div class="col-md-3">
                                     <div class="mb-3">
                                         <label for="vencimento_global" class="form-label">
                                             <i class="fas fa-calendar"></i> Vencimento Base
@@ -899,7 +850,7 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                                     </div>
                                 </div>
                                 
-                                <div class="col-md-4">
+                                <div class="col-md-3">
                                     <div class="mb-3">
                                         <label for="descricao_global" class="form-label">
                                             <i class="fas fa-comment"></i> Descrição Padrão
@@ -907,6 +858,21 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                                         <input type="text" class="form-control" id="descricao_global" 
                                                placeholder="Ex: Mensalidade">
                                         <small class="form-text text-muted">Será usada para todos os boletos</small>
+                                    </div>
+                                </div>
+                                
+                                <div class="col-md-3">
+                                    <div class="mb-3">
+                                        <label class="form-label">
+                                            <i class="fas fa-qrcode"></i> Desconto PIX Global
+                                        </label>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="pix_desconto_global" checked>
+                                            <label class="form-check-label" for="pix_desconto_global">
+                                                Aplicar a todos
+                                            </label>
+                                        </div>
+                                        <small class="form-text text-muted">Desconto PIX para todos os boletos</small>
                                     </div>
                                 </div>
                             </div>
@@ -962,7 +928,7 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                             </div>
                             
                             <div class="row">
-                                <div class="col-md-4">
+                                <div class="col-md-3">
                                     <div class="mb-3">
                                         <label for="valor_lote" class="form-label">
                                             <i class="fas fa-dollar-sign"></i> Valor Padrão
@@ -972,7 +938,7 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                                     </div>
                                 </div>
                                 
-                                <div class="col-md-4">
+                                <div class="col-md-3">
                                     <div class="mb-3">
                                         <label for="vencimento_lote" class="form-label">
                                             <i class="fas fa-calendar"></i> Data de Vencimento
@@ -981,7 +947,7 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                                     </div>
                                 </div>
                                 
-                                <div class="col-md-4">
+                                <div class="col-md-3">
                                     <div class="mb-3">
                                         <label for="descricao_lote" class="form-label">
                                             <i class="fas fa-comment"></i> Descrição
@@ -990,22 +956,32 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                                                placeholder="Ex: Mensalidade Janeiro 2024">
                                     </div>
                                 </div>
+                                
+                                <div class="col-md-3">
+                                    <div class="mb-3">
+                                        <label class="form-label">
+                                            <i class="fas fa-qrcode"></i> Desconto PIX
+                                        </label>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="pix_desconto_lote" 
+                                                   name="pix_desconto_global" value="1" checked>
+                                            <label class="form-check-label" for="pix_desconto_lote">
+                                                Disponível para todos
+                                            </label>
+                                        </div>
+                                        <small class="form-text text-muted">Desconto PIX para todos os boletos do lote</small>
+                                    </div>
+                                </div>
                             </div>
                             
-                            <!-- Dropzone -->
-                            <div class="mb-3">
-                                <label class="form-label">
-                                    <i class="fas fa-files"></i> Arquivos PDF dos Boletos
-                                </label>
-                                <div id="dropzoneLote" class="dropzone">
-                                    <div class="dz-message">
-                                        <i class="fas fa-cloud-upload-alt fa-3x mb-3"></i>
-                                        <h5>Arraste múltiplos arquivos PDF aqui ou clique para selecionar</h5>
-                                        <p class="text-muted">
-                                            Nomeie os arquivos como: <code>CPF_NUMEROBANTO.pdf</code><br>
-                                            Máximo 5MB por arquivo
-                                        </p>
-                                    </div>
+                            <div id="dropzoneLote" class="dropzone">
+                                <div class="dz-message">
+                                    <i class="fas fa-cloud-upload-alt fa-3x mb-3"></i>
+                                    <h5>Arraste múltiplos arquivos PDF aqui ou clique para selecionar</h5>
+                                    <p class="text-muted">
+                                        Nomeie os arquivos como: <code>CPF_NUMEROBANTO.pdf</code><br>
+                                        Máximo 5MB por arquivo
+                                    </p>
                                 </div>
                             </div>
                             
@@ -1016,7 +992,6 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                             </div>
                         </form>
                     </div>
-                    
                     
                     <!-- Instruções -->
                     <div class="tab-pane fade" id="instrucoes" role="tabpanel">
@@ -1040,7 +1015,7 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                                     </li>
                                     <li class="mb-2">
                                         <i class="fas fa-check text-success"></i>
-                                        Número do boleto deve ser único
+                                        Configure desconto PIX individual
                                     </li>
                                     <li class="mb-2">
                                         <i class="fas fa-check text-success"></i>
@@ -1052,7 +1027,6 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                             <div class="col-md-4">
                                 <h5 class="section-title">
                                     <i class="fas fa-user-plus"></i> Múltiplos para Um Aluno
-                                    <span class="badge bg-success ms-2">NOVO</span>
                                 </h5>
                                 <ul class="list-unstyled">
                                     <li class="mb-2">
@@ -1061,7 +1035,7 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                                     </li>
                                     <li class="mb-2">
                                         <i class="fas fa-check text-success"></i>
-                                        Configure valores individuais ou globais
+                                        Configure desconto PIX por boleto
                                     </li>
                                     <li class="mb-2">
                                         <i class="fas fa-check text-success"></i>
@@ -1089,7 +1063,7 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                                     </li>
                                     <li class="mb-2">
                                         <i class="fas fa-check text-success"></i>
-                                        Exemplo: <code>12345678901_202412150001.pdf</code>
+                                        Desconto PIX global para todos
                                     </li>
                                     <li class="mb-2">
                                         <i class="fas fa-check text-success"></i>
@@ -1109,6 +1083,24 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                         
                         <div class="mt-4">
                             <h5 class="section-title">
+                                <i class="fas fa-qrcode text-success"></i> Sistema de Desconto PIX
+                            </h5>
+                            
+                            <div class="alert alert-success">
+                                <h6><i class="fas fa-gift"></i> Como Funciona o Desconto PIX:</h6>
+                                <ul class="mb-0">
+                                    <li><strong>Disponibilidade:</strong> Desconto disponível apenas até a data de vencimento</li>
+                                    <li><strong>Configuração por Polo:</strong> Cada polo tem suas próprias regras de desconto</li>
+                                    <li><strong>Controle Individual:</strong> Você pode habilitar/desabilitar o desconto por boleto</li>
+                                    <li><strong>Valor Mínimo:</strong> Boletos precisam atingir valor mínimo configurado</li>
+                                    <li><strong>Uso Único:</strong> Cada boleto pode usar o desconto apenas uma vez</li>
+                                    <li><strong>Cálculo Automático:</strong> Sistema calcula automaticamente baseado nas configurações</li>
+                                </ul>
+                            </div>
+                        </div>
+                        
+                        <div class="mt-4">
+                            <h5 class="section-title">
                                 <i class="fas fa-exclamation-triangle text-warning"></i> Importantes
                             </h5>
                             
@@ -1118,64 +1110,10 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                                     <li><strong>Tamanho máximo:</strong> 5MB por arquivo</li>
                                     <li><strong>Validação:</strong> Sistema verifica se aluno está matriculado no curso</li>
                                     <li><strong>Duplicatas:</strong> Números de boleto devem ser únicos</li>
-                                    <li><strong>Upload Múltiplo:</strong> 🆕 Ideal para enviar várias mensalidades de uma vez</li>
+                                    <li><strong>Desconto PIX:</strong> Configurável individualmente para cada boleto</li>
                                     <li><strong>Nomenclatura:</strong> Para upload em lote, siga exatamente o padrão</li>
                                     <li><strong>Segurança:</strong> Arquivos são armazenados de forma segura e criptografada</li>
                                 </ul>
-                            </div>
-                        </div>
-                        
-                        <!-- 🆕 NOVA SEÇÃO: Exemplos de Uso -->
-                        <div class="mt-4">
-                            <h5 class="section-title">
-                                <i class="fas fa-lightbulb text-info"></i> Exemplos de Uso
-                            </h5>
-                            
-                            <div class="row">
-                                <div class="col-md-6">
-                                    <div class="card">
-                                        <div class="card-body">
-                                            <h6 class="card-title text-primary">
-                                                <i class="fas fa-user-plus"></i> Múltiplos para Um Aluno
-                                            </h6>
-                                            <p class="card-text">
-                                                <strong>Cenário:</strong> Enviar 6 mensalidades para João Silva<br>
-                                                <strong>Como fazer:</strong>
-                                            </p>
-                                            <ol class="small">
-                                                <li>Selecione o polo e curso do João</li>
-                                                <li>Digite o CPF: 123.456.789-01</li>
-                                                <li>Arraste 6 arquivos PDF das mensalidades</li>
-                                                <li>Configure valor global: R$ 150,00</li>
-                                                <li>Data base: 15/01/2024</li>
-                                                <li>Clique em "Números Sequenciais"</li>
-                                                <li>Sistema criará mensalidades de Jan a Jun</li>
-                                            </ol>
-                                        </div>
-                                    </div>
-                                </div>
-                                
-                                <div class="col-md-6">
-                                    <div class="card">
-                                        <div class="card-body">
-                                            <h6 class="card-title text-success">
-                                                <i class="fas fa-files"></i> Upload em Lote
-                                            </h6>
-                                            <p class="card-text">
-                                                <strong>Cenário:</strong> Mensalidades de vários alunos<br>
-                                                <strong>Nomeação dos arquivos:</strong>
-                                            </p>
-                                            <ul class="small">
-                                                <li><code>12345678901_202401001.pdf</code> - João</li>
-                                                <li><code>98765432100_202401002.pdf</code> - Maria</li>
-                                                <li><code>11122233344_202401003.pdf</code> - Pedro</li>
-                                            </ul>
-                                            <p class="small text-muted">
-                                                Todos terão o mesmo valor e vencimento configurados no formulário.
-                                            </p>
-                                        </div>
-                                    </div>
-                                </div>
                             </div>
                         </div>
                     </div>
@@ -1190,111 +1128,8 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
     <script src="https://cdnjs.cloudflare.com/ajax/libs/dropzone/5.9.3/dropzone.min.js"></script>
     
     <script>
-        // ========== VARIÁVEIS GLOBAIS ==========
         let fileListMultiplo = [];
         let isUpdating = false;
-        
-        // ========== FUNÇÕES DE DEBUG DE MATRÍCULA ==========
-        
-        // Máscara para CPF no debug
-        document.getElementById('debug_cpf').addEventListener('input', function(e) {
-            let value = e.target.value.replace(/\D/g, '');
-            value = value.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
-            e.target.value = value;
-        });
-
-        // Função principal de debug
-        function debugMatricula(acao) {
-            const cpf = document.getElementById('debug_cpf').value;
-            const polo = document.getElementById('debug_polo').value;
-            
-            if (!cpf || !polo) {
-                showToast('Preencha CPF e Polo para fazer o debug', 'error');
-                return;
-            }
-            
-            const resultadosDiv = document.getElementById('debugResultados');
-            const conteudoDiv = document.getElementById('debugConteudo');
-            
-            resultadosDiv.style.display = 'block';
-            conteudoDiv.innerHTML = '<span class="text-warning">🔄 Executando debug...</span>';
-            resultadosDiv.scrollIntoView({ behavior: 'smooth' });
-            
-            fetch('/admin/api/debug-matricula.php', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ cpf: cpf, polo: polo, acao: acao })
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    exibirResultadosDebug(data);
-                    if (acao === 'sincronizar' && data.sincronizacao_realizada) {
-                        showToast('Sincronização realizada com sucesso!', 'success');
-                    }
-                } else {
-                    conteudoDiv.innerHTML = `<span class="text-danger">❌ Erro: ${data.message}</span>`;
-                    showToast('Erro no debug: ' + data.message, 'error');
-                }
-            })
-            .catch(error => {
-                conteudoDiv.innerHTML = `<span class="text-danger">❌ Erro de conexão: ${error.message}</span>`;
-                showToast('Erro de conexão', 'error');
-            });
-        }
-
-        // Exibe resultados formatados do debug
-        function exibirResultadosDebug(data) {
-            const conteudoDiv = document.getElementById('debugConteudo');
-            let html = `<div class="text-info">📋 DEBUG DE MATRÍCULA</div>`;
-            html += `<div class="text-muted">CPF: ${data.cpf} | Polo: ${data.polo} | ${data.timestamp}</div>\n\n`;
-            
-            if (data.diagnostico) {
-                const diagnosticoCor = {
-                    'TUDO_OK': 'text-success',
-                    'ALUNO_NAO_ENCONTRADO': 'text-danger', 
-                    'ALUNO_NAO_SINCRONIZADO': 'text-warning',
-                    'SEM_MATRICULAS': 'text-warning'
-                };
-                html += `<div class="${diagnosticoCor[data.diagnostico] || 'text-info'}">`;
-                html += `🎯 DIAGNÓSTICO: ${data.diagnostico}</div>\n\n`;
-            }
-            
-            if (data.debug) {
-                data.debug.forEach(linha => {
-                    html += escapeHtml(linha) + '\n';
-                });
-            }
-            
-            conteudoDiv.innerHTML = html;
-        }
-
-        // Limpa debug
-        function limparDebug() {
-            document.getElementById('debug_cpf').value = '';
-            document.getElementById('debug_polo').value = '';
-            document.getElementById('debugResultados').style.display = 'none';
-        }
-
-        // Auto-preenchimento do debug com dados do formulário múltiplo
-        function autoPreencherDebugMultiplo() {
-            const cpfMultiplo = document.getElementById('aluno_cpf_multiplo').value;
-            const poloMultiplo = document.getElementById('polo_multiplo').value;
-            
-            if (cpfMultiplo) document.getElementById('debug_cpf').value = cpfMultiplo;
-            if (poloMultiplo) document.getElementById('debug_polo').value = poloMultiplo;
-            
-            document.getElementById('debugResultados').parentElement.scrollIntoView({ behavior: 'smooth' });
-        }
-
-        // Escape HTML para segurança
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
-        
-        // ========== FUNÇÕES DE UPLOAD INDIVIDUAL ==========
         
         // Máscara para CPF
         document.getElementById('aluno_cpf').addEventListener('input', function(e) {
@@ -1303,7 +1138,6 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
             e.target.value = value;
         });
         
-        // Máscara para CPF múltiplo
         document.getElementById('aluno_cpf_multiplo').addEventListener('input', function(e) {
             let value = e.target.value.replace(/\D/g, '');
             value = value.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
@@ -1380,8 +1214,6 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
             filePreview.style.display = 'none';
         }
         
-        // ========== 🆕 FUNÇÕES DE UPLOAD MÚLTIPLO PARA UM ALUNO ==========
-        
         // Upload múltiplo - zona de drag and drop
         const uploadZoneMultiplo = document.getElementById('uploadZoneMultiplo');
         const fileInputMultiplo = document.getElementById('arquivos_multiplos');
@@ -1414,21 +1246,18 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
         });
         
         function processarArquivosMultiplo(files) {
-            // Filtra apenas PDFs
             const pdfFiles = files.filter(file => file.type === 'application/pdf');
             
             if (pdfFiles.length !== files.length) {
                 showToast('Apenas arquivos PDF são aceitos. Arquivos não-PDF foram ignorados.', 'warning');
             }
             
-            // Verifica tamanho
             const validFiles = pdfFiles.filter(file => file.size <= 5 * 1024 * 1024);
             
             if (validFiles.length !== pdfFiles.length) {
                 showToast('Arquivos maiores que 5MB foram ignorados.', 'warning');
             }
             
-            // Adiciona arquivos válidos à lista
             validFiles.forEach((file, index) => {
                 const fileId = Date.now() + index;
                 const fileData = {
@@ -1439,7 +1268,8 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                     numero_boleto: '',
                     valor: '',
                     vencimento: '',
-                    descricao: ''
+                    descricao: '',
+                    pix_desconto_disponivel: 1
                 };
                 
                 fileListMultiplo.push(fileData);
@@ -1471,7 +1301,7 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                 html += `
                     <div class="file-list-item ${itemClass}" data-file-id="${fileData.id}">
                         <div class="row w-100 align-items-center">
-                            <div class="col-md-3">
+                            <div class="col-md-2">
                                 <div class="file-info">
                                     <div class="file-icon" style="width: 30px; height: 30px; font-size: 0.8rem;">
                                         <i class="fas fa-file-pdf"></i>
@@ -1501,9 +1331,18 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                             </div>
                             <div class="col-md-2">
                                 <input type="text" class="form-control form-control-sm" 
-                                       placeholder="Descrição (opcional)" 
+                                       placeholder="Descrição" 
                                        value="${fileData.descricao}"
                                        onchange="atualizarDadosArquivo(${fileData.id}, 'descricao', this.value)">
+                            </div>
+                            <div class="col-md-1">
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="checkbox" 
+                                           ${fileData.pix_desconto_disponivel ? 'checked' : ''}
+                                           onchange="atualizarDadosArquivo(${fileData.id}, 'pix_desconto_disponivel', this.checked ? 1 : 0)"
+                                           title="Desconto PIX">
+                                    <label class="form-check-label small">PIX</label>
+                                </div>
                             </div>
                             <div class="col-md-1">
                                 <button type="button" class="btn btn-sm btn-outline-danger" 
@@ -1544,6 +1383,7 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
             const valorGlobal = document.getElementById('valor_global').value;
             const vencimentoGlobal = document.getElementById('vencimento_global').value;
             const descricaoGlobal = document.getElementById('descricao_global').value;
+            const pixDescontoGlobal = document.getElementById('pix_desconto_global').checked;
             
             if (!valorGlobal && !vencimentoGlobal && !descricaoGlobal) {
                 showToast('Preencha pelo menos um campo global para aplicar', 'warning');
@@ -1554,132 +1394,66 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                 if (valorGlobal) fileData.valor = valorGlobal;
                 if (vencimentoGlobal) fileData.vencimento = vencimentoGlobal;
                 if (descricaoGlobal) fileData.descricao = descricaoGlobal;
+                fileData.pix_desconto_disponivel = pixDescontoGlobal ? 1 : 0;
             });
             
             atualizarListaArquivosMultiplo();
             showToast('Valores globais aplicados a todos os arquivos!', 'success');
         }
         
-// 🔧 FUNÇÃO CORRIGIDA NO JAVASCRIPT
-function gerarNumerosSequenciais() {
-    if (fileListMultiplo.length === 0) {
-        showToast('Adicione arquivos primeiro', 'warning');
-        return;
-    }
-    
-    showToast('Gerando números sequenciais...', 'info');
-    
-    // 🔧 CORREÇÃO: Número sempre usa data ATUAL, vencimento usa data base
-    const dataAtual = new Date().toISOString().slice(0,10).replace(/-/g, '');
-    const vencimentoBase = document.getElementById('vencimento_global').value;
-    
-    console.log('🎯 CORREÇÃO APLICADA:');
-    console.log('Data para NÚMERO (sempre atual):', dataAtual);
-    console.log('Data para VENCIMENTO (configurável):', vencimentoBase);
-    
-    fetch('/admin/api/gerar-numeros-sequenciais.php', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            quantidade: fileListMultiplo.length,
-            prefixo_data: dataAtual, // 🔧 SEMPRE usa data atual para número
-            vencimento_base: vencimentoBase // 🆕 Vencimento separado
-        })
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success && data.numeros) {
-            // Aplica números sequenciais (baseados na data atual)
-            fileListMultiplo.forEach((fileData, index) => {
-                if (data.numeros[index]) {
-                    fileData.numero_boleto = data.numeros[index];
-                }
-            });
-            
-            // 🔧 CORREÇÃO: Vencimentos usam data base se configurada
-            if (vencimentoBase && vencimentoBase.trim() !== '') {
-                fileListMultiplo.forEach((fileData, index) => {
-                    const dataVencimento = new Date(vencimentoBase);
-                    dataVencimento.setMonth(dataVencimento.getMonth() + index);
-                    fileData.vencimento = dataVencimento.toISOString().split('T')[0];
-                });
+        function gerarNumerosSequenciais() {
+            if (fileListMultiplo.length === 0) {
+                showToast('Adicione arquivos primeiro', 'warning');
+                return;
             }
             
-            atualizarListaArquivosMultiplo();
-            showToast(`${data.numeros.length} números gerados! (Data atual: ${dataAtual})`, 'success');
+            showToast('Gerando números sequenciais...', 'info');
             
-        } else {
-            throw new Error(data.message || 'Erro ao gerar números');
-        }
-    })
-    .catch(error => {
-        console.error('Erro:', error);
-        showToast('Erro ao gerar números: ' + error.message, 'error');
-    });
-}
-// 🆕 NOVA FUNÇÃO: Usar vencimento para número (comportamento antigo)
-function gerarNumerosComDataVencimento() {
-    if (fileListMultiplo.length === 0) {
-        showToast('Adicione arquivos primeiro', 'warning');
-        return;
-    }
-    
-    const vencimentoBase = document.getElementById('vencimento_global').value;
-    
-    if (!vencimentoBase) {
-        showToast('Configure a data de vencimento base primeiro', 'warning');
-        return;
-    }
-    
-    const dataDoVencimento = vencimentoBase.replace(/-/g, '');
-    
-    if (confirm(`Usar data ${vencimentoBase} para gerar números de boleto?\n\nNúmeros ficarão: ${dataDoVencimento}XXXX`)) {
-        
-        fetch('/admin/api/gerar-numeros-sequenciais.php', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                quantidade: fileListMultiplo.length,
-                prefixo_data: dataDoVencimento,
-                usar_data_vencimento: true
+            const dataAtual = new Date().toISOString().slice(0,10).replace(/-/g, '');
+            const vencimentoBase = document.getElementById('vencimento_global').value;
+            
+            fetch('/admin/api/gerar-numeros-sequenciais.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    quantidade: fileListMultiplo.length,
+                    prefixo_data: dataAtual,
+                    vencimento_base: vencimentoBase
+                })
             })
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success && data.numeros) {
-                fileListMultiplo.forEach((fileData, index) => {
-                    if (data.numeros[index]) {
-                        fileData.numero_boleto = data.numeros[index];
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && data.numeros) {
+                    fileListMultiplo.forEach((fileData, index) => {
+                        if (data.numeros[index]) {
+                            fileData.numero_boleto = data.numeros[index];
+                        }
+                    });
+                    
+                    if (vencimentoBase && vencimentoBase.trim() !== '') {
+                        fileListMultiplo.forEach((fileData, index) => {
+                            const dataVencimento = new Date(vencimentoBase);
+                            dataVencimento.setMonth(dataVencimento.getMonth() + index);
+                            fileData.vencimento = dataVencimento.toISOString().split('T')[0];
+                        });
                     }
-                });
-                
-                // Vencimentos com intervalos mensais
-                fileListMultiplo.forEach((fileData, index) => {
-                    const dataVencimento = new Date(vencimentoBase);
-                    dataVencimento.setMonth(dataVencimento.getMonth() + index);
-                    fileData.vencimento = dataVencimento.toISOString().split('T')[0];
-                });
-                
-                atualizarListaArquivosMultiplo();
-                showToast(`Números gerados com data do vencimento: ${dataDoVencimento}`, 'success');
-                
-            } else {
-                throw new Error(data.message || 'Erro ao gerar números');
-            }
-        })
-        .catch(error => {
-            console.error('Erro:', error);
-            showToast('Erro: ' + error.message, 'error');
-        });
-    }
-}
+                    
+                    atualizarListaArquivosMultiplo();
+                    showToast(`${data.numeros.length} números gerados!`, 'success');
+                    
+                } else {
+                    throw new Error(data.message || 'Erro ao gerar números');
+                }
+            })
+            .catch(error => {
+                console.error('Erro:', error);
+                showToast('Erro ao gerar números: ' + error.message, 'error');
+            });
+        }
         
-        // ========== CONFIGURAÇÃO DO DROPZONE PARA LOTE ==========
-        
+        // Configuração do Dropzone para lote
         Dropzone.autoDiscover = false;
         
         const dropzoneLote = new Dropzone("#dropzoneLote", {
@@ -1753,8 +1527,7 @@ function gerarNumerosComDataVencimento() {
             }
         });
         
-        // ========== FUNÇÕES DE BUSCA DE CURSOS ==========
-        
+        // Funções de busca de cursos
         function carregarCursos(poloSelect, cursoSelect) {
             const polo = poloSelect.value;
             cursoSelect.innerHTML = '<option value="">Carregando...</option>';
@@ -1789,6 +1562,7 @@ function gerarNumerosComDataVencimento() {
         // Event listeners para carregar cursos
         document.getElementById('polo').addEventListener('change', function() {
             carregarCursos(this, document.getElementById('curso'));
+            atualizarInfoDesconto(this.value);
         });
         
         document.getElementById('polo_multiplo').addEventListener('change', function() {
@@ -1799,9 +1573,41 @@ function gerarNumerosComDataVencimento() {
             carregarCursos(this, document.getElementById('curso_lote'));
         });
         
-        // ========== VALIDAÇÕES DOS FORMULÁRIOS ==========
+        // Função para atualizar informações de desconto baseado no polo
+        function atualizarInfoDesconto(polo) {
+            const configDesconto = <?= json_encode($configuracoesDesconto) ?>;
+            const config = configDesconto.find(c => c.polo_subdomain === polo);
+            const infoDiv = document.getElementById('infoDescontoPix');
+            
+            if (config) {
+                let descontoTexto = '';
+                if (config.tipo_desconto === 'fixo') {
+                    descontoTexto = `R$ ${parseFloat(config.valor_desconto_fixo).toLocaleString('pt-BR', {minimumFractionDigits: 2})}`;
+                } else {
+                    descontoTexto = `${parseFloat(config.percentual_desconto)}%`;
+                }
+                
+                infoDiv.innerHTML = `
+                    <small>
+                        <i class="fas fa-info-circle text-success"></i>
+                        <strong>Desconto configurado para este polo:</strong> ${descontoTexto}
+                        <br>
+                        <strong>Valor mínimo:</strong> R$ ${parseFloat(config.valor_minimo_boleto).toLocaleString('pt-BR', {minimumFractionDigits: 2})}
+                        <br>
+                        <strong>Condição:</strong> ${config.condicao_aplicacao === 'ate_vencimento' ? 'Até o vencimento' : config.condicao_aplicacao}
+                    </small>
+                `;
+            } else {
+                infoDiv.innerHTML = `
+                    <small>
+                        <i class="fas fa-exclamation-triangle text-warning"></i>
+                        Nenhuma configuração de desconto encontrada para este polo.
+                    </small>
+                `;
+            }
+        }
         
-        // Validação do formulário individual
+        // Validações dos formulários
         document.getElementById('uploadIndividualForm').addEventListener('submit', function(e) {
             const cpf = document.getElementById('aluno_cpf').value.replace(/\D/g, '');
             const arquivo = document.getElementById('arquivo_pdf').files[0];
@@ -1824,13 +1630,11 @@ function gerarNumerosComDataVencimento() {
                 return;
             }
             
-            // Mostra loading
             const submitBtn = this.querySelector('button[type="submit"]');
             submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Enviando...';
             submitBtn.disabled = true;
         });
         
-        // 🆕 Validação do formulário múltiplo
         document.getElementById('uploadMultiploAlunoForm').addEventListener('submit', function(e) {
             const cpf = document.getElementById('aluno_cpf_multiplo').value.replace(/\D/g, '');
             const polo = document.getElementById('polo_multiplo').value;
@@ -1854,7 +1658,6 @@ function gerarNumerosComDataVencimento() {
                 return;
             }
             
-            // Valida se todos os arquivos têm dados obrigatórios
             const arquivosIncompletos = fileListMultiplo.filter(f => !f.numero_boleto || !f.valor || !f.vencimento);
             if (arquivosIncompletos.length > 0) {
                 e.preventDefault();
@@ -1862,9 +1665,8 @@ function gerarNumerosComDataVencimento() {
                 return;
             }
             
-            // Adiciona dados dos arquivos ao FormData
             const formData = new FormData(this);
-            formData.delete('arquivos_multiplos[]'); // Remove o input original
+            formData.delete('arquivos_multiplos[]');
             
             fileListMultiplo.forEach((fileData, index) => {
                 formData.append('arquivos_multiplos[]', fileData.file);
@@ -1872,14 +1674,13 @@ function gerarNumerosComDataVencimento() {
                 formData.append(`arquivo_${index}_valor`, fileData.valor);
                 formData.append(`arquivo_${index}_vencimento`, fileData.vencimento);
                 formData.append(`arquivo_${index}_descricao`, fileData.descricao || '');
+                formData.append(`arquivo_${index}_pix_desconto`, fileData.pix_desconto_disponivel || 0);
             });
             
-            // Previne submissão normal e envia via AJAX
             e.preventDefault();
             enviarFormularioMultiplo(formData);
         });
         
-        // 🆕 Função para enviar formulário múltiplo via AJAX
         function enviarFormularioMultiplo(formData) {
             const submitBtn = document.getElementById('btnEnviarMultiplo');
             const originalText = submitBtn.innerHTML;
@@ -1893,7 +1694,6 @@ function gerarNumerosComDataVencimento() {
             })
             .then(response => response.text())
             .then(data => {
-                // Se a resposta contém HTML (página recarregada), recarrega
                 if (data.includes('<!DOCTYPE html>') || data.includes('<html')) {
                     location.reload();
                 } else {
@@ -1911,7 +1711,6 @@ function gerarNumerosComDataVencimento() {
             });
         }
         
-        // Validação do formulário em lote
         document.getElementById('uploadLoteForm').addEventListener('submit', function(e) {
             const polo = document.getElementById('polo_lote').value;
             const curso = document.getElementById('curso_lote').value;
@@ -1931,8 +1730,7 @@ function gerarNumerosComDataVencimento() {
             }
         });
         
-        // ========== SISTEMA DE NOTIFICAÇÕES ==========
-        
+        // Sistema de notificações
         function showToast(message, type = 'info') {
             const existingToasts = document.querySelectorAll('.toast-custom');
             existingToasts.forEach(toast => toast.remove());
@@ -1983,15 +1781,12 @@ function gerarNumerosComDataVencimento() {
             }, 5000);
         }
         
-        // ========== FUNÇÕES AUXILIARES ==========
-        
-        // Define data mínima como hoje
+        // Funções auxiliares
         const hoje = new Date().toISOString().split('T')[0];
         document.getElementById('vencimento').min = hoje;
         document.getElementById('vencimento_lote').min = hoje;
         document.getElementById('vencimento_global').min = hoje;
         
-        // Auto-complete número do boleto baseado na data
         document.getElementById('vencimento').addEventListener('change', function() {
             const data = this.value.replace(/-/g, '');
             const numeroBase = data + '0001';
@@ -2001,10 +1796,9 @@ function gerarNumerosComDataVencimento() {
             }
         });
         
-        // Validação de CPF
         function validarCPF(cpf) {
-            cpf = cpf.replace(/[^\d]+/g, '');
-            if (cpf.length !== 11 || /^(\d)\1{10}$/.test(cpf)) return false;
+            cpf = cpf.replace(/[^0-9]/, '', cpf);
+            if (cpf.length != 11 || /^(\d)\1{10}$/.test(cpf)) return false;
             
             let soma = 0;
             for (let i = 0; i < 9; i++) {
@@ -2023,7 +1817,6 @@ function gerarNumerosComDataVencimento() {
             return resto === parseInt(cpf.charAt(10));
         }
         
-        // Valida CPF em tempo real
         document.getElementById('aluno_cpf').addEventListener('blur', function() {
             const cpf = this.value.replace(/\D/g, '');
             if (cpf && !validarCPF(cpf)) {
@@ -2044,8 +1837,48 @@ function gerarNumerosComDataVencimento() {
             }
         });
         
-        // ========== ESTILOS PARA ANIMAÇÕES ==========
+        // Auto-submit do formulário quando mudamos os filtros
+        document.querySelectorAll('#filtrosForm select').forEach(select => {
+            select.addEventListener('change', function() {
+                if (this.name !== 'busca') {
+                    document.getElementById('filtrosForm').submit();
+                }
+            });
+        });
         
+        // Atalhos de teclado
+        document.addEventListener('keydown', function(e) {
+            if (e.ctrlKey && e.key === 'n') {
+                e.preventDefault();
+                window.location.href = '/admin/upload-boletos.php';
+            }
+            
+            if (e.ctrlKey && e.key === 'm') {
+                e.preventDefault();
+                document.getElementById('multiplo-aluno-tab').click();
+            }
+            
+            if (e.ctrlKey && ['1', '2', '3', '4'].includes(e.key)) {
+                e.preventDefault();
+                const tabs = ['individual-tab', 'multiplo-aluno-tab', 'lote-tab', 'instrucoes-tab'];
+                const tabIndex = parseInt(e.key) - 1;
+                if (tabs[tabIndex]) {
+                    document.getElementById(tabs[tabIndex]).click();
+                }
+            }
+        });
+        
+        // Tooltip para elementos com title
+        document.addEventListener('DOMContentLoaded', function() {
+            const tooltips = document.querySelectorAll('[title]');
+            tooltips.forEach(element => {
+                if (typeof bootstrap !== 'undefined' && bootstrap.Tooltip) {
+                    new bootstrap.Tooltip(element);
+                }
+            });
+        });
+        
+        // Adiciona estilos para animações
         const style = document.createElement('style');
         style.textContent = `
             @keyframes slideInRight {
@@ -2078,121 +1911,15 @@ function gerarNumerosComDataVencimento() {
                 border-left: 4px solid #dc3545;
                 background: rgba(220,53,69,0.02);
             }
-            
-            .upload-zone-multiple {
-                border-color: #28a745 !important;
-                background: rgba(40,167,69,0.05) !important;
-            }
-            
-            .upload-zone-multiple:hover {
-                border-color: #1e7e34 !important;
-                background: rgba(40,167,69,0.1) !important;
-            }
-            
-            .nav-tabs .nav-link.tab-multiple::after {
-                content: "NOVO";
-                position: absolute;
-                top: -8px;
-                right: -8px;
-                background: #ff6b6b;
-                color: white;
-                font-size: 0.6rem;
-                padding: 2px 6px;
-                border-radius: 10px;
-                font-weight: bold;
-                animation: pulse 2s infinite;
-            }
-            
-            @keyframes pulse {
-                0% { transform: scale(1); }
-                50% { transform: scale(1.1); }
-                100% { transform: scale(1); }
-            }
         `;
         document.head.appendChild(style);
         
-        // ========== INICIALIZAÇÃO ==========
-        
-        // Log de debug final
-        console.log('✅ Sistema de Upload Múltiplo para Um Aluno carregado!');
-        console.log('🆕 Nova funcionalidade disponível na aba "Múltiplos para Um Aluno"');
-        
-        // Tooltip para elementos com title
-        document.addEventListener('DOMContentLoaded', function() {
-            const tooltips = document.querySelectorAll('[title]');
-            tooltips.forEach(element => {
-                if (typeof bootstrap !== 'undefined' && bootstrap.Tooltip) {
-                    new bootstrap.Tooltip(element);
-                }
-            });
-        });
-        
-        // Atalhos de teclado
-        document.addEventListener('keydown', function(e) {
-            // Ctrl + M para ir para aba múltipla
-            if (e.ctrlKey && e.key === 'm') {
-                e.preventDefault();
-                document.getElementById('multiplo-aluno-tab').click();
-            }
-            
-            // Ctrl + 1, 2, 3, 4 para alternar entre abas
-            if (e.ctrlKey && ['1', '2', '3', '4'].includes(e.key)) {
-                e.preventDefault();
-                const tabs = ['individual-tab', 'multiplo-aluno-tab', 'lote-tab', 'instrucoes-tab'];
-                const tabIndex = parseInt(e.key) - 1;
-                if (tabs[tabIndex]) {
-                    document.getElementById(tabs[tabIndex]).click();
-                }
-            }
-        });
-        
-        // Intercepta erros de matrícula e sugere debug
-        const originalSubmitIndividual = document.getElementById('uploadIndividualForm').onsubmit;
-        const originalSubmitMultiplo = document.getElementById('uploadMultiploAlunoForm').onsubmit;
-        
-        // Guarda dados para possível debug após erro
-        function guardarDadosParaDebug(form) {
-            if (form.id === 'uploadIndividualForm') {
-                window.lastUploadData = {
-                    cpf: document.getElementById('aluno_cpf').value,
-                    polo: document.getElementById('polo').value
-                };
-            } else if (form.id === 'uploadMultiploAlunoForm') {
-                window.lastUploadData = {
-                    cpf: document.getElementById('aluno_cpf_multiplo').value,
-                    polo: document.getElementById('polo_multiplo').value
-                };
-            }
-        }
-        
-        document.getElementById('uploadIndividualForm').addEventListener('submit', function() {
-            guardarDadosParaDebug(this);
-        });
-        
-        document.getElementById('uploadMultiploAlunoForm').addEventListener('submit', function() {
-            guardarDadosParaDebug(this);
-        });
-        
-        // Função para sugerir debug após erro
-        function sugerirDebugAposErro(mensagemErro) {
-            if (mensagemErro.includes('não está matriculado') && window.lastUploadData) {
-                setTimeout(() => {
-                    if (confirm('Erro de matrícula detectado. Deseja executar o debug automático?')) {
-                        document.getElementById('debug_cpf').value = window.lastUploadData.cpf;
-                        document.getElementById('debug_polo').value = window.lastUploadData.polo;
-                        debugMatricula('verificar');
-                    }
-                }, 2000);
-            }
-        }
-        
-        console.log('🎉 Upload de Boletos - Sistema Completo Carregado!');
-        console.log('📋 Funcionalidades disponíveis:');
-        console.log('   1️⃣ Upload Individual');
-        console.log('   2️⃣ 🆕 Upload Múltiplo para Um Aluno');
-        console.log('   3️⃣ Upload em Lote');
-        console.log('   🐛 Debug de Matrícula integrado');
-        console.log('⌨️ Atalhos: Ctrl+1/2/3/4 (abas), Ctrl+M (múltiplo)');
+        console.log('✅ Sistema de Upload com Desconto PIX carregado!');
+        console.log('🆕 Funcionalidades de desconto PIX implementadas');
+        console.log('📋 Comandos disponíveis:');
+        console.log('   - Ctrl+1/2/3/4: Alternar entre abas');
+        console.log('   - Ctrl+M: Ir para upload múltiplo');
+        console.log('   - Ctrl+N: Novo upload');
     </script>
 </body>
 </html>

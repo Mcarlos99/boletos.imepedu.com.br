@@ -1,6 +1,6 @@
 <?php
 /**
- * Sistema de Boletos IMEPEDU - API Geração de Código PIX CORRIGIDA
+ * Sistema de Boletos IMEPEDU - API Geração de PIX com Desconto
  * Arquivo: api/gerar-pix.php
  */
 
@@ -111,141 +111,47 @@ try {
         throw new Exception('Este boleto foi cancelado');
     }
     
+    // Calcula valor com desconto PIX
+    $dadosDesconto = calcularDescontoPIX($boleto, $db);
+    
     $configPIX = obterConfiguracaoPIX($boleto['curso_subdomain']);
-    $dadosPIX = gerarCodigoPIX($boleto, $configPIX);
-    $pixId = salvarPIXGerado($boletoId, $dadosPIX, $configPIX);
+    $dadosPIX = gerarCodigoPIX($boleto, $configPIX, $dadosDesconto);
+    $pixId = salvarPIXGerado($boletoId, $dadosPIX, $configPIX, $dadosDesconto, $db);
     $qrCodeData = gerarQRCode($dadosPIX['pix_copia_cola']);
+    
+    // Se tem desconto, marca como usado
+    if ($dadosDesconto['tem_desconto']) {
+        marcarDescontoPixUsado($boletoId, $db);
+    }
     
     $response = [
         'success' => true,
         'boleto' => [
             'id' => $boleto['id'],
             'numero' => $boleto['numero_boleto'],
-            'valor' => floatval($boleto['valor']),
-            'valor_formatado' => 'R$ ' . number_format($boleto['valor'], 2, ',', '.'),
+            'valor_original' => floatval($boleto['valor']),
+            'valor_original_formatado' => 'R$ ' . number_format($boleto['valor'], 2, ',', '.'),
+            'valor_final' => $dadosDesconto['valor_final'],
+            'valor_final_formatado' => 'R$ ' . number_format($dadosDesconto['valor_final'], 2, ',', '.'),
             'vencimento' => $boleto['vencimento'],
             'vencimento_formatado' => date('d/m/Y', strtotime($boleto['vencimento'])),
             'aluno_nome' => $boleto['aluno_nome'],
             'curso_nome' => $boleto['curso_nome'],
             'status' => $boleto['status']
         ],
+        'desconto' => [
+            'tem_desconto' => $dadosDesconto['tem_desconto'],
+            'valor_desconto' => $dadosDesconto['valor_desconto'],
+            'valor_desconto_formatado' => 'R$ ' . number_format($dadosDesconto['valor_desconto'], 2, ',', '.'),
+            'motivo' => $dadosDesconto['motivo'],
+            'economia' => $dadosDesconto['tem_desconto'] ? 
+                'Você está economizando R$ ' . number_format($dadosDesconto['valor_desconto'], 2, ',', '.') : null
+        ],
         'pix' => [
             'id' => $pixId,
             'chave_pix' => $configPIX['chave_pix'],
             'beneficiario' => $configPIX['beneficiario'],
-            'cidade' => $configPIX['cidade'],
-            'cep' => $configPIX['cep'],
-            'identificador' => $dadosPIX['identificador'],
-            'pix_copia_cola' => $dadosPIX['pix_copia_cola'],
-            'qr_code_base64' => $qrCodeData['base64'],
-            'qr_code_url' => $qrCodeData['url'] ?? null,
-            'validade' => $dadosPIX['validade'],
-            'validade_formatada' => date('d/m/Y H:i', strtotime($dadosPIX['validade']))
-        ],
-        'instrucoes' => [
-            'como_pagar' => [
-                'Abra o app do seu banco',
-                'Acesse a área PIX',
-                'Escolha "Pagar com QR Code" ou "PIX Copia e Cola"',
-                'Escaneie o código ou cole o texto',
-                'Confirme os dados e efetue o pagamento',
-                'Enviar o comprovante via WhatsApp, <a href="https://wa.me/5594992435333" target="_blank">Clique Aqui!</a>',
-              	'Após o pagamento, aguarde até 48h para processamento'
-            ],
-            'observacoes' => [
-                'O PIX tem validade até ' . date('d/m/Y H:i', strtotime($dadosPIX['validade'])),
-                //'Após o pagamento, aguarde até 24h para processamento',
-                'Em caso de dúvidas, entre em contato com a secretaria',
-                'Guarde o comprovante de pagamento'
-            ]
-        ],
-        'gerado_em' => date('Y-m-d H:i:s'),
-        'gerado_timestamp' => time()
-    ];
-    
-    registrarLogPIX($boletoId, $pixId, 'pix_gerado', $boleto);
-    
-    error_log("PIX Generator: PIX gerado com sucesso - ID: {$pixId}");
-    
-    echo json_encode($response, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
-    
-} catch (Exception $e) {
-    error_log("PIX Generator: ERRO - " . $e->getMessage());
-    
-    if (isset($boletoId) && isset($boleto)) {
-        registrarLogPIX($boletoId, null, 'pix_erro', $boleto, $e->getMessage());
-    }
-    
-    $errorCode = 'UNKNOWN_ERROR';
-    $httpCode = 400;
-    
-    if (strpos($e->getMessage(), 'não encontrado') !== false) {
-        $errorCode = 'BOLETO_NOT_FOUND';
-        $httpCode = 404;
-    } elseif (strpos($e->getMessage(), 'não tem permissão') !== false) {
-        $errorCode = 'ACCESS_DENIED';
-        $httpCode = 403;
-    } elseif (strpos($e->getMessage(), 'já foi pago') !== false) {
-        $errorCode = 'ALREADY_PAID';
-        $httpCode = 409;
-    } elseif (strpos($e->getMessage(), 'foi cancelado') !== false) {
-        $errorCode = 'CANCELLED';
-        $httpCode = 410;
-    }
-    
-    http_response_code($httpCode);
-    echo json_encode([
-        'success' => false,
-        'error' => $errorCode,
-        'message' => $e->getMessage(),
-        'timestamp' => time()
-    ], JSON_UNESCAPED_UNICODE);
-}
-
-function obterConfiguracaoPIX($subdomain) {
-    $configuracoes = [
-        'breubranco.imepedu.com.br' => [
-            'chave_pix' => '51071986000121', // APENAS NÚMEROS - CORRIGIDO
-            'beneficiario' => 'MAGALHAES EDUCACAO LTDA', // 25 chars
-            'cidade' => 'BREU BRANCO',
-            'cep' => '68488000',
-            'merchant_category_code' => '8299',
-            'country_code' => 'BR',
-            'currency' => '986'
-        ],
-        'igarape.imepedu.com.br' => [
-            'chave_pix' => '12345678000190', // APENAS NÚMEROS - CORRIGIDO
-            'beneficiario' => 'IMEPEDU IGARAPE LTDA',
-            'cidade' => 'IGARAPE-MIRI',
-            'cep' => '68552000',
-            'merchant_category_code' => '8299',
-            'country_code' => 'BR',
-            'currency' => '986'
-        ],
-        'tucurui.imepedu.com.br' => [
-            'chave_pix' => '12345678000190', // APENAS NÚMEROS - CORRIGIDO
-            'beneficiario' => 'IMEPEDU TUCURUI LTDA',
-            'cidade' => 'TUCURUI',
-            'cep' => '68455000',
-            'merchant_category_code' => '8299',
-            'country_code' => 'BR',
-            'currency' => '986'
-        ],
-        'moju.imepedu.com.br' => [
-            'chave_pix' => '12345678000190', // APENAS NÚMEROS - CORRIGIDO
-            'beneficiario' => 'IMEPEDU MOJU LTDA',
-            'cidade' => 'MOJU',
-            'cep' => '68450000',
-            'merchant_category_code' => '8299',
-            'country_code' => 'BR',
-            'currency' => '986'
-        ]
-    ];
-    
-    $configPadrao = [
-        'chave_pix' => '12345678000190', // APENAS NÚMEROS - CORRIGIDO
-        'beneficiario' => 'IMEPEDU EDUCACAO LTDA',
-        'cidade' => 'BELEM',
+            'cidade' => 'BELEM',
         'cep' => '66000000',
         'merchant_category_code' => '8299',
         'country_code' => 'BR',
@@ -255,26 +161,29 @@ function obterConfiguracaoPIX($subdomain) {
     return $configuracoes[$subdomain] ?? $configPadrao;
 }
 
-function gerarCodigoPIX($boleto, $configPIX) {
-    // CORRIGIDO: USA O NÚMERO DO BOLETO EM VEZ DO ID
-    $numeroBoleto = $boleto['numero_boleto']; // Ex: 202502200001
-    $identificador = 'IMEPEDU' . $numeroBoleto; // IMEPEDU202502200001
-    $identificador = substr($identificador, 0, 25); // Máximo 25 chars
+function gerarCodigoPIX($boleto, $configPIX, $dadosDesconto) {
+    $numeroBoleto = $boleto['numero_boleto'];
+    $identificador = 'IMEPEDU' . $numeroBoleto;
+    $identificador = substr($identificador, 0, 25);
     
     $validade = date('Y-m-d H:i:s', strtotime('+24 hours'));
-    $valorCentavos = intval($boleto['valor'] * 100);
-    $payload = montarPayloadPIX($configPIX, $boleto, $identificador);
+    
+    // Usa valor com desconto se aplicável
+    $valorFinal = $dadosDesconto['valor_final'];
+    $valorCentavos = intval($valorFinal * 100);
+    
+    $payload = montarPayloadPIX($configPIX, $valorFinal, $identificador);
     
     return [
         'identificador' => $identificador,
         'pix_copia_cola' => $payload,
         'validade' => $validade,
-        'valor' => $boleto['valor'],
+        'valor' => $valorFinal,
         'valor_centavos' => $valorCentavos
     ];
 }
 
-function montarPayloadPIX($config, $boleto, $identificador) {
+function montarPayloadPIX($config, $valor, $identificador) {
     function adicionarCampo($id, $valor) {
         $tamanho = str_pad(strlen($valor), 2, '0', STR_PAD_LEFT);
         return $id . $tamanho . $valor;
@@ -301,7 +210,7 @@ function montarPayloadPIX($config, $boleto, $identificador) {
     $payload .= adicionarCampo('53', $config['currency']);
     
     // 54 - Transaction Amount
-    $valorFormatado = number_format($boleto['valor'], 2, '.', '');
+    $valorFormatado = number_format($valor, 2, '.', '');
     $payload .= adicionarCampo('54', $valorFormatado);
     
     // 58 - Country Code
@@ -416,15 +325,14 @@ function gerarQRCodeSVG($data) {
     return $svg;
 }
 
-function salvarPIXGerado($boletoId, $dadosPIX, $configPIX) {
+function salvarPIXGerado($boletoId, $dadosPIX, $configPIX, $dadosDesconto, $db) {
     try {
-        $db = (new Database())->getConnection();
-        
         $stmt = $db->prepare("
             INSERT INTO pix_gerados (
                 boleto_id, identificador, chave_pix, beneficiario,
-                valor, pix_copia_cola, validade, status, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'ativo', NOW())
+                valor, valor_original, valor_desconto, tem_desconto, motivo_desconto,
+                pix_copia_cola, validade, status, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ativo', NOW())
         ");
         
         $stmt->execute([
@@ -432,14 +340,19 @@ function salvarPIXGerado($boletoId, $dadosPIX, $configPIX) {
             $dadosPIX['identificador'],
             $configPIX['chave_pix'],
             $configPIX['beneficiario'],
-            $dadosPIX['valor'],
+            $dadosDesconto['valor_final'],
+            $dadosDesconto['valor_original'],
+            $dadosDesconto['valor_desconto'],
+            $dadosDesconto['tem_desconto'] ? 1 : 0,
+            $dadosDesconto['motivo'],
             $dadosPIX['pix_copia_cola'],
             $dadosPIX['validade']
         ]);
         
         $pixId = $db->lastInsertId();
         
-        error_log("PIX Database: PIX salvo com ID: {$pixId}");
+        error_log("PIX Database: PIX salvo com ID: {$pixId}, Desconto: " . 
+                  ($dadosDesconto['tem_desconto'] ? 'R$ ' . $dadosDesconto['valor_desconto'] : 'Não'));
         
         return $pixId;
         
@@ -449,14 +362,21 @@ function salvarPIXGerado($boletoId, $dadosPIX, $configPIX) {
     }
 }
 
-function registrarLogPIX($boletoId, $pixId, $tipo, $boleto, $erro = null) {
+function registrarLogPIX($boletoId, $pixId, $tipo, $boleto, $dadosDesconto = null, $db = null, $erro = null) {
+    if (!$db) return;
+    
     try {
-        $db = (new Database())->getConnection();
-        
         $descricao = "PIX boleto #{$boleto['numero_boleto']} - {$boleto['aluno_nome']}";
+        
         if ($pixId) {
             $descricao .= " - PIX ID: {$pixId}";
         }
+        
+        if ($dadosDesconto && $dadosDesconto['tem_desconto']) {
+            $descricao .= " - Desconto: R$ " . number_format($dadosDesconto['valor_desconto'], 2, ',', '.');
+            $descricao .= " - Valor final: R$ " . number_format($dadosDesconto['valor_final'], 2, ',', '.');
+        }
+        
         if ($erro) {
             $descricao .= " - Erro: {$erro}";
         }
@@ -488,4 +408,250 @@ function registrarLogPIX($boletoId, $pixId, $tipo, $boleto, $erro = null) {
         error_log("PIX Log: Erro ao registrar - " . $e->getMessage());
     }
 }
-?>
+?> $configPIX['cidade'],
+            'cep' => $configPIX['cep'],
+            'identificador' => $dadosPIX['identificador'],
+            'pix_copia_cola' => $dadosPIX['pix_copia_cola'],
+            'qr_code_base64' => $qrCodeData['base64'],
+            'qr_code_url' => $qrCodeData['url'] ?? null,
+            'validade' => $dadosPIX['validade'],
+            'validade_formatada' => date('d/m/Y H:i', strtotime($dadosPIX['validade']))
+        ],
+        'instrucoes' => [
+            'como_pagar' => [
+                'Abra o app do seu banco',
+                'Acesse a área PIX',
+                'Escolha "Pagar com QR Code" ou "PIX Copia e Cola"',
+                'Escaneie o código ou cole o texto',
+                'Confirme os dados e efetue o pagamento',
+                'Enviar o comprovante via WhatsApp, <a href="https://wa.me/5594992435333" target="_blank">Clique Aqui!</a>',
+                'Após o pagamento, aguarde até 48h para processamento'
+            ],
+            'observacoes' => [
+                'O PIX tem validade até ' . date('d/m/Y H:i', strtotime($dadosPIX['validade'])),
+                $dadosDesconto['tem_desconto'] ? 
+                    'Desconto válido apenas para pagamento via PIX até o vencimento' : 
+                    'Desconto PIX não disponível para este boleto',
+                'Em caso de dúvidas, entre em contato com a secretaria',
+                'Guarde o comprovante de pagamento'
+            ]
+        ],
+        'gerado_em' => date('Y-m-d H:i:s'),
+        'gerado_timestamp' => time()
+    ];
+    
+    registrarLogPIX($boletoId, $pixId, 'pix_gerado_com_desconto', $boleto, $dadosDesconto, $db);
+    
+    error_log("PIX Generator: PIX gerado com sucesso - ID: {$pixId}, Desconto: " . 
+              ($dadosDesconto['tem_desconto'] ? 'SIM' : 'NÃO'));
+    
+    echo json_encode($response, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+    
+} catch (Exception $e) {
+    error_log("PIX Generator: ERRO - " . $e->getMessage());
+    
+    if (isset($boletoId) && isset($boleto)) {
+        registrarLogPIX($boletoId, null, 'pix_erro', $boleto, null, $db ?? null, $e->getMessage());
+    }
+    
+    $errorCode = 'UNKNOWN_ERROR';
+    $httpCode = 400;
+    
+    if (strpos($e->getMessage(), 'não encontrado') !== false) {
+        $errorCode = 'BOLETO_NOT_FOUND';
+        $httpCode = 404;
+    } elseif (strpos($e->getMessage(), 'não tem permissão') !== false) {
+        $errorCode = 'ACCESS_DENIED';
+        $httpCode = 403;
+    } elseif (strpos($e->getMessage(), 'já foi pago') !== false) {
+        $errorCode = 'ALREADY_PAID';
+        $httpCode = 409;
+    } elseif (strpos($e->getMessage(), 'foi cancelado') !== false) {
+        $errorCode = 'CANCELLED';
+        $httpCode = 410;
+    }
+    
+    http_response_code($httpCode);
+    echo json_encode([
+        'success' => false,
+        'error' => $errorCode,
+        'message' => $e->getMessage(),
+        'timestamp' => time()
+    ], JSON_UNESCAPED_UNICODE);
+}
+
+/**
+ * Calcula desconto PIX baseado nas configurações
+ */
+function calcularDescontoPIX($boleto, $db) {
+    $valorOriginal = (float)$boleto['valor'];
+    $valorFinal = $valorOriginal;
+    $valorDesconto = 0.00;
+    $temDesconto = false;
+    $motivo = '';
+    
+    // Verifica se boleto tem desconto disponível
+    if (!isset($boleto['pix_desconto_disponivel']) || $boleto['pix_desconto_disponivel'] != 1) {
+        return [
+            'tem_desconto' => false,
+            'valor_original' => $valorOriginal,
+            'valor_desconto' => 0.00,
+            'valor_final' => $valorOriginal,
+            'motivo' => 'Desconto PIX não habilitado para este boleto'
+        ];
+    }
+    
+    // Verifica se desconto já foi usado
+    if (isset($boleto['pix_desconto_usado']) && $boleto['pix_desconto_usado'] == 1) {
+        return [
+            'tem_desconto' => false,
+            'valor_original' => $valorOriginal,
+            'valor_desconto' => 0.00,
+            'valor_final' => $valorOriginal,
+            'motivo' => 'Desconto PIX já foi utilizado'
+        ];
+    }
+    
+    // Verifica se ainda está no prazo (até o vencimento)
+    $hoje = new DateTime();
+    $vencimento = new DateTime($boleto['vencimento']);
+    
+    if ($hoje > $vencimento) {
+        return [
+            'tem_desconto' => false,
+            'valor_original' => $valorOriginal,
+            'valor_desconto' => 0.00,
+            'valor_final' => $valorOriginal,
+            'motivo' => 'Desconto PIX válido apenas até a data de vencimento'
+        ];
+    }
+    
+    // Busca configuração de desconto para o polo
+    $stmt = $db->prepare("
+        SELECT * FROM configuracoes_desconto_pix 
+        WHERE polo_subdomain = ? AND ativo = 1
+        ORDER BY id DESC
+        LIMIT 1
+    ");
+    $stmt->execute([$boleto['curso_subdomain']]);
+    $configDesconto = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    if (!$configDesconto) {
+        return [
+            'tem_desconto' => false,
+            'valor_original' => $valorOriginal,
+            'valor_desconto' => 0.00,
+            'valor_final' => $valorOriginal,
+            'motivo' => 'Configuração de desconto não encontrada para este polo'
+        ];
+    }
+    
+    // Verifica valor mínimo
+    if ($valorOriginal < $configDesconto['valor_minimo_boleto']) {
+        return [
+            'tem_desconto' => false,
+            'valor_original' => $valorOriginal,
+            'valor_desconto' => 0.00,
+            'valor_final' => $valorOriginal,
+            'motivo' => 'Valor mínimo não atingido (mín: R$ ' . 
+                       number_format($configDesconto['valor_minimo_boleto'], 2, ',', '.') . ')'
+        ];
+    }
+    
+    // Calcula desconto
+    if ($configDesconto['tipo_desconto'] === 'fixo') {
+        $valorDesconto = min($configDesconto['valor_desconto_fixo'], $valorOriginal - 10.00);
+    } else {
+        $valorDesconto = ($valorOriginal * $configDesconto['percentual_desconto']) / 100;
+        $valorDesconto = min($valorDesconto, $valorOriginal - 10.00);
+    }
+    
+    // Garante que não fica valor muito baixo
+    if ($valorDesconto < 0) {
+        $valorDesconto = 0;
+    }
+    
+    $valorFinal = $valorOriginal - $valorDesconto;
+    
+    if ($valorFinal < 10.00) {
+        $valorDesconto = max(0, $valorOriginal - 10.00);
+        $valorFinal = $valorOriginal - $valorDesconto;
+    }
+    
+    $temDesconto = $valorDesconto > 0;
+    $motivo = $temDesconto ? 
+        'Desconto PIX de R$ ' . number_format($valorDesconto, 2, ',', '.') . ' aplicado' :
+        'Valor do boleto não permite desconto';
+    
+    return [
+        'tem_desconto' => $temDesconto,
+        'valor_original' => $valorOriginal,
+        'valor_desconto' => $valorDesconto,
+        'valor_final' => $valorFinal,
+        'motivo' => $motivo
+    ];
+}
+
+/**
+ * Marca desconto PIX como usado
+ */
+function marcarDescontoPixUsado($boletoId, $db) {
+    try {
+        $stmt = $db->prepare("
+            UPDATE boletos 
+            SET pix_desconto_usado = 1, updated_at = NOW()
+            WHERE id = ? AND pix_desconto_disponivel = 1 AND pix_desconto_usado = 0
+        ");
+        $stmt->execute([$boletoId]);
+        
+        error_log("PIX Generator: Desconto PIX marcado como usado para boleto {$boletoId}");
+        
+    } catch (Exception $e) {
+        error_log("PIX Generator: Erro ao marcar desconto como usado: " . $e->getMessage());
+    }
+}
+
+function obterConfiguracaoPIX($subdomain) {
+    $configuracoes = [
+        'breubranco.imepedu.com.br' => [
+            'chave_pix' => '51071986000121',
+            'beneficiario' => 'MAGALHAES EDUCACAO LTDA',
+            'cidade' => 'BREU BRANCO',
+            'cep' => '68488000',
+            'merchant_category_code' => '8299',
+            'country_code' => 'BR',
+            'currency' => '986'
+        ],
+        'igarape.imepedu.com.br' => [
+            'chave_pix' => '12345678000190',
+            'beneficiario' => 'IMEPEDU IGARAPE LTDA',
+            'cidade' => 'IGARAPE-MIRI',
+            'cep' => '68552000',
+            'merchant_category_code' => '8299',
+            'country_code' => 'BR',
+            'currency' => '986'
+        ],
+        'tucurui.imepedu.com.br' => [
+            'chave_pix' => '12345678000190',
+            'beneficiario' => 'IMEPEDU TUCURUI LTDA',
+            'cidade' => 'TUCURUI',
+            'cep' => '68455000',
+            'merchant_category_code' => '8299',
+            'country_code' => 'BR',
+            'currency' => '986'
+        ],
+        'moju.imepedu.com.br' => [
+            'chave_pix' => '12345678000190',
+            'beneficiario' => 'IMEPEDU MOJU LTDA',
+            'cidade' => 'MOJU',
+            'cep' => '68450000',
+            'merchant_category_code' => '8299',
+            'country_code' => 'BR',
+            'currency' => '986'
+        ]
+    ];
+    
+    $configPadrao = [
+        'chave_pix' => '12345678000190',
+        'beneficiario' => 'IMEPEDU EDUCACAO LTDA',
+        'cidade' =>
