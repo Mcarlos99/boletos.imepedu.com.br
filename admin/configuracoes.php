@@ -17,13 +17,23 @@ require_once '../src/AdminService.php';
 require_once 'includes/verificar-permissao.php';
 
 $adminService = new AdminService();
-$admin = $adminService->buscarAdminPorId($_SESSION['admin_id']);
+//$admin = $adminService->buscarAdminPorId($_SESSION['admin_id']);
+$usuarioService = new UsuarioAdminService();
 
-if (!$admin) {
+
+// Verifica permissões
+$adminAtual = $adminService->buscarAdminPorId($_SESSION['admin_id']);
+if (!$usuarioService->podeGerenciarUsuarios($adminAtual)) {
+    header('Location: /admin/dashboard.php');
+    exit;
+}
+
+
+/* if (!$admin) {
     session_destroy();
     header('Location: /admin/login.php');
     exit;
-}
+} */
 
 // Processa salvamento de configurações
 $mensagem = '';
@@ -462,9 +472,10 @@ function obterEstatisticasSistema() {
                     <i class="fas fa-cog"></i>
                     Configurações
                 </a>
-                <?php if ($adminAtual['nivel_acesso'] === 'super_admin'): ?>
+            </div>    
+            <?php if ($adminAtual['nivel_acesso'] === 'super_admin'): ?>
             <div class="nav-item">
-                <a href="/admin/usuarios.php" class="nav-link active">
+                <a href="/admin/usuarios.php" class="nav-link">
                     <i class="fas fa-users-cog"></i>
                     Usuários Admin
                 </a>

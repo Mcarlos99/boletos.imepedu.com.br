@@ -112,6 +112,11 @@ $polosAtivos = MoodleConfig::getActiveSubdomains();
             border-bottom: 1px solid rgba(255,255,255,0.1);
         }
         
+        .sidebar-brand h4 {
+            margin: 0;
+            font-weight: 600;
+        }
+        
         .sidebar-nav {
             padding: 1rem 0;
         }
@@ -134,6 +139,11 @@ $polosAtivos = MoodleConfig::getActiveSubdomains();
             background: rgba(255,255,255,0.1);
             color: white;
             transform: translateX(5px);
+        }
+        
+        .nav-link i {
+            width: 20px;
+            margin-right: 10px;
         }
         
         .main-content {
@@ -209,14 +219,6 @@ $polosAtivos = MoodleConfig::getActiveSubdomains();
                     Dashboard
                 </a>
             </div>
-            <?php if ($adminAtual['nivel_acesso'] === 'super_admin'): ?>
-            <div class="nav-item">
-                <a href="/admin/usuarios.php" class="nav-link active">
-                    <i class="fas fa-users-cog"></i>
-                    Usuários Admin
-                </a>
-            </div>
-            <?php endif; ?>
             <div class="nav-item">
                 <a href="/admin/boletos.php" class="nav-link">
                     <i class="fas fa-file-invoice-dollar"></i>
@@ -247,6 +249,30 @@ $polosAtivos = MoodleConfig::getActiveSubdomains();
                     Relatórios
                 </a>
             </div>
+            <div class="nav-item">
+                <a href="/admin/configuracoes.php" class="nav-link">
+                    <i class="fas fa-cog"></i>
+                    Configurações
+                </a>
+            </div>
+          
+          
+                      <?php if ($adminAtual['nivel_acesso'] === 'super_admin'): ?>
+            <div class="nav-item">
+                <a href="/admin/usuarios.php" class="nav-link active">
+                    <i class="fas fa-users-cog"></i>
+                    Usuários Admin
+                </a>
+            </div>
+            <?php endif; ?>
+          
+          
+            <div class="nav-item">
+                <a href="/admin/logs.php" class="nav-link">
+                    <i class="fas fa-list-alt"></i>
+                    Logs do Sistema
+                </a>
+            </div>
             
             <hr style="border-color: rgba(255,255,255,0.1); margin: 1rem 0;">
             
@@ -258,7 +284,7 @@ $polosAtivos = MoodleConfig::getActiveSubdomains();
             </div>
         </nav>
     </div>
-    
+        
     <!-- Main Content -->
     <div class="main-content">
         <!-- Header -->

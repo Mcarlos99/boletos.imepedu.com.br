@@ -69,7 +69,7 @@ try {
         INNER JOIN cursos c ON b.curso_id = c.id
         WHERE b.aluno_id = ? 
         AND c.subdomain = ?
-        ORDER BY b.vencimento DESC, b.created_at DESC
+        ORDER BY b.vencimento ASC, b.created_at DESC
     ");
     $stmt->execute([$aluno['id'], $_SESSION['subdomain']]);
     $todosBoletos = $stmt->fetchAll(PDO::FETCH_ASSOC);

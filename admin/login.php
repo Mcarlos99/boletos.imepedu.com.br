@@ -171,7 +171,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     
                     <div class="text-center mt-3">
                         <small class="text-muted">
-                            Login padrão: <strong>admin</strong> / Senha: <strong>admin123</strong>
+                         <!--     <strong>admin</strong> / Senha: <strong>admin123</strong> -->
                         </small>
                     </div>
                 </form>
