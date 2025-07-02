@@ -1,6 +1,6 @@
 <?php
 /**
- * Sistema de Boletos IMEPEDU - Upload Simplificado com Desconto PIX Personalizado
+ * Sistema de Boletos IMEPEDU - Upload de Boletos com Desconto PIX
  * Arquivo: admin/upload-boletos.php
  */
 
@@ -50,6 +50,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $polosAtivos = MoodleConfig::getActiveSubdomains();
 $cursosDisponiveis = $adminService->buscarTodosCursos();
 $alunosRecentes = $adminService->buscarAlunosRecentes(20);
+
+// Busca configurações de desconto PIX
+$db = (new Database())->getConnection();
+$stmt = $db->prepare("SELECT * FROM configuracoes_desconto_pix WHERE ativo = 1 ORDER BY polo_subdomain");
+$stmt->execute();
+$configuracoesDesconto = $stmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
 
 <!DOCTYPE html>
@@ -71,8 +77,6 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
             --danger-color: #dc3545;
             --warning-color: #ffc107;
             --info-color: #17a2b8;
-            --pix-color: #32BCAD;
-            --pix-discount-color: #28a745;
             --sidebar-width: 260px;
         }
         
@@ -193,53 +197,43 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
             color: var(--primary-color);
         }
         
-        .pix-desconto-section {
-            background: linear-gradient(135deg, #e8f5e8, #f0f8f0);
-            border: 2px solid var(--pix-discount-color);
-            border-radius: 12px;
-            padding: 1.5rem;
-            margin: 1.5rem 0;
-            transition: all 0.3s ease;
+        .upload-zone-multiple {
+            border: 2px dashed #28a745;
+            background: rgba(40,167,69,0.05);
         }
         
-        .pix-desconto-section.collapsed {
+        .upload-zone-multiple:hover {
+            border-color: #1e7e34;
+            background: rgba(40,167,69,0.1);
+        }
+        
+        .file-list {
             background: #f8f9fa;
-            border-color: #dee2e6;
-            padding: 1rem 1.5rem;
+            border-radius: 8px;
+            padding: 1rem;
+            margin-top: 1rem;
+            max-height: 300px;
+            overflow-y: auto;
         }
         
-        .pix-desconto-title {
-            color: var(--pix-discount-color);
-            font-weight: 600;
-            margin-bottom: 1rem;
+        .file-list-item {
             display: flex;
             align-items: center;
-            gap: 0.5rem;
-        }
-        
-        .pix-desconto-controls {
-            display: none;
-            margin-top: 1rem;
-            padding-top: 1rem;
-            border-top: 1px solid rgba(40, 167, 69, 0.2);
-        }
-        
-        .pix-desconto-controls.show {
-            display: block;
-            animation: slideDown 0.3s ease;
-        }
-        
-        @keyframes slideDown {
-            from { opacity: 0; transform: translateY(-10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        
-        .pix-desconto-info {
-            background: rgba(40, 167, 69, 0.1);
+            justify-content: space-between;
+            padding: 0.5rem;
+            margin-bottom: 0.5rem;
+            background: white;
             border-radius: 6px;
-            padding: 0.75rem;
-            margin-top: 0.5rem;
-            font-size: 0.9rem;
+            border: 1px solid #e9ecef;
+        }
+        
+        .file-list-item.valid {
+            border-left: 4px solid #28a745;
+        }
+        
+        .file-list-item.invalid {
+            border-left: 4px solid #dc3545;
+            background: rgba(220,53,69,0.05);
         }
         
         .form-section {
@@ -270,6 +264,21 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
         .btn-upload:hover {
             transform: translateY(-2px);
             box-shadow: 0 5px 15px rgba(40,167,69,0.3);
+            color: white;
+        }
+        
+        .btn-upload-multiple {
+            background: linear-gradient(135deg, var(--info-color), #138496);
+            border: none;
+            border-radius: 25px;
+            padding: 12px 30px;
+            font-weight: 600;
+            color: white;
+        }
+        
+        .btn-upload-multiple:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(23,162,184,0.3);
             color: white;
         }
         
@@ -343,21 +352,62 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
             color: white;
         }
         
-        .input-group-text {
-            background: white;
-            border-right: none;
-            color: var(--primary-color);
+        .nav-tabs .nav-link.tab-multiple {
+            position: relative;
         }
         
-        .form-control:focus {
-            border-color: var(--primary-color);
-            box-shadow: 0 0 0 0.2rem rgba(0, 102, 204, 0.25);
+        .nav-tabs .nav-link.tab-multiple::after {
+            content: "NOVO";
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            background: #ff6b6b;
+            color: white;
+            font-size: 0.6rem;
+            padding: 2px 6px;
+            border-radius: 10px;
+            font-weight: bold;
         }
         
-        .alert-pix {
+        .dropzone {
+            border: 2px dashed #dee2e6 !important;
+            border-radius: 10px !important;
+            background: #f8f9fa !important;
+            padding: 2rem !important;
+        }
+        
+        .dropzone.dz-drag-hover {
+            border-color: var(--primary-color) !important;
+            background: rgba(0,102,204,0.05) !important;
+        }
+        
+        .pix-desconto-section {
             background: linear-gradient(135deg, #e8f5e8, #f0f8f0);
-            border: 1px solid var(--pix-discount-color);
-            color: #155724;
+            border: 1px solid #28a745;
+            border-radius: 8px;
+            padding: 1rem;
+            margin: 1rem 0;
+        }
+        
+        .pix-desconto-title {
+            color: #28a745;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+        
+        .pix-desconto-info {
+            background: rgba(40, 167, 69, 0.1);
+            border-radius: 6px;
+            padding: 0.75rem;
+            margin-top: 0.5rem;
+        }
+        
+        .config-desconto-display {
+            background: #f8f9fa;
+            border-radius: 6px;
+            padding: 0.75rem;
+            margin-top: 0.5rem;
+            font-size: 0.9rem;
         }
         
         @media (max-width: 768px) {
@@ -452,7 +502,7 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
         <div class="topbar">
             <div>
                 <h3 class="mb-0">Upload de Boletos</h3>
-                <small class="text-muted">Envie arquivos PDF de boletos com desconto PIX personalizado</small>
+                <small class="text-muted">Envie arquivos PDF de boletos com controle de desconto PIX</small>
             </div>
             <div class="user-info">
                 <div class="user-avatar">
@@ -480,12 +530,42 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
             </div>
         <?php endif; ?>
         
+        <!-- Configurações de Desconto PIX -->
+        <?php if (!empty($configuracoesDesconto)): ?>
+        <div class="card mb-4">
+            <div class="card-body">
+                <h6 class="card-title text-success">
+                    <i class="fas fa-qrcode"></i> Configurações de Desconto PIX Ativas
+                </h6>
+                <div class="row">
+                    <?php foreach ($configuracoesDesconto as $config): ?>
+                    <div class="col-md-6 col-lg-4 mb-3">
+                        <div class="config-desconto-display">
+                            <strong><?= htmlspecialchars(str_replace('.imepedu.com.br', '', $config['polo_subdomain'])) ?></strong><br>
+                            <small>
+                                Desconto: 
+                                <?php if ($config['tipo_desconto'] === 'fixo'): ?>
+                                    R$ <?= number_format($config['valor_desconto_fixo'], 2, ',', '.') ?>
+                                <?php else: ?>
+                                    <?= number_format($config['percentual_desconto'], 1) ?>%
+                                <?php endif; ?>
+                                <br>
+                                Valor mínimo: R$ <?= number_format($config['valor_minimo_boleto'], 2, ',', '.') ?>
+                            </small>
+                        </div>
+                    </div>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+        </div>
+        <?php endif; ?>
+        
         <!-- Guias de Upload -->
         <div class="card">
             <div class="card-header">
                 <h5 class="mb-0">
                     <i class="fas fa-upload"></i>
-                    Upload de Boletos PDF com Desconto PIX Personalizado
+                    Upload de Boletos PDF com Desconto PIX
                 </h5>
             </div>
 
@@ -499,7 +579,7 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                     </li>
                     
                     <li class="nav-item" role="presentation">
-                        <button class="nav-link" id="multiplo-aluno-tab" data-bs-toggle="tab" 
+                        <button class="nav-link tab-multiple" id="multiplo-aluno-tab" data-bs-toggle="tab" 
                                 data-bs-target="#multiplo-aluno" type="button" role="tab">
                             <i class="fas fa-user-plus"></i> Múltiplos para Um Aluno
                         </button>
@@ -561,7 +641,7 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                                         <label for="aluno_cpf" class="form-label">
                                             <i class="fas fa-user"></i> CPF do Aluno
                                         </label>
-                                        <input type="text" class="form-control" id="aluno_cpf" name="aluno_cpf"" 
+                                        <input type="text" class="form-control" id="aluno_cpf" name="aluno_cpf" 
                                                placeholder="000.000.000-00" maxlength="14" required>
                                         <div class="form-text">Digite o CPF do aluno destinatário do boleto</div>
                                     </div>
@@ -572,11 +652,8 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                                         <label for="valor" class="form-label">
                                             <i class="fas fa-dollar-sign"></i> Valor
                                         </label>
-                                        <div class="input-group">
-                                            <span class="input-group-text">R$</span>
-                                            <input type="number" class="form-control" id="valor" name="valor" 
-                                                   step="0.01" min="0" placeholder="0,00" required>
-                                        </div>
+                                        <input type="number" class="form-control" id="valor" name="valor" 
+                                               step="0.01" min="0" placeholder="0,00" required>
                                     </div>
                                 </div>
                             </div>
@@ -610,55 +687,24 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                                        placeholder="Ex: Mensalidade Janeiro 2024">
                             </div>
                             
-                            <!-- Seção de Desconto PIX Simplificada -->
-                            <div class="pix-desconto-section" id="pixDescontoSection">
+                            <!-- Seção de Desconto PIX -->
+                            <div class="pix-desconto-section">
                                 <div class="pix-desconto-title">
-                                    <i class="fas fa-qrcode"></i> 
-                                    Configuração de Desconto PIX
+                                    <i class="fas fa-qrcode"></i> Configuração de Desconto PIX
                                 </div>
-                                
                                 <div class="form-check">
                                     <input class="form-check-input" type="checkbox" id="pix_desconto_disponivel" 
-                                           name="pix_desconto_disponivel" value="1" onchange="togglePixDesconto()">
+                                           name="pix_desconto_disponivel" value="1" checked>
                                     <label class="form-check-label" for="pix_desconto_disponivel">
-                                        <strong>Aplicar Desconto no PIX</strong>
+                                        <strong>Desconto PIX Disponível</strong>
                                     </label>
                                 </div>
-                                
-                                <div class="pix-desconto-controls" id="pixDescontoControls">
-                                    <div class="row">
-                                        <div class="col-md-6">
-                                            <label for="valor_desconto_pix" class="form-label">
-                                                <i class="fas fa-percentage"></i> Valor do Desconto
-                                            </label>
-                                            <div class="input-group">
-                                                <span class="input-group-text">R$</span>
-                                                <input type="number" class="form-control" id="valor_desconto_pix" 
-                                                       name="valor_desconto_pix" step="0.01" min="0" 
-                                                       placeholder="Ex: 50,00">
-                                            </div>
-                                            <small class="form-text text-muted">Valor fixo de desconto para pagamento via PIX</small>
-                                        </div>
-                                        
-                                        <div class="col-md-6">
-                                            <label for="valor_minimo_desconto" class="form-label">
-                                                <i class="fas fa-calculator"></i> Valor Mínimo (Opcional)
-                                            </label>
-                                            <div class="input-group">
-                                                <span class="input-group-text">R$</span>
-                                                <input type="number" class="form-control" id="valor_minimo_desconto" 
-                                                       name="valor_minimo_desconto" step="0.01" min="0" 
-                                                       placeholder="Ex: 100,00">
-                                            </div>
-                                            <small class="form-text text-muted">Valor mínimo do boleto para aplicar desconto</small>
-                                        </div>
-                                    </div>
-                                </div>
-                                
-                                <div class="pix-desconto-info">
-                                    <i class="fas fa-info-circle"></i>
-                                    <strong>Importante:</strong> O desconto PIX estará disponível apenas até a data de vencimento do boleto. 
-                                    Após o vencimento, o aluno pagará o valor integral.
+                                <div class="pix-desconto-info" id="infoDescontoPix">
+                                    <small>
+                                        <i class="fas fa-info-circle"></i>
+                                        Quando marcado, o aluno poderá obter desconto ao pagar via PIX até a data de vencimento.
+                                        O valor do desconto será calculado automaticamente conforme configuração do polo.
+                                    </small>
                                 </div>
                             </div>
                             
@@ -734,15 +780,6 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                                         <label for="aluno_cpf_multiplo" class="form-label">
                                             <i class="fas fa-user"></i> CPF do Aluno
                                         </label>
-                                        <input type="text" class="form-control" id="aluno_
-
-
-
-
-
-
-
-
                                         <input type="text" class="form-control" id="aluno_cpf_multiplo" name="aluno_cpf" 
                                                placeholder="000.000.000-00" maxlength="14" required>
                                     </div>
@@ -797,11 +834,8 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                                         <label for="valor_global" class="form-label">
                                             <i class="fas fa-dollar-sign"></i> Valor Padrão
                                         </label>
-                                        <div class="input-group">
-                                            <span class="input-group-text">R$</span>
-                                            <input type="number" class="form-control" id="valor_global" 
-                                                   step="0.01" min="0" placeholder="Ex: 150.00">
-                                        </div>
+                                        <input type="number" class="form-control" id="valor_global" 
+                                               step="0.01" min="0" placeholder="Ex: 150.00">
                                         <small class="form-text text-muted">Será aplicado a todos os boletos</small>
                                     </div>
                                 </div>
@@ -833,54 +867,13 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                                             <i class="fas fa-qrcode"></i> Desconto PIX Global
                                         </label>
                                         <div class="form-check">
-                                            <input class="form-check-input" type="checkbox" id="pix_desconto_global" 
-                                                   onchange="togglePixDescontoGlobal()">
+                                            <input class="form-check-input" type="checkbox" id="pix_desconto_global" checked>
                                             <label class="form-check-label" for="pix_desconto_global">
-                                                Aplicar desconto a todos
+                                                Aplicar a todos
                                             </label>
                                         </div>
                                         <small class="form-text text-muted">Desconto PIX para todos os boletos</small>
                                     </div>
-                                </div>
-                            </div>
-                            
-                            <!-- Configurações de Desconto Global -->
-                            <div id="pixDescontoGlobalControls" class="pix-desconto-section collapsed" style="display: none;">
-                                <div class="pix-desconto-title">
-                                    <i class="fas fa-qrcode"></i> 
-                                    Configuração Global de Desconto PIX
-                                </div>
-                                
-                                <div class="row">
-                                    <div class="col-md-6">
-                                        <label for="valor_desconto_global" class="form-label">
-                                            <i class="fas fa-percentage"></i> Valor do Desconto
-                                        </label>
-                                        <div class="input-group">
-                                            <span class="input-group-text">R$</span>
-                                            <input type="number" class="form-control" id="valor_desconto_global" 
-                                                   step="0.01" min="0" placeholder="Ex: 50,00">
-                                        </div>
-                                        <small class="form-text text-muted">Valor fixo aplicado a todos os boletos</small>
-                                    </div>
-                                    
-                                    <div class="col-md-6">
-                                        <label for="valor_minimo_global" class="form-label">
-                                            <i class="fas fa-calculator"></i> Valor Mínimo (Opcional)
-                                        </label>
-                                        <div class="input-group">
-                                            <span class="input-group-text">R$</span>
-                                            <input type="number" class="form-control" id="valor_minimo_global" 
-                                                   step="0.01" min="0" placeholder="Ex: 100,00">
-                                        </div>
-                                        <small class="form-text text-muted">Valor mínimo para aplicar desconto</small>
-                                    </div>
-                                </div>
-                                
-                                <div class="alert alert-pix mt-3">
-                                    <i class="fas fa-info-circle"></i>
-                                    <strong>Desconto Global:</strong> Este desconto será aplicado a todos os boletos deste upload. 
-                                    Você ainda poderá ajustar individualmente cada boleto se necessário.
                                 </div>
                             </div>
                             
@@ -940,11 +933,8 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                                         <label for="valor_lote" class="form-label">
                                             <i class="fas fa-dollar-sign"></i> Valor Padrão
                                         </label>
-                                        <div class="input-group">
-                                            <span class="input-group-text">R$</span>
-                                            <input type="number" class="form-control" id="valor_lote" name="valor" 
-                                                   step="0.01" min="0" placeholder="0,00" required>
-                                        </div>
+                                        <input type="number" class="form-control" id="valor_lote" name="valor" 
+                                               step="0.01" min="0" placeholder="0,00" required>
                                     </div>
                                 </div>
                                 
@@ -974,53 +964,13 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                                         </label>
                                         <div class="form-check">
                                             <input class="form-check-input" type="checkbox" id="pix_desconto_lote" 
-                                                   name="pix_desconto_global" value="1" onchange="togglePixDescontoLote()">
+                                                   name="pix_desconto_global" value="1" checked>
                                             <label class="form-check-label" for="pix_desconto_lote">
-                                                Aplicar a todos
+                                                Disponível para todos
                                             </label>
                                         </div>
                                         <small class="form-text text-muted">Desconto PIX para todos os boletos do lote</small>
                                     </div>
-                                </div>
-                            </div>
-                            
-                            <!-- Configurações de Desconto para Lote -->
-                            <div id="pixDescontoLoteControls" class="pix-desconto-section collapsed" style="display: none;">
-                                <div class="pix-desconto-title">
-                                    <i class="fas fa-qrcode"></i> 
-                                    Configuração de Desconto PIX para o Lote
-                                </div>
-                                
-                                <div class="row">
-                                    <div class="col-md-6">
-                                        <label for="valor_desconto_lote" class="form-label">
-                                            <i class="fas fa-percentage"></i> Valor do Desconto
-                                        </label>
-                                        <div class="input-group">
-                                            <span class="input-group-text">R$</span>
-                                            <input type="number" class="form-control" id="valor_desconto_lote" 
-                                                   name="valor_desconto_lote" step="0.01" min="0" placeholder="Ex: 50,00">
-                                        </div>
-                                        <small class="form-text text-muted">Valor fixo aplicado a todos os boletos do lote</small>
-                                    </div>
-                                    
-                                    <div class="col-md-6">
-                                        <label for="valor_minimo_lote" class="form-label">
-                                            <i class="fas fa-calculator"></i> Valor Mínimo (Opcional)
-                                        </label>
-                                        <div class="input-group">
-                                            <span class="input-group-text">R$</span>
-                                            <input type="number" class="form-control" id="valor_minimo_lote" 
-                                                   name="valor_minimo_lote" step="0.01" min="0" placeholder="Ex: 100,00">
-                                        </div>
-                                        <small class="form-text text-muted">Valor mínimo para aplicar desconto</small>
-                                    </div>
-                                </div>
-                                
-                                <div class="alert alert-pix mt-3">
-                                    <i class="fas fa-info-circle"></i>
-                                    <strong>Desconto em Lote:</strong> Todos os boletos deste lote terão o mesmo desconto PIX. 
-                                    O desconto estará disponível até a data de vencimento de cada boleto.
                                 </div>
                             </div>
                             
@@ -1065,7 +1015,7 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                                     </li>
                                     <li class="mb-2">
                                         <i class="fas fa-check text-success"></i>
-                                        Configure desconto PIX personalizado
+                                        Configure desconto PIX individual
                                     </li>
                                     <li class="mb-2">
                                         <i class="fas fa-check text-success"></i>
@@ -1085,7 +1035,7 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                                     </li>
                                     <li class="mb-2">
                                         <i class="fas fa-check text-success"></i>
-                                        Configure desconto PIX global ou individual
+                                        Configure desconto PIX por boleto
                                     </li>
                                     <li class="mb-2">
                                         <i class="fas fa-check text-success"></i>
@@ -1113,7 +1063,7 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                                     </li>
                                     <li class="mb-2">
                                         <i class="fas fa-check text-success"></i>
-                                        Desconto PIX global para todo o lote
+                                        Desconto PIX global para todos
                                     </li>
                                     <li class="mb-2">
                                         <i class="fas fa-check text-success"></i>
@@ -1133,19 +1083,18 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                         
                         <div class="mt-4">
                             <h5 class="section-title">
-                                <i class="fas fa-qrcode text-success"></i> Sistema de Desconto PIX Personalizado
+                                <i class="fas fa-qrcode text-success"></i> Sistema de Desconto PIX
                             </h5>
                             
                             <div class="alert alert-success">
                                 <h6><i class="fas fa-gift"></i> Como Funciona o Desconto PIX:</h6>
                                 <ul class="mb-0">
-                                    <li><strong>Personalizado:</strong> Você define o valor exato do desconto para cada boleto</li>
                                     <li><strong>Disponibilidade:</strong> Desconto disponível apenas até a data de vencimento</li>
-                                    <li><strong>Flexibilidade:</strong> Funciona em qualquer polo sem configuração prévia</li>
-                                    <li><strong>Controle Individual:</strong> Você decide quais boletos têm desconto</li>
-                                    <li><strong>Valor Mínimo:</strong> Opcional - defina valor mínimo para aplicar desconto</li>
+                                    <li><strong>Configuração por Polo:</strong> Cada polo tem suas próprias regras de desconto</li>
+                                    <li><strong>Controle Individual:</strong> Você pode habilitar/desabilitar o desconto por boleto</li>
+                                    <li><strong>Valor Mínimo:</strong> Boletos precisam atingir valor mínimo configurado</li>
                                     <li><strong>Uso Único:</strong> Cada boleto pode usar o desconto apenas uma vez</li>
-                                    <li><strong>Aplicação Automática:</strong> Sistema calcula automaticamente no PIX</li>
+                                    <li><strong>Cálculo Automático:</strong> Sistema calcula automaticamente baseado nas configurações</li>
                                 </ul>
                             </div>
                         </div>
@@ -1161,26 +1110,9 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                                     <li><strong>Tamanho máximo:</strong> 5MB por arquivo</li>
                                     <li><strong>Validação:</strong> Sistema verifica se aluno está matriculado no curso</li>
                                     <li><strong>Duplicatas:</strong> Números de boleto devem ser únicos</li>
-                                    <li><strong>Desconto PIX:</strong> Você define o valor - sem limites por polo</li>
+                                    <li><strong>Desconto PIX:</strong> Configurável individualmente para cada boleto</li>
                                     <li><strong>Nomenclatura:</strong> Para upload em lote, siga exatamente o padrão</li>
-                                    <li><strong>Segurança:</strong> Arquivos são armazenados de forma segura</li>
-                                    <li><strong>Valor Final:</strong> Sistema garante valor mínimo de R$ 10,00 após desconto</li>
-                                </ul>
-                            </div>
-                        </div>
-                        
-                        <div class="mt-4">
-                            <h5 class="section-title">
-                                <i class="fas fa-examples text-info"></i> Exemplos de Uso do Desconto PIX
-                            </h5>
-                            
-                            <div class="alert alert-info">
-                                <h6><i class="fas fa-lightbulb"></i> Exemplos Práticos:</h6>
-                                <ul class="mb-0">
-                                    <li><strong>Mensalidade R$ 150,00 → Desconto R$ 25,00:</strong> Aluno paga R$ 125,00 via PIX</li>
-                                    <li><strong>Matrícula R$ 300,00 → Desconto R$ 50,00:</strong> Aluno paga R$ 250,00 via PIX</li>
-                                    <li><strong>Taxa R$ 80,00 → Desconto R$ 15,00:</strong> Aluno paga R$ 65,00 via PIX</li>
-                                    <li><strong>Valor Mínimo R$ 100,00:</strong> Só boletos acima de R$ 100,00 ganham desconto</li>
+                                    <li><strong>Segurança:</strong> Arquivos são armazenados de forma segura e criptografada</li>
                                 </ul>
                             </div>
                         </div>
@@ -1211,74 +1143,6 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
             value = value.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
             e.target.value = value;
         });
-        
-        // Função para toggle do desconto PIX individual
-        function togglePixDesconto() {
-            const checkbox = document.getElementById('pix_desconto_disponivel');
-            const controls = document.getElementById('pixDescontoControls');
-            const section = document.getElementById('pixDescontoSection');
-            
-            if (checkbox.checked) {
-                controls.classList.add('show');
-                section.classList.remove('collapsed');
-                
-                // Foca no campo de valor do desconto
-                setTimeout(() => {
-                    document.getElementById('valor_desconto_pix').focus();
-                }, 300);
-            } else {
-                controls.classList.remove('show');
-                section.classList.add('collapsed');
-                
-                // Limpa os valores
-                document.getElementById('valor_desconto_pix').value = '';
-                document.getElementById('valor_minimo_desconto').value = '';
-            }
-        }
-        
-        // Função para toggle do desconto PIX global (múltiplo)
-        function togglePixDescontoGlobal() {
-            const checkbox = document.getElementById('pix_desconto_global');
-            const controls = document.getElementById('pixDescontoGlobalControls');
-            
-            if (checkbox.checked) {
-                controls.style.display = 'block';
-                controls.classList.remove('collapsed');
-                
-                setTimeout(() => {
-                    document.getElementById('valor_desconto_global').focus();
-                }, 300);
-            } else {
-                controls.style.display = 'none';
-                controls.classList.add('collapsed');
-                
-                // Limpa os valores
-                document.getElementById('valor_desconto_global').value = '';
-                document.getElementById('valor_minimo_global').value = '';
-            }
-        }
-        
-        // Função para toggle do desconto PIX lote
-        function togglePixDescontoLote() {
-            const checkbox = document.getElementById('pix_desconto_lote');
-            const controls = document.getElementById('pixDescontoLoteControls');
-            
-            if (checkbox.checked) {
-                controls.style.display = 'block';
-                controls.classList.remove('collapsed');
-                
-                setTimeout(() => {
-                    document.getElementById('valor_desconto_lote').focus();
-                }, 300);
-            } else {
-                controls.style.display = 'none';
-                controls.classList.add('collapsed');
-                
-                // Limpa os valores
-                document.getElementById('valor_desconto_lote').value = '';
-                document.getElementById('valor_minimo_lote').value = '';
-            }
-        }
         
         // Upload individual - zona de drag and drop
         const uploadZone = document.getElementById('uploadZone');
@@ -1350,51 +1214,6 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
             filePreview.style.display = 'none';
         }
         
-        // Funções de busca de cursos
-        function carregarCursos(poloSelect, cursoSelect) {
-            const polo = poloSelect.value;
-            cursoSelect.innerHTML = '<option value="">Carregando...</option>';
-            
-            if (!polo) {
-                cursoSelect.innerHTML = '<option value="">Primeiro selecione o polo</option>';
-                return;
-            }
-            
-            fetch('/admin/api/buscar-cursos.php?polo=' + encodeURIComponent(polo))
-                .then(response => response.json())
-                .then(data => {
-                    cursoSelect.innerHTML = '<option value="">Selecione o curso</option>';
-                    
-                    if (data.success && data.cursos) {
-                        data.cursos.forEach(curso => {
-                            const option = document.createElement('option');
-                            option.value = curso.id;
-                            option.textContent = curso.nome;
-                            cursoSelect.appendChild(option);
-                        });
-                    } else {
-                        cursoSelect.innerHTML = '<option value="">Nenhum curso encontrado</option>';
-                    }
-                })
-                .catch(error => {
-                    console.error('Erro ao carregar cursos:', error);
-                    cursoSelect.innerHTML = '<option value="">Erro ao carregar cursos</option>';
-                });
-        }
-        
-        // Event listeners para carregar cursos
-        document.getElementById('polo').addEventListener('change', function() {
-            carregarCursos(this, document.getElementById('curso'));
-        });
-        
-        document.getElementById('polo_multiplo').addEventListener('change', function() {
-            carregarCursos(this, document.getElementById('curso_multiplo'));
-        });
-        
-        document.getElementById('polo_lote').addEventListener('change', function() {
-            carregarCursos(this, document.getElementById('curso_lote'));
-        });
-        
         // Upload múltiplo - zona de drag and drop
         const uploadZoneMultiplo = document.getElementById('uploadZoneMultiplo');
         const fileInputMultiplo = document.getElementById('arquivos_multiplos');
@@ -1450,9 +1269,7 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                     valor: '',
                     vencimento: '',
                     descricao: '',
-                    pix_desconto_disponivel: 0,
-                    valor_desconto_pix: '',
-                    valor_minimo_desconto: ''
+                    pix_desconto_disponivel: 1
                 };
                 
                 fileListMultiplo.push(fileData);
@@ -1519,7 +1336,7 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                                        onchange="atualizarDadosArquivo(${fileData.id}, 'descricao', this.value)">
                             </div>
                             <div class="col-md-1">
-                                <div class="form-check">
+                                <div class="form-check form-check-inline">
                                     <input class="form-check-input" type="checkbox" 
                                            ${fileData.pix_desconto_disponivel ? 'checked' : ''}
                                            onchange="atualizarDadosArquivo(${fileData.id}, 'pix_desconto_disponivel', this.checked ? 1 : 0)"
@@ -1534,26 +1351,6 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                                 </button>
                             </div>
                         </div>
-                        
-                        <!-- Configurações de Desconto PIX por arquivo -->
-                        <div class="pix-config-row" style="display: ${fileData.pix_desconto_disponivel ? 'block' : 'none'}; margin-top: 10px; padding: 10px; background: #f8f9fa; border-radius: 6px;">
-                            <div class="row">
-                                <div class="col-md-6">
-                                    <label class="form-label small">Valor do Desconto (R$)</label>
-                                    <input type="number" class="form-control form-control-sm" 
-                                           placeholder="Ex: 50.00" step="0.01" min="0"
-                                           value="${fileData.valor_desconto_pix}"
-                                           onchange="atualizarDadosArquivo(${fileData.id}, 'valor_desconto_pix', this.value)">
-                                </div>
-                                <div class="col-md-6">
-                                    <label class="form-label small">Valor Mínimo (R$) - Opcional</label>
-                                    <input type="number" class="form-control form-control-sm" 
-                                           placeholder="Ex: 100.00" step="0.01" min="0"
-                                           value="${fileData.valor_minimo_desconto}"
-                                           onchange="atualizarDadosArquivo(${fileData.id}, 'valor_minimo_desconto', this.value)">
-                                </div>
-                            </div>
-                        </div>
                     </div>
                 `;
             });
@@ -1565,15 +1362,6 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
             const fileData = fileListMultiplo.find(f => f.id === fileId);
             if (fileData) {
                 fileData[campo] = valor;
-                
-                // Se mudou o checkbox do PIX, atualiza a exibição
-                if (campo === 'pix_desconto_disponivel') {
-                    const pixConfigRow = document.querySelector(`[data-file-id="${fileId}"] .pix-config-row`);
-                    if (pixConfigRow) {
-                        pixConfigRow.style.display = valor ? 'block' : 'none';
-                    }
-                }
-                
                 atualizarListaArquivosMultiplo();
             }
         }
@@ -1596,10 +1384,8 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
             const vencimentoGlobal = document.getElementById('vencimento_global').value;
             const descricaoGlobal = document.getElementById('descricao_global').value;
             const pixDescontoGlobal = document.getElementById('pix_desconto_global').checked;
-            const valorDescontoGlobal = document.getElementById('valor_desconto_global').value;
-            const valorMinimoGlobal = document.getElementById('valor_minimo_global').value;
             
-            if (!valorGlobal && !vencimentoGlobal && !descricaoGlobal && !pixDescontoGlobal) {
+            if (!valorGlobal && !vencimentoGlobal && !descricaoGlobal) {
                 showToast('Preencha pelo menos um campo global para aplicar', 'warning');
                 return;
             }
@@ -1608,13 +1394,7 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                 if (valorGlobal) fileData.valor = valorGlobal;
                 if (vencimentoGlobal) fileData.vencimento = vencimentoGlobal;
                 if (descricaoGlobal) fileData.descricao = descricaoGlobal;
-                
-                // Aplica configurações de desconto PIX global
                 fileData.pix_desconto_disponivel = pixDescontoGlobal ? 1 : 0;
-                if (pixDescontoGlobal) {
-                    if (valorDescontoGlobal) fileData.valor_desconto_pix = valorDescontoGlobal;
-                    if (valorMinimoGlobal) fileData.valor_minimo_desconto = valorMinimoGlobal;
-                }
             });
             
             atualizarListaArquivosMultiplo();
@@ -1747,12 +1527,90 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
             }
         });
         
+        // Funções de busca de cursos
+        function carregarCursos(poloSelect, cursoSelect) {
+            const polo = poloSelect.value;
+            cursoSelect.innerHTML = '<option value="">Carregando...</option>';
+            
+            if (!polo) {
+                cursoSelect.innerHTML = '<option value="">Primeiro selecione o polo</option>';
+                return;
+            }
+            
+            fetch('/admin/api/buscar-cursos.php?polo=' + encodeURIComponent(polo))
+                .then(response => response.json())
+                .then(data => {
+                    cursoSelect.innerHTML = '<option value="">Selecione o curso</option>';
+                    
+                    if (data.success && data.cursos) {
+                        data.cursos.forEach(curso => {
+                            const option = document.createElement('option');
+                            option.value = curso.id;
+                            option.textContent = curso.nome;
+                            cursoSelect.appendChild(option);
+                        });
+                    } else {
+                        cursoSelect.innerHTML = '<option value="">Nenhum curso encontrado</option>';
+                    }
+                })
+                .catch(error => {
+                    console.error('Erro ao carregar cursos:', error);
+                    cursoSelect.innerHTML = '<option value="">Erro ao carregar cursos</option>';
+                });
+        }
+        
+        // Event listeners para carregar cursos
+        document.getElementById('polo').addEventListener('change', function() {
+            carregarCursos(this, document.getElementById('curso'));
+            atualizarInfoDesconto(this.value);
+        });
+        
+        document.getElementById('polo_multiplo').addEventListener('change', function() {
+            carregarCursos(this, document.getElementById('curso_multiplo'));
+        });
+        
+        document.getElementById('polo_lote').addEventListener('change', function() {
+            carregarCursos(this, document.getElementById('curso_lote'));
+        });
+        
+        // Função para atualizar informações de desconto baseado no polo
+        function atualizarInfoDesconto(polo) {
+            const configDesconto = <?= json_encode($configuracoesDesconto) ?>;
+            const config = configDesconto.find(c => c.polo_subdomain === polo);
+            const infoDiv = document.getElementById('infoDescontoPix');
+            
+            if (config) {
+                let descontoTexto = '';
+                if (config.tipo_desconto === 'fixo') {
+                    descontoTexto = `R$ ${parseFloat(config.valor_desconto_fixo).toLocaleString('pt-BR', {minimumFractionDigits: 2})}`;
+                } else {
+                    descontoTexto = `${parseFloat(config.percentual_desconto)}%`;
+                }
+                
+                infoDiv.innerHTML = `
+                    <small>
+                        <i class="fas fa-info-circle text-success"></i>
+                        <strong>Desconto configurado para este polo:</strong> ${descontoTexto}
+                        <br>
+                        <strong>Valor mínimo:</strong> R$ ${parseFloat(config.valor_minimo_boleto).toLocaleString('pt-BR', {minimumFractionDigits: 2})}
+                        <br>
+                        <strong>Condição:</strong> ${config.condicao_aplicacao === 'ate_vencimento' ? 'Até o vencimento' : config.condicao_aplicacao}
+                    </small>
+                `;
+            } else {
+                infoDiv.innerHTML = `
+                    <small>
+                        <i class="fas fa-exclamation-triangle text-warning"></i>
+                        Nenhuma configuração de desconto encontrada para este polo.
+                    </small>
+                `;
+            }
+        }
+        
         // Validações dos formulários
         document.getElementById('uploadIndividualForm').addEventListener('submit', function(e) {
             const cpf = document.getElementById('aluno_cpf').value.replace(/\D/g, '');
             const arquivo = document.getElementById('arquivo_pdf').files[0];
-            const pixDesconto = document.getElementById('pix_desconto_disponivel').checked;
-            const valorDesconto = document.getElementById('valor_desconto_pix').value;
             
             if (cpf.length !== 11) {
                 e.preventDefault();
@@ -1769,12 +1627,6 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
             if (arquivo.type !== 'application/pdf') {
                 e.preventDefault();
                 alert('Apenas arquivos PDF são aceitos');
-                return;
-            }
-            
-            if (pixDesconto && (!valorDesconto || parseFloat(valorDesconto) <= 0)) {
-                e.preventDefault();
-                alert('Quando o desconto PIX está marcado, o valor do desconto é obrigatório');
                 return;
             }
             
@@ -1813,17 +1665,6 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                 return;
             }
             
-            // Valida configurações de desconto PIX
-            const arquivosComDescontoInvalido = fileListMultiplo.filter(f => 
-                f.pix_desconto_disponivel && (!f.valor_desconto_pix || parseFloat(f.valor_desconto_pix) <= 0)
-            );
-            
-            if (arquivosComDescontoInvalido.length > 0) {
-                e.preventDefault();
-                alert(`${arquivosComDescontoInvalido.length} arquivo(s) tem desconto PIX marcado mas sem valor do desconto definido.`);
-                return;
-            }
-            
             const formData = new FormData(this);
             formData.delete('arquivos_multiplos[]');
             
@@ -1834,8 +1675,6 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                 formData.append(`arquivo_${index}_vencimento`, fileData.vencimento);
                 formData.append(`arquivo_${index}_descricao`, fileData.descricao || '');
                 formData.append(`arquivo_${index}_pix_desconto`, fileData.pix_desconto_disponivel || 0);
-                formData.append(`arquivo_${index}_valor_desconto`, fileData.valor_desconto_pix || '');
-                formData.append(`arquivo_${index}_valor_minimo`, fileData.valor_minimo_desconto || '');
             });
             
             e.preventDefault();
@@ -1877,18 +1716,10 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
             const curso = document.getElementById('curso_lote').value;
             const valor = document.getElementById('valor_lote').value;
             const vencimento = document.getElementById('vencimento_lote').value;
-            const pixDesconto = document.getElementById('pix_desconto_lote').checked;
-            const valorDesconto = document.getElementById('valor_desconto_lote').value;
             
             if (!polo || !curso || !valor || !vencimento) {
                 e.preventDefault();
                 alert('Preencha todos os campos obrigatórios');
-                return;
-            }
-            
-            if (pixDesconto && (!valorDesconto || parseFloat(valorDesconto) <= 0)) {
-                e.preventDefault();
-                alert('Quando o desconto PIX está marcado, o valor do desconto é obrigatório');
                 return;
             }
             
@@ -2006,6 +1837,47 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
             }
         });
         
+        // Auto-submit do formulário quando mudamos os filtros
+        document.querySelectorAll('#filtrosForm select').forEach(select => {
+            select.addEventListener('change', function() {
+                if (this.name !== 'busca') {
+                    document.getElementById('filtrosForm').submit();
+                }
+            });
+        });
+        
+        // Atalhos de teclado
+        document.addEventListener('keydown', function(e) {
+            if (e.ctrlKey && e.key === 'n') {
+                e.preventDefault();
+                window.location.href = '/admin/upload-boletos.php';
+            }
+            
+            if (e.ctrlKey && e.key === 'm') {
+                e.preventDefault();
+                document.getElementById('multiplo-aluno-tab').click();
+            }
+            
+            if (e.ctrlKey && ['1', '2', '3', '4'].includes(e.key)) {
+                e.preventDefault();
+                const tabs = ['individual-tab', 'multiplo-aluno-tab', 'lote-tab', 'instrucoes-tab'];
+                const tabIndex = parseInt(e.key) - 1;
+                if (tabs[tabIndex]) {
+                    document.getElementById(tabs[tabIndex]).click();
+                }
+            }
+        });
+        
+        // Tooltip para elementos com title
+        document.addEventListener('DOMContentLoaded', function() {
+            const tooltips = document.querySelectorAll('[title]');
+            tooltips.forEach(element => {
+                if (typeof bootstrap !== 'undefined' && bootstrap.Tooltip) {
+                    new bootstrap.Tooltip(element);
+                }
+            });
+        });
+        
         // Adiciona estilos para animações
         const style = document.createElement('style');
         style.textContent = `
@@ -2030,71 +1902,24 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                 border-color: #dc3545 !important;
             }
             
-            .file-list {
-                background: #f8f9fa;
-                border-radius: 8px;
-                padding: 1rem;
-                margin-top: 1rem;
-                max-height: 400px;
-                overflow-y: auto;
-            }
-            
-            .file-list-item {
-                display: block;
-                padding: 1rem;
-                margin-bottom: 0.5rem;
-                background: white;
-                border-radius: 6px;
-                border: 1px solid #e9ecef;
-                transition: all 0.3s ease;
-            }
-            
             .file-list-item.valid {
                 border-left: 4px solid #28a745;
+                background: rgba(40,167,69,0.02);
             }
             
             .file-list-item.invalid {
                 border-left: 4px solid #dc3545;
-                background: rgba(220,53,69,0.05);
-            }
-            
-            .upload-zone-multiple {
-                border: 2px dashed #28a745;
-                background: rgba(40,167,69,0.05);
-            }
-            
-            .upload-zone-multiple:hover {
-                border-color: #1e7e34;
-                background: rgba(40,167,69,0.1);
-            }
-            
-            .btn-upload-multiple {
-                background: linear-gradient(135deg, var(--info-color), #138496);
-                border: none;
-                border-radius: 25px;
-                padding: 12px 30px;
-                font-weight: 600;
-                color: white;
-            }
-            
-            .btn-upload-multiple:hover {
-                transform: translateY(-2px);
-                box-shadow: 0 5px 15px rgba(23,162,184,0.3);
-                color: white;
-            }
-            
-            .pix-config-row {
-                animation: slideDown 0.3s ease;
+                background: rgba(220,53,69,0.02);
             }
         `;
         document.head.appendChild(style);
         
-        console.log('✅ Sistema de Upload com Desconto PIX Personalizado carregado!');
-        console.log('🆕 Funcionalidades implementadas:');
-        console.log('   - Desconto PIX configurável por boleto');
-        console.log('   - Valor personalizado definido pelo admin');
-        console.log('   - Funciona em qualquer polo');
-        console.log('   - Interface simplificada e intuitiva');
+        console.log('✅ Sistema de Upload com Desconto PIX carregado!');
+        console.log('🆕 Funcionalidades de desconto PIX implementadas');
+        console.log('📋 Comandos disponíveis:');
+        console.log('   - Ctrl+1/2/3/4: Alternar entre abas');
+        console.log('   - Ctrl+M: Ir para upload múltiplo');
+        console.log('   - Ctrl+N: Novo upload');
     </script>
 </body>
-</html>                                 
+</html>
