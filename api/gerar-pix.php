@@ -255,11 +255,11 @@ function obterConfiguracaoPIX($subdomain) {
             'country_code' => 'BR',
             'currency' => '986'
         ],
-        'moju.imepedu.com.br' => [
-            'chave_pix' => '12345678000190',
-            'beneficiario' => 'IMEPEDU MOJU LTDA',
-            'cidade' => 'MOJU',
-            'cep' => '68450000',
+        'ava.imepedu.com.br' => [
+            'chave_pix' => '51071986000121',
+            'beneficiario' => 'MAGALHAES EDUCACAO LTDA',
+            'cidade' => 'AVA',
+            'cep' => '68488000',
             'merchant_category_code' => '8299',
             'country_code' => 'BR',
             'currency' => '986'

@@ -1790,7 +1790,7 @@ function forcarLimpezaCache() {
             const polos = [
                 { nome: 'Tucuruí', url: 'https://tucurui.imepedu.com.br' },
                 { nome: 'Breu Branco', url: 'https://breubranco.imepedu.com.br' },
-                { nome: 'Moju', url: 'https://moju.imepedu.com.br' },
+                { nome: 'AVA', url: 'https://ava.imepedu.com.br' },
                 { nome: 'Igarapé-Miri', url: 'https://igarape.imepedu.com.br' }
             ];
             

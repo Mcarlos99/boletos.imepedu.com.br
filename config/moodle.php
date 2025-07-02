@@ -14,7 +14,7 @@ class MoodleConfig {
     private static $tokens = [
         'tucurui.imepedu.com.br' => 'x',
         'breubranco.imepedu.com.br' => '0441051a5b5bc8968f3e65ff7d45c3de',
-        'moju.imepedu.com.br' => 'x',
+        'ava.imepedu.com.br' => '9eeee9d48903c760bc224b61e0547e4e',
         'igarape.imepedu.com.br' => '051a62d5f60167246607b195a9630d3b',
     ];
     
@@ -46,17 +46,17 @@ class MoodleConfig {
             'timezone' => 'America/Belem',
             'max_students' => 800
         ],
-        'moju.imepedu.com.br' => [
-            'name' => 'Polo Moju',
-            'city' => 'Moju',
+        'ava.imepedu.com.br' => [
+            'name' => 'Polo AVA',
+            'city' => 'AVA',
             'state' => 'PA',
-            'contact_email' => 'moju@imepedu.com.br',
-            'phone' => '(91) 3768-9012',
-            'address' => 'Rua Central, 789 - Centro',
+            'contact_email' => 'ava@imepedu.com.br',
+            'phone' => '(94) xxxx-xxxx',
+            'address' => 'Rua AVA',
             'cep' => '68450-000',
             'active' => false,
             'timezone' => 'America/Belem',
-            'max_students' => 600
+            'max_students' => 8000
         ],
         'igarape.imepedu.com.br' => [
             'name' => 'Polo Igarapé-Miri',

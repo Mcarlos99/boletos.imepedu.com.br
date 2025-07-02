@@ -448,9 +448,9 @@ if (isset($subdomain) && !empty($subdomain)) {
                                             <?= ($_POST['subdomain'] ?? $_GET['subdomain'] ?? '') == 'breubranco.imepedu.com.br' ? 'selected' : '' ?>>
                                         Breu Branco
                                     </option>
-                                    <option value="moju.imepedu.com.br"
-                                            <?= ($_POST['subdomain'] ?? $_GET['subdomain'] ?? '') == 'moju.imepedu.com.br' ? 'selected' : '' ?>>
-                                        Moju
+                                    <option value="ava.imepedu.com.br"
+                                            <?= ($_POST['subdomain'] ?? $_GET['subdomain'] ?? '') == 'ava.imepedu.com.br' ? 'selected' : '' ?>>
+                                        AVA
                                     </option>
                                     <option value="igarape.imepedu.com.br"
                                             <?= ($_POST['subdomain'] ?? $_GET['subdomain'] ?? '') == 'igarape.imepedu.com.br' ? 'selected' : '' ?>>

@@ -734,15 +734,6 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                                         <label for="aluno_cpf_multiplo" class="form-label">
                                             <i class="fas fa-user"></i> CPF do Aluno
                                         </label>
-                                        <input type="text" class="form-control" id="aluno_
-
-
-
-
-
-
-
-
                                         <input type="text" class="form-control" id="aluno_cpf_multiplo" name="aluno_cpf" 
                                                placeholder="000.000.000-00" maxlength="14" required>
                                     </div>

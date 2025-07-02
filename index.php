@@ -331,9 +331,9 @@ try {
                                         <?= ($_POST['subdomain'] ?? $_GET['subdomain'] ?? '') == 'breubranco.imepedu.com.br' ? 'selected' : '' ?>>
                                     <i class="fas fa-building"></i> Breu Branco
                                 </option>
-                                <option value="moju.imepedu.com.br"
-                                        <?= ($_POST['subdomain'] ?? $_GET['subdomain'] ?? '') == 'moju.imepedu.com.br' ? 'selected' : '' ?>>
-                                    <i class="fas fa-building"></i> Moju
+                                <option value="ava.imepedu.com.br"
+                                        <?= ($_POST['subdomain'] ?? $_GET['subdomain'] ?? '') == 'ava.imepedu.com.br' ? 'selected' : '' ?>>
+                                    <i class="fas fa-building"></i> AVA
                                 </option>
                                 <option value="igarape.imepedu.com.br"
                                         <?= ($_POST['subdomain'] ?? $_GET['subdomain'] ?? '') == 'igarape.imepedu.com.br' ? 'selected' : '' ?>>
@@ -454,7 +454,7 @@ try {
                     <p class="mb-0">
                         <i class="fas fa-map-marker-alt"></i> Tucuruí - PA<br>
                         <i class="fas fa-map-marker-alt"></i> Breu Branco - PA<br>
-                        <i class="fas fa-map-marker-alt"></i> Moju - PA
+                        <i class="fas fa-map-marker-alt"></i> AVA - Ambiente Virtual de Aprendizagem
                     </p>
                 </div>
             </div>
@@ -463,7 +463,7 @@ try {
                 <div class="col-12 text-center">
                     <p class="mb-0">
                         &copy; <?= date('Y') ?> IMEPEDU Educação. Todos os direitos reservados. |
-                        <a href="/admin" class="text-white">Área Administrativa</a>
+                        <a href="/admin/login.php" class="text-white">Área Administrativa</a>
                     </p>
                 </div>
             </div>

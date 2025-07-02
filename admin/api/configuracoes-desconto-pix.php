@@ -150,7 +150,7 @@ function handlePost($db) {
         'breubranco.imepedu.com.br',
         'igarape.imepedu.com.br', 
         'tucurui.imepedu.com.br',
-        'moju.imepedu.com.br'
+        'ava.imepedu.com.br'
     ];
     
     if (!in_array($input['polo_subdomain'], $polosValidos)) {

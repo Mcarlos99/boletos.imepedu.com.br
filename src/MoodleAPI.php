@@ -100,20 +100,18 @@ class MoodleAPI {
                 'metodo_busca' => 'misto'
             ],
             
-            // Moju - Estrutura profissionalizante
-            'moju.imepedu.com.br' => [
+            // AVA - Estrutura profissionalizante
+            'ava.imepedu.com.br' => [
                 'categorias_pai' => [
-                    'profissionalizante',
-                    'tecnico',
-                    'técnico',
-                    'capacitacao',
-                    'capacitação',
-                    'qualificacao'
+                    'cursos tecnicos',
+                    'norma regulamentadora', 
+                    'industria',
+                    'profissionalizantes'
                 ],
-                'tipo_validacao' => 'profissionalizante',
-                'palavras_obrigatorias' => ['profissional', 'tecnico', 'capacita'],
+                'tipo_validacao' => 'multiplas_categorias',
+                'palavras_obrigatorias' => ['tecnico', 'nr', 'norma', 'profissional'],
                 'subcategorias_como_cursos' => true,
-                'metodo_busca' => 'profissionalizante'
+                'metodo_busca' => 'hierarquico'
             ]
         ];
         
