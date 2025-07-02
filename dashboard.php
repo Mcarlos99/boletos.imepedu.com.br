@@ -98,11 +98,16 @@ try {
             $boleto['pode_usar_desconto'] = false;
             $boleto['valor_final_pix'] = $boleto['valor'];
             
-            if ($boleto['pix_desconto_disponivel'] && 
-                !$boleto['pix_desconto_usado'] && 
-                $boleto['status'] !== 'pago' && 
-                !$boleto['esta_vencido'] &&
-                $boleto['pix_valor_desconto'] > 0) {
+			//Verificação mais rigorosa do vencimento
+			$dataVencimento = new DateTime($boleto['vencimento']);
+			$agora = new DateTime();
+			$venceuCompletamente = ($agora > $dataVencimento);
+
+			if ($boleto['pix_desconto_disponivel'] && 
+    			!$boleto['pix_desconto_usado'] && 
+    			$boleto['status'] !== 'pago' && 
+    			!$venceuCompletamente && // 🔧 NOVA VERIFICAÇÃO
+    			$boleto['pix_valor_desconto'] > 0) {
                 
                 $valorMinimo = $boleto['pix_valor_minimo'] ?? 0;
                 if ($valorMinimo == 0 || $boleto['valor'] >= $valorMinimo) {
@@ -396,7 +401,7 @@ error_log("Dashboard: Resumo final - Polo: {$_SESSION['subdomain']}, Total: " . 
         .boleto-card.pago { border-left-color: var(--success-color); }
         
         .boleto-card.com-desconto-pix::after {
-            content: 'PIX';
+            /* content: 'PIX'; */
             position: absolute;
             top: 8px;
             right: 8px;
@@ -560,7 +565,7 @@ error_log("Dashboard: Resumo final - Polo: {$_SESSION['subdomain']}, Total: " . 
         }
         
         .btn-pix.com-desconto::after {
-            content: '💰';
+            /* content: '💰'; */
             position: absolute;
             top: -4px;
             right: -4px;
@@ -1012,10 +1017,10 @@ error_log("Dashboard: Resumo final - Polo: {$_SESSION['subdomain']}, Total: " . 
                     <i class="fas fa-envelope text-secondary me-3"></i>
                     Contatar Suporte
                 </a>
-                <button class="list-group-item list-group-item-action" onclick="mostrarOutrosPolos()">
+<!--                 <button class="list-group-item list-group-item-action" onclick="mostrarOutrosPolos()">
                     <i class="fas fa-building text-warning me-3"></i>
                     Outros Polos
-                </button>
+                </button> -->
                 <button class="list-group-item list-group-item-action" onclick="mostrarInformacoes()">
                     <i class="fas fa-info-circle text-info me-3"></i>
                     Informações
@@ -1620,7 +1625,7 @@ error_log("Dashboard: Resumo final - Polo: {$_SESSION['subdomain']}, Total: " . 
             const info = `
                 <div class="mb-3">
                     <h5>Sistema de Boletos IMEPEDU</h5>
-                    <p>Versão: 2.3 PIX Personalizado</p>
+                    <p>Versão: 2.3</p>
                     <p>Última atualização: ${new Date().toLocaleDateString('pt-BR')}</p>
                 </div>
                 <div class="mb-3">
@@ -1810,7 +1815,12 @@ function renderizarBoletoCard($boleto, $statusClass) {
     $botaoPixClass = 'btn-pix';
     $valorExibicao = $valorFormatado;
     
-    if ($boleto['pode_usar_desconto'] ?? false) {
+    //Verificar vencimento antes de mostrar desconto
+		$dataVencimento = new DateTime($boleto['vencimento']);
+		$agora = new DateTime();
+		$venceuCompletamente = ($agora > $dataVencimento);
+
+	if (($boleto['pode_usar_desconto'] ?? false) && !$venceuCompletamente) {
         $temDescontoPix = true;
         $economiaTexto = 'Economia: R$ ' . number_format($boleto['economia_pix'], 2, ',', '.');
         $cardExtraClass = ' com-desconto-pix';
@@ -1903,7 +1913,7 @@ function renderizarBoletoCard($boleto, $statusClass) {
             
             <button class="btn-action <?= $botaoPixClass ?>" onclick="mostrarPix(<?= $boleto['id'] ?>)" 
                     title="<?= $temDescontoPix ? 'Gerar PIX com desconto personalizado de R$ ' . number_format($boleto['economia_pix'], 2, ',', '.') : 'Gerar código PIX' ?>">
-                <i class="fas fa-qrcode"></i> PIX<?= $temDescontoPix ? ' 💰' : '' ?>
+                <i class="fas fa-qrcode"></i> PIX<?= $temDescontoPix ? ' ' : '' ?>
             </button>
         </div>
         <?php elseif ($temPDF): ?>

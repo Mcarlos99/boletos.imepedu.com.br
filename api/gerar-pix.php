@@ -1,7 +1,9 @@
 <?php
 /**
- * Sistema de Boletos IMEPEDU - API Geração de PIX com Desconto
+ * Sistema de Boletos IMEPEDU - API Geração de PIX com Desconto FINAL CORRIGIDA
  * Arquivo: api/gerar-pix.php
+ * 
+ * CORREÇÃO FINAL: Todas as funções organizadas corretamente
  */
 
 session_start();
@@ -42,247 +44,150 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST' && $_SERVER['REQUEST_METHOD'] !== 'GET
 
 require_once '../config/database.php';
 
-try {
-    $boletoId = null;
+// ========================================
+// DEFINIÇÃO DE TODAS AS FUNÇÕES PRIMEIRO
+// ========================================
+
+/**
+ * Registra log das operações PIX
+ */
+function registrarLogPIX($boletoId, $pixId, $tipo, $boleto, $dadosDesconto = null, $db = null, $erro = null) {
+    if (!$db) return;
     
-    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-        $input = json_decode(file_get_contents('php://input'), true);
-        $boletoId = filter_var($input['boleto_id'] ?? null, FILTER_VALIDATE_INT);
-    } else {
-        $boletoId = filter_input(INPUT_GET, 'boleto_id', FILTER_VALIDATE_INT);
-    }
-    
-    if (!$boletoId) {
-        throw new Exception('ID do boleto é obrigatório e deve ser um número válido');
-    }
-    
-    $db = (new Database())->getConnection();
-    
-    // Busca dados completos do boleto com verificação de desconto
-    $stmt = $db->prepare("
-        SELECT b.*, 
-               a.nome as aluno_nome, 
-               a.cpf as aluno_cpf,
-               a.email as aluno_email,
-               a.subdomain as aluno_subdomain,
-               c.nome as curso_nome,
-               c.subdomain as curso_subdomain
-        FROM boletos b
-        INNER JOIN alunos a ON b.aluno_id = a.id
-        INNER JOIN cursos c ON b.curso_id = c.id
-        WHERE b.id = ?
-    ");
-    $stmt->execute([$boletoId]);
-    $boleto = $stmt->fetch(PDO::FETCH_ASSOC);
-    
-    if (!$boleto) {
-        throw new Exception('Boleto não encontrado');
-    }
-    
-    // Validação de acesso específica
-    $acessoAutorizado = false;
-    
-    if (isset($_SESSION['admin_id'])) {
-        $acessoAutorizado = true;
-    } elseif (isset($_SESSION['aluno_cpf'])) {
-        $cpfSessao = preg_replace('/[^0-9]/', '', $_SESSION['aluno_cpf']);
-        $cpfBoleto = preg_replace('/[^0-9]/', '', $boleto['aluno_cpf']);
-        $subdomainSessao = $_SESSION['subdomain'] ?? '';
+    try {
+        $descricao = "PIX boleto #{$boleto['numero_boleto']} - {$boleto['aluno_nome']}";
         
-        if ($cpfSessao === $cpfBoleto && $subdomainSessao === $boleto['curso_subdomain']) {
-            $acessoAutorizado = true;
+        if ($pixId) {
+            $descricao .= " - PIX ID: {$pixId}";
         }
+        
+        if ($dadosDesconto && $dadosDesconto['tem_desconto']) {
+            $descricao .= " - Desconto personalizado: R$ " . number_format($dadosDesconto['valor_desconto'], 2, ',', '.');
+            $descricao .= " - Valor final: R$ " . number_format($dadosDesconto['valor_final'], 2, ',', '.');
+        }
+        
+        if ($erro) {
+            $descricao .= " - Erro: {$erro}";
+        }
+        
+        $usuarioId = null;
+        if (isset($_SESSION['admin_id'])) {
+            $usuarioId = $_SESSION['admin_id'];
+        } elseif (isset($_SESSION['aluno_id'])) {
+            $usuarioId = $_SESSION['aluno_id'];
+        }
+        
+        $stmt = $db->prepare("
+            INSERT INTO logs (
+                tipo, usuario_id, boleto_id, descricao, 
+                ip_address, user_agent, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, NOW())
+        ");
+        
+        $stmt->execute([
+            $tipo,
+            $usuarioId,
+            $boletoId,
+            $descricao,
+            $_SERVER['REMOTE_ADDR'] ?? 'unknown',
+            $_SERVER['HTTP_USER_AGENT'] ?? 'unknown'
+        ]);
+        
+        error_log("PIX LOG SALVO: {$descricao}");
+        
+    } catch (Exception $e) {
+        error_log("PIX Log: Erro ao registrar - " . $e->getMessage());
     }
-    
-    if (!$acessoAutorizado) {
-        throw new Exception('Você não tem permissão para gerar PIX deste boleto');
-    }
-    
-    if ($boleto['status'] === 'pago') {
-        throw new Exception('Este boleto já foi pago');
-    }
-    
-    if ($boleto['status'] === 'cancelado') {
-        throw new Exception('Este boleto foi cancelado');
-    }
-    
-    // Calcula desconto PIX se aplicável
-    $dadosDesconto = calcularDescontoPIX($boleto, $db);
-    
-    // Gera PIX com valor final (com ou sem desconto)
-    $configPIX = obterConfiguracaoPIX($boleto['curso_subdomain']);
-    $dadosPIX = gerarCodigoPIX($boleto, $configPIX, $dadosDesconto);
-    
-    // Salva PIX gerado no banco com informações de desconto
-    $pixId = salvarPIXGerado($boletoId, $dadosPIX, $configPIX, $dadosDesconto, $db);
-    
-    // Gera QR Code
-    $qrCodeData = gerarQRCode($dadosPIX['pix_copia_cola']);
-    
-    // Resposta completa
-    $response = [
-        'success' => true,
-        'boleto' => [
-            'id' => $boleto['id'],
-            'numero' => $boleto['numero_boleto'],
-            'valor_original' => floatval($boleto['valor']),
-            'valor_original_formatado' => 'R$ ' . number_format($boleto['valor'], 2, ',', '.'),
-            'valor_final' => $dadosDesconto['valor_final'],
-            'valor_final_formatado' => 'R$ ' . number_format($dadosDesconto['valor_final'], 2, ',', '.'),
-            'vencimento' => $boleto['vencimento'],
-            'vencimento_formatado' => date('d/m/Y', strtotime($boleto['vencimento'])),
-            'aluno_nome' => $boleto['aluno_nome'],
-            'curso_nome' => $boleto['curso_nome'],
-            'status' => $boleto['status']
-        ],
-        'desconto' => [
-            'tem_desconto' => $dadosDesconto['tem_desconto'],
-            'valor_desconto' => $dadosDesconto['valor_desconto'],
-            'valor_desconto_formatado' => 'R$ ' . number_format($dadosDesconto['valor_desconto'], 2, ',', '.'),
-            'motivo' => $dadosDesconto['motivo'],
-            'economia' => $dadosDesconto['tem_desconto'] ? 
-                'Você economizará R$ ' . number_format($dadosDesconto['valor_desconto'], 2, ',', '.') . ' pagando via PIX!' : null
-        ],
-        'pix' => [
-            'id' => $pixId,
-            'chave_pix' => $configPIX['chave_pix'],
-            'beneficiario' => $configPIX['beneficiario'],
-            'cidade' => $configPIX['cidade'],
-            'identificador' => $dadosPIX['identificador'],
-            'pix_copia_cola' => $dadosPIX['pix_copia_cola'],
-            'qr_code_base64' => $qrCodeData['base64'],
-            'qr_code_url' => $qrCodeData['url'] ?? null,
-            'validade' => $dadosPIX['validade'],
-            'validade_formatada' => date('d/m/Y H:i', strtotime($dadosPIX['validade']))
-        ],
-        'instrucoes' => [
-            'como_pagar' => [
-                'Abra o app do seu banco',
-                'Acesse a área PIX',
-                'Escolha "Pagar com QR Code" ou "PIX Copia e Cola"',
-                'Escaneie o código ou cole o texto',
-                'Confirme os dados e o valor de R$ ' . number_format($dadosDesconto['valor_final'], 2, ',', '.'),
-                'Efetue o pagamento',
-                'Envie o comprovante via WhatsApp: <a href="https://wa.me/5594992435333" target="_blank">Clique Aqui!</a>',
-                'Aguarde até 48h para processamento'
-            ],
-            'observacoes' => [
-                'PIX válido até ' . date('d/m/Y H:i', strtotime($dadosPIX['validade'])),
-                $dadosDesconto['tem_desconto'] ? 'Desconto aplicado automaticamente' : 'Sem desconto para este boleto',
-                'Em caso de dúvidas, entre em contato com a secretaria',
-                'Guarde o comprovante de pagamento'
-            ]
-        ],
-        'gerado_em' => date('Y-m-d H:i:s'),
-        'gerado_timestamp' => time()
-    ];
-    
-    // Registra log
-    registrarLogPIX($boletoId, $pixId, 'pix_gerado_com_desconto', $boleto, $dadosDesconto, $db);
-    
-    echo json_encode($response, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
-    
-} catch (Exception $e) {
-    error_log("PIX Generator: ERRO - " . $e->getMessage());
-    
-    if (isset($boletoId) && isset($boleto)) {
-        registrarLogPIX($boletoId, null, 'pix_erro', $boleto, null, $db ?? null, $e->getMessage());
-    }
-    
-    $errorCode = 'UNKNOWN_ERROR';
-    $httpCode = 400;
-    
-    if (strpos($e->getMessage(), 'não encontrado') !== false) {
-        $errorCode = 'BOLETO_NOT_FOUND';
-        $httpCode = 404;
-    } elseif (strpos($e->getMessage(), 'não tem permissão') !== false) {
-        $errorCode = 'ACCESS_DENIED';
-        $httpCode = 403;
-    } elseif (strpos($e->getMessage(), 'já foi pago') !== false) {
-        $errorCode = 'ALREADY_PAID';
-        $httpCode = 409;
-    } elseif (strpos($e->getMessage(), 'foi cancelado') !== false) {
-        $errorCode = 'CANCELLED';
-        $httpCode = 410;
-    }
-    
-    http_response_code($httpCode);
-    echo json_encode([
-        'success' => false,
-        'error' => $errorCode,
-        'message' => $e->getMessage(),
-        'timestamp' => time()
-    ], JSON_UNESCAPED_UNICODE);
 }
 
 /**
- * Calcula desconto PIX baseado nas configurações personalizadas do boleto
+ * 🔧 CORREÇÃO: Função corrigida para calcular desconto PIX
  */
-function calcularDescontoPIX($boleto, $db) {
+function calcularDescontoPixCorrigido($boleto, $db) {
     $valorOriginal = (float)$boleto['valor'];
     $valorFinal = $valorOriginal;
     $valorDesconto = 0.00;
     $temDesconto = false;
     $motivo = '';
     
+    // Log de debug
+    $debugInfo = [
+        'boleto_id' => $boleto['id'],
+        'pix_desconto_disponivel' => $boleto['pix_desconto_disponivel'],
+        'pix_desconto_usado' => $boleto['pix_desconto_usado'],
+        'pix_valor_desconto' => $boleto['pix_valor_desconto'],
+        'pix_valor_minimo' => $boleto['pix_valor_minimo'],
+        'valor_original' => $valorOriginal,
+        'vencimento' => $boleto['vencimento'],
+        'status' => $boleto['status']
+    ];
+    
+    error_log("PIX DESCONTO DEBUG: " . json_encode($debugInfo));
+    
     // Verifica se o boleto tem desconto habilitado
     if (!$boleto['pix_desconto_disponivel'] || $boleto['pix_desconto_usado']) {
+        $motivo = $boleto['pix_desconto_usado'] ? 'Desconto já utilizado' : 'Desconto não habilitado para este boleto';
         return [
             'tem_desconto' => false,
             'valor_original' => $valorOriginal,
             'valor_desconto' => 0.00,
             'valor_final' => $valorOriginal,
-            'motivo' => $boleto['pix_desconto_usado'] ? 'Desconto já utilizado' : 'Desconto não habilitado para este boleto'
+            'motivo' => $motivo,
+            'debug_info' => $debugInfo
         ];
     }
     
-    // Verifica se ainda está no prazo (até o vencimento)
+    // Verifica se ainda está no prazo (até o vencimento - INCLUINDO HOJE)
     $hoje = new DateTime();
     $vencimento = new DateTime($boleto['vencimento']);
     
-    if ($hoje > $vencimento) {
+    // 🔧 CORREÇÃO: Boletos que vencem HOJE ainda devem ter desconto
+    // Compara apenas a data, não hora
+    $hojeData = $hoje->format('Y-m-d');
+    $vencimentoData = $vencimento->format('Y-m-d');
+    
+    if ($hojeData > $vencimentoData) {
         return [
             'tem_desconto' => false,
             'valor_original' => $valorOriginal,
             'valor_desconto' => 0.00,
             'valor_final' => $valorOriginal,
-            'motivo' => 'Boleto vencido - desconto não disponível'
+            'motivo' => 'Boleto vencido - desconto não disponível',
+            'debug_info' => array_merge($debugInfo, [
+                'hoje_data' => $hojeData,
+                'vencimento_data' => $vencimentoData,
+                'comparacao' => 'hoje > vencimento'
+            ])
         ];
     }
     
-    // Busca configurações personalizadas do boleto
-    $stmt = $db->prepare("
-        SELECT pix_valor_desconto, pix_valor_minimo 
-        FROM boletos 
-        WHERE id = ?
-    ");
-    $stmt->execute([$boleto['id']]);
-    $configBoleto = $stmt->fetch(PDO::FETCH_ASSOC);
-    
-    if (!$configBoleto || !$configBoleto['pix_valor_desconto'] || $configBoleto['pix_valor_desconto'] <= 0) {
+    // Verifica se tem valor de desconto configurado
+    if (!$boleto['pix_valor_desconto'] || $boleto['pix_valor_desconto'] <= 0) {
         return [
             'tem_desconto' => false,
             'valor_original' => $valorOriginal,
             'valor_desconto' => 0.00,
             'valor_final' => $valorOriginal,
-            'motivo' => 'Valor do desconto não configurado para este boleto'
+            'motivo' => 'Valor do desconto não configurado para este boleto',
+            'debug_info' => $debugInfo
         ];
     }
     
     // Verifica valor mínimo se configurado
-    $valorMinimo = (float)($configBoleto['pix_valor_minimo'] ?? 0);
+    $valorMinimo = (float)($boleto['pix_valor_minimo'] ?? 0);
     if ($valorMinimo > 0 && $valorOriginal < $valorMinimo) {
         return [
             'tem_desconto' => false,
             'valor_original' => $valorOriginal,
             'valor_desconto' => 0.00,
             'valor_final' => $valorOriginal,
-            'motivo' => 'Valor mínimo não atingido (mín: R$ ' . number_format($valorMinimo, 2, ',', '.') . ')'
+            'motivo' => 'Valor mínimo não atingido (mín: R$ ' . number_format($valorMinimo, 2, ',', '.') . ')',
+            'debug_info' => $debugInfo
         ];
     }
     
-    // Aplica o desconto personalizado
-    $valorDesconto = (float)$configBoleto['pix_valor_desconto'];
+    // Aplica o desconto personalizado que já está salvo no boleto
+    $valorDesconto = (float)$boleto['pix_valor_desconto'];
     
     // Garante que o valor final não seja menor que R$ 10,00
     $valorFinal = $valorOriginal - $valorDesconto;
@@ -296,20 +201,25 @@ function calcularDescontoPIX($boleto, $db) {
                 'valor_original' => $valorOriginal,
                 'valor_desconto' => 0.00,
                 'valor_final' => $valorOriginal,
-                'motivo' => 'Valor do boleto muito baixo para aplicar desconto'
+                'motivo' => 'Valor do boleto muito baixo para aplicar desconto',
+                'debug_info' => $debugInfo
             ];
         }
     }
     
     $temDesconto = true;
-    $motivo = "Desconto PIX de R$ " . number_format($valorDesconto, 2, ',', '.') . " aplicado";
+    $motivo = "Desconto PIX personalizado de R$ " . number_format($valorDesconto, 2, ',', '.') . " aplicado";
+    
+    // Log de sucesso
+    error_log("PIX DESCONTO APLICADO: R$ {$valorDesconto} - Valor final: R$ {$valorFinal}");
     
     return [
         'tem_desconto' => $temDesconto,
         'valor_original' => $valorOriginal,
         'valor_desconto' => $valorDesconto,
         'valor_final' => $valorFinal,
-        'motivo' => $motivo
+        'motivo' => $motivo,
+        'debug_info' => $debugInfo
     ];
 }
 
@@ -380,6 +290,9 @@ function gerarCodigoPIX($boleto, $configPIX, $dadosDesconto) {
     $validade = date('Y-m-d H:i:s', strtotime('+24 hours'));
     $valorFinal = $dadosDesconto['valor_final']; // Usa valor com desconto aplicado
     $valorCentavos = intval($valorFinal * 100);
+    
+    // Log para verificar se o valor está correto
+    error_log("PIX GERADO: Valor original: {$dadosDesconto['valor_original']}, Valor final: {$valorFinal}, Desconto: {$dadosDesconto['valor_desconto']}");
     
     $payload = montarPayloadPIX($configPIX, $valorFinal, $identificador);
     
@@ -542,7 +455,7 @@ function gerarQRCodeSVG($data) {
             Use o código copia e cola
         </text>
         <text x="150" y="180" text-anchor="middle" font-family="Arial" font-size="10" fill="green">
-            Com desconto aplicado
+            Com desconto personalizado aplicado
         </text>
     </svg>';
     
@@ -586,6 +499,8 @@ function salvarPIXGerado($boletoId, $dadosPIX, $configPIX, $dadosDesconto, $db) 
                 WHERE id = ?
             ");
             $stmtUpdate->execute([$boletoId]);
+            
+            error_log("PIX: Desconto marcado como usado para boleto ID: {$boletoId}");
         }
         
         return $pixId;
@@ -596,53 +511,198 @@ function salvarPIXGerado($boletoId, $dadosPIX, $configPIX, $dadosDesconto, $db) 
     }
 }
 
-/**
- * Registra log das operações PIX
- */
-function registrarLogPIX($boletoId, $pixId, $tipo, $boleto, $dadosDesconto = null, $db = null, $erro = null) {
-    if (!$db) return;
+// ========================================
+// EXECUÇÃO PRINCIPAL
+// ========================================
+
+try {
+    $boletoId = null;
     
-    try {
-        $descricao = "PIX boleto #{$boleto['numero_boleto']} - {$boleto['aluno_nome']}";
-        
-        if ($pixId) {
-            $descricao .= " - PIX ID: {$pixId}";
-        }
-        
-        if ($dadosDesconto && $dadosDesconto['tem_desconto']) {
-            $descricao .= " - Desconto: R$ " . number_format($dadosDesconto['valor_desconto'], 2, ',', '.');
-            $descricao .= " - Valor final: R$ " . number_format($dadosDesconto['valor_final'], 2, ',', '.');
-        }
-        
-        if ($erro) {
-            $descricao .= " - Erro: {$erro}";
-        }
-        
-        $usuarioId = null;
-        if (isset($_SESSION['admin_id'])) {
-            $usuarioId = $_SESSION['admin_id'];
-        } elseif (isset($_SESSION['aluno_id'])) {
-            $usuarioId = $_SESSION['aluno_id'];
-        }
-        
-        $stmt = $db->prepare("
-            INSERT INTO logs (
-                tipo, usuario_id, boleto_id, descricao, 
-                ip_address, user_agent, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, NOW())
-        ");
-        
-        $stmt->execute([
-            $tipo,
-            $usuarioId,
-            $boletoId,
-            $descricao,
-            $_SERVER['REMOTE_ADDR'] ?? 'unknown',
-            $_SERVER['HTTP_USER_AGENT'] ?? 'unknown'
-        ]);
-        
-    } catch (Exception $e) {
-        error_log("PIX Log: Erro ao registrar - " . $e->getMessage());
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        $input = json_decode(file_get_contents('php://input'), true);
+        $boletoId = filter_var($input['boleto_id'] ?? null, FILTER_VALIDATE_INT);
+    } else {
+        $boletoId = filter_input(INPUT_GET, 'boleto_id', FILTER_VALIDATE_INT);
     }
+    
+    if (!$boletoId) {
+        throw new Exception('ID do boleto é obrigatório e deve ser um número válido');
+    }
+    
+    $db = (new Database())->getConnection();
+    
+    // Busca dados completos do boleto incluindo TODAS as colunas de desconto PIX
+    $stmt = $db->prepare("
+        SELECT b.*, 
+               a.nome as aluno_nome, 
+               a.cpf as aluno_cpf,
+               a.email as aluno_email,
+               a.subdomain as aluno_subdomain,
+               c.nome as curso_nome,
+               c.subdomain as curso_subdomain,
+               b.pix_desconto_disponivel,
+               b.pix_desconto_usado, 
+               b.pix_valor_desconto,
+               b.pix_valor_minimo
+        FROM boletos b
+        INNER JOIN alunos a ON b.aluno_id = a.id
+        INNER JOIN cursos c ON b.curso_id = c.id
+        WHERE b.id = ?
+    ");
+    $stmt->execute([$boletoId]);
+    $boleto = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    if (!$boleto) {
+        throw new Exception('Boleto não encontrado');
+    }
+    
+    // Log para debug - mostrar dados do boleto
+    error_log("PIX DEBUG - Boleto: " . json_encode([
+        'id' => $boleto['id'],
+        'numero' => $boleto['numero_boleto'],
+        'valor' => $boleto['valor'],
+        'pix_desconto_disponivel' => $boleto['pix_desconto_disponivel'],
+        'pix_desconto_usado' => $boleto['pix_desconto_usado'],
+        'pix_valor_desconto' => $boleto['pix_valor_desconto'],
+        'pix_valor_minimo' => $boleto['pix_valor_minimo'],
+        'vencimento' => $boleto['vencimento'],
+        'status' => $boleto['status']
+    ]));
+    
+    // Validação de acesso específica
+    $acessoAutorizado = false;
+    
+    if (isset($_SESSION['admin_id'])) {
+        $acessoAutorizado = true;
+    } elseif (isset($_SESSION['aluno_cpf'])) {
+        $cpfSessao = preg_replace('/[^0-9]/', '', $_SESSION['aluno_cpf']);
+        $cpfBoleto = preg_replace('/[^0-9]/', '', $boleto['aluno_cpf']);
+        $subdomainSessao = $_SESSION['subdomain'] ?? '';
+        
+        if ($cpfSessao === $cpfBoleto && $subdomainSessao === $boleto['curso_subdomain']) {
+            $acessoAutorizado = true;
+        }
+    }
+    
+    if (!$acessoAutorizado) {
+        throw new Exception('Você não tem permissão para gerar PIX deste boleto');
+    }
+    
+    if ($boleto['status'] === 'pago') {
+        throw new Exception('Este boleto já foi pago');
+    }
+    
+    if ($boleto['status'] === 'cancelado') {
+        throw new Exception('Este boleto foi cancelado');
+    }
+    
+    // Calcula desconto PIX usando a função corrigida
+    $dadosDesconto = calcularDescontoPixCorrigido($boleto, $db);
+    
+    // Gera PIX com valor final (com ou sem desconto)
+    $configPIX = obterConfiguracaoPIX($boleto['curso_subdomain']);
+    $dadosPIX = gerarCodigoPIX($boleto, $configPIX, $dadosDesconto);
+    
+    // Salva PIX gerado no banco com informações de desconto
+    $pixId = salvarPIXGerado($boletoId, $dadosPIX, $configPIX, $dadosDesconto, $db);
+    
+    // Gera QR Code
+    $qrCodeData = gerarQRCode($dadosPIX['pix_copia_cola']);
+    
+    // Resposta completa
+    $response = [
+        'success' => true,
+        'boleto' => [
+            'id' => $boleto['id'],
+            'numero' => $boleto['numero_boleto'],
+            'valor_original' => floatval($boleto['valor']),
+            'valor_original_formatado' => 'R$ ' . number_format($boleto['valor'], 2, ',', '.'),
+            'valor_final' => $dadosDesconto['valor_final'],
+            'valor_final_formatado' => 'R$ ' . number_format($dadosDesconto['valor_final'], 2, ',', '.'),
+            'vencimento' => $boleto['vencimento'],
+            'vencimento_formatado' => date('d/m/Y', strtotime($boleto['vencimento'])),
+            'aluno_nome' => $boleto['aluno_nome'],
+            'curso_nome' => $boleto['curso_nome'],
+            'status' => $boleto['status']
+        ],
+        'desconto' => [
+            'tem_desconto' => $dadosDesconto['tem_desconto'],
+            'valor_desconto' => $dadosDesconto['valor_desconto'],
+            'valor_desconto_formatado' => 'R$ ' . number_format($dadosDesconto['valor_desconto'], 2, ',', '.'),
+            'motivo' => $dadosDesconto['motivo'],
+            'economia' => $dadosDesconto['tem_desconto'] ? 
+                'Você economizará R$ ' . number_format($dadosDesconto['valor_desconto'], 2, ',', '.') . ' pagando via PIX!' : null,
+            'debug_info' => $dadosDesconto['debug_info'] ?? null // Para debug temporário
+        ],
+        'pix' => [
+            'id' => $pixId,
+            'chave_pix' => $configPIX['chave_pix'],
+            'beneficiario' => $configPIX['beneficiario'],
+            'cidade' => $configPIX['cidade'],
+            'identificador' => $dadosPIX['identificador'],
+            'pix_copia_cola' => $dadosPIX['pix_copia_cola'],
+            'qr_code_base64' => $qrCodeData['base64'],
+            'qr_code_url' => $qrCodeData['url'] ?? null,
+            'validade' => $dadosPIX['validade'],
+            'validade_formatada' => date('d/m/Y H:i', strtotime($dadosPIX['validade']))
+        ],
+        'instrucoes' => [
+            'como_pagar' => [
+                'Abra o app do seu banco',
+                'Acesse a área PIX',
+                'Escolha "Pagar com QR Code" ou "PIX Copia e Cola"',
+                'Escaneie o código ou cole o texto',
+                'Confirme os dados e o valor de R$ ' . number_format($dadosDesconto['valor_final'], 2, ',', '.'),
+                'Efetue o pagamento',
+                'Envie o comprovante via WhatsApp: <a href="https://wa.me/5594992435333" target="_blank">Clique Aqui!</a>',
+                'Aguarde até 48h para processamento'
+            ],
+            'observacoes' => [
+                'PIX válido até ' . date('d/m/Y H:i', strtotime($dadosPIX['validade'])),
+                $dadosDesconto['tem_desconto'] ? 'Desconto personalizado aplicado automaticamente' : 'Sem desconto para este boleto',
+                'Em caso de dúvidas, entre em contato com a secretaria',
+                'Guarde o comprovante de pagamento'
+            ]
+        ],
+        'gerado_em' => date('Y-m-d H:i:s'),
+        'gerado_timestamp' => time()
+    ];
+    
+    // Registra log
+    registrarLogPIX($boletoId, $pixId, 'pix_gerado_com_desconto_corrigido', $boleto, $dadosDesconto, $db);
+    
+    echo json_encode($response, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+    
+} catch (Exception $e) {
+    error_log("PIX Generator: ERRO - " . $e->getMessage());
+    
+    if (isset($boletoId) && isset($boleto)) {
+        registrarLogPIX($boletoId, null, 'pix_erro', $boleto, null, $db ?? null, $e->getMessage());
+    }
+    
+    $errorCode = 'UNKNOWN_ERROR';
+    $httpCode = 400;
+    
+    if (strpos($e->getMessage(), 'não encontrado') !== false) {
+        $errorCode = 'BOLETO_NOT_FOUND';
+        $httpCode = 404;
+    } elseif (strpos($e->getMessage(), 'não tem permissão') !== false) {
+        $errorCode = 'ACCESS_DENIED';
+        $httpCode = 403;
+    } elseif (strpos($e->getMessage(), 'já foi pago') !== false) {
+        $errorCode = 'ALREADY_PAID';
+        $httpCode = 409;
+    } elseif (strpos($e->getMessage(), 'foi cancelado') !== false) {
+        $errorCode = 'CANCELLED';
+        $httpCode = 410;
+    }
+    
+    http_response_code($httpCode);
+    echo json_encode([
+        'success' => false,
+        'error' => $errorCode,
+        'message' => $e->getMessage(),
+        'timestamp' => time()
+    ], JSON_UNESCAPED_UNICODE);
 }
 ?>
