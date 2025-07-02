@@ -1152,15 +1152,49 @@ error_log("Dashboard: Resumo final - Polo: {$_SESSION['subdomain']}, Total: " . 
         }
         
         function setupConnectivityListeners() {
-            window.addEventListener('online', function() {
-                showToast('Conexão restaurada!', 'success');
-                setTimeout(() => atualizarDados(true), 1000);
+    window.addEventListener('online', function() {
+        showToast('Conexão restaurada!', 'success');
+        // Força limpeza e atualização quando voltar online
+        setTimeout(() => {
+            forcarLimpezaCache().then(() => {
+                atualizarDados(true);
             });
-            
-            window.addEventListener('offline', function() {
-                showToast('Você está offline', 'warning');
-            });
-        }
+        }, 1000);
+    });
+    
+    window.addEventListener('offline', function() {
+        showToast('Você está offline', 'warning');
+    });
+}
+
+// 🔧 CORREÇÃO: Adiciona listener para detectar focus na janela
+window.addEventListener('focus', function() {
+    const lastUpdate = localStorage.getItem('lastUpdate');
+    const now = Date.now();
+    
+    // Se passou mais de 2 minutos desde a última atualização, sincroniza
+    if (!lastUpdate || (now - parseInt(lastUpdate)) > 2 * 60 * 1000) {
+        console.log('👁️ Janela focada - verificando atualizações...');
+        setTimeout(() => atualizarDados(true), 500);
+    }
+});
+
+//Função de debug para testar sincronização
+function debugSincronizacao() {
+    console.log('🔧 DEBUG: Testando sincronização...');
+    console.log('📊 Estado atual:', {
+        isUpdating: isUpdating,
+        lastUpdate: localStorage.getItem('lastUpdate'),
+        userAgent: navigator.userAgent,
+        online: navigator.onLine,
+        serviceWorkerController: !!navigator.serviceWorker?.controller
+    });
+    
+    forcarLimpezaCache().then(() => {
+        console.log('🔄 Iniciando teste de sincronização...');
+        atualizarDados(false);
+    });
+}
         
         function checkAutoUpdate() {
             const lastUpdate = localStorage.getItem('lastUpdate');
@@ -1522,48 +1556,203 @@ error_log("Dashboard: Resumo final - Polo: {$_SESSION['subdomain']}, Total: " . 
         }
         
         function atualizarDados(silencioso = false) {
-            if (isUpdating) return;
-            
-            isUpdating = true;
-            const btnSync = document.getElementById('btnSync');
-            const originalIcon = btnSync.innerHTML;
-            
-            btnSync.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-            btnSync.disabled = true;
-            
-            if (!silencioso) {
-                showToast('Sincronizando dados...', 'info');
+    if (isUpdating) return;
+    
+    isUpdating = true;
+    const btnSync = document.getElementById('btnSync');
+    const originalIcon = btnSync.innerHTML;
+    
+    btnSync.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    btnSync.disabled = true;
+    
+    if (!silencioso) {
+        showToast('Sincronizando dados...', 'info');
+    }
+    
+    // 🔧 CORREÇÃO 1: URL com cache-busting mais agressivo
+    const timestamp = Date.now();
+    const random = Math.random().toString(36).substring(7);
+    const forceRefresh = `force_refresh=1&t=${timestamp}&r=${random}&v=2.3.1`;
+    
+    // 🔧 CORREÇÃO 2: Headers para forçar bypass do cache
+    const headers = {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-Force-Refresh': timestamp,
+        'X-SW-Bypass': 'true'
+    };
+    
+    // 🔧 CORREÇÃO 3: URL absoluta com parâmetros de bypass
+    const apiUrl = `/api/atualizar_dados.php?${forceRefresh}`;
+    
+    console.log('🔄 Iniciando sincronização forçada:', apiUrl);
+    
+    // 🔧 CORREÇÃO 4: Limpa cache antes da requisição
+    if ('caches' in window) {
+        caches.keys().then(cacheNames => {
+            const deletePromises = cacheNames
+                .filter(name => name.includes('atualizar') || name.includes('data'))
+                .map(name => {
+                    console.log('🗑️ Removendo cache:', name);
+                    return caches.delete(name);
+                });
+            return Promise.all(deletePromises);
+        }).catch(err => {
+            console.log('⚠️ Erro ao limpar cache:', err);
+        });
+    }
+    
+    // 🔧 CORREÇÃO 5: Notifica Service Worker para bypass
+    if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+        navigator.serviceWorker.controller.postMessage({
+            type: 'BYPASS_CACHE',
+            url: apiUrl,
+            timestamp: timestamp
+        });
+    }
+    
+    // 🔧 CORREÇÃO 6: Fetch com configurações específicas para bypass
+    fetch(apiUrl, {
+        method: 'POST',
+        headers: headers,
+        credentials: 'same-origin',
+        cache: 'no-store', // Força não usar cache
+        redirect: 'follow'
+    })
+    .then(response => {
+        console.log('📡 Resposta recebida:', response.status, response.headers.get('date'));
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        // Verifica se é uma resposta nova (não do cache)
+        const responseDate = response.headers.get('date');
+        const xCacheStatus = response.headers.get('x-cache-status') || 'UNKNOWN';
+        const xSWBypass = response.headers.get('x-sw-bypass');
+        
+        console.log('🔍 Headers de resposta:', {
+            date: responseDate,
+            cacheStatus: xCacheStatus,
+            swBypass: xSWBypass,
+            age: response.headers.get('age')
+        });
+        
+        return response.json();
+    })
+    .then(data => {
+        console.log('📊 Dados recebidos:', data);
+        
+        if (data.success) {
+            // 🔧 CORREÇÃO 7: Limpa localStorage relacionado
+            try {
+                const keysToRemove = [];
+                for (let i = 0; i < localStorage.length; i++) {
+                    const key = localStorage.key(i);
+                    if (key && (key.includes('aluno') || key.includes('curso') || key.includes('boleto'))) {
+                        keysToRemove.push(key);
+                    }
+                }
+                keysToRemove.forEach(key => localStorage.removeItem(key));
+                console.log('🧹 LocalStorage limpo:', keysToRemove.length, 'itens removidos');
+            } catch (e) {
+                console.log('⚠️ Erro ao limpar localStorage:', e);
             }
             
-            fetch('/api/atualizar_dados.php', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                }
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    localStorage.setItem('lastUpdate', Date.now().toString());
-                    
-                    if (!silencioso) {
-                        showToast('Dados atualizados!', 'success');
-                        setTimeout(() => location.reload(), 1500);
-                    }
-                } else {
-                    showToast('Erro: ' + data.message, 'error');
-                }
-            })
-            .catch(error => {
-                console.error('Erro:', error);
-                showToast('Erro de conexão', 'error');
-            })
-            .finally(() => {
-                isUpdating = false;
-                btnSync.innerHTML = originalIcon;
-                btnSync.disabled = false;
-            });
+            // 🔧 CORREÇÃO 8: Atualiza timestamp de última atualização
+            localStorage.setItem('lastUpdate', timestamp.toString());
+            localStorage.setItem('lastUpdateSuccess', 'true');
+            
+            if (!silencioso) {
+                showToast('Dados atualizados com sucesso!', 'success');
+                
+                // 🔧 CORREÇÃO 9: Recarrega página com cache-busting
+                setTimeout(() => {
+                    const reloadUrl = window.location.pathname + `?updated=${timestamp}&reload=1`;
+                    console.log('🔄 Recarregando página:', reloadUrl);
+                    window.location.replace(reloadUrl);
+                }, 1500);
+            } else {
+                console.log('✅ Sincronização silenciosa concluída');
+            }
+        } else {
+            throw new Error(data.message || 'Erro desconhecido na sincronização');
         }
+    })
+    .catch(error => {
+        console.error('❌ Erro na sincronização:', error);
+        
+        // 🔧 CORREÇÃO 10: Diagnóstico de erro
+        let errorMessage = 'Erro de conexão';
+        
+        if (error.message.includes('HTTP 304')) {
+            errorMessage = 'Dados já estão atualizados';
+        } else if (error.message.includes('HTTP 401')) {
+            errorMessage = 'Sessão expirada. Faça login novamente';
+        } else if (error.message.includes('HTTP 500')) {
+            errorMessage = 'Erro interno do servidor';
+        } else if (error.message.includes('Failed to fetch')) {
+            errorMessage = 'Problema de conexão. Verifique sua internet';
+        } else if (error.message) {
+            errorMessage = error.message;
+        }
+        
+        showToast('Erro: ' + errorMessage, 'error');
+        
+        // Se for erro de sessão, redireciona para login
+        if (error.message.includes('401') || error.message.includes('não autenticado')) {
+            setTimeout(() => {
+                window.location.href = '/login.php';
+            }, 2000);
+        }
+    })
+    .finally(() => {
+        isUpdating = false;
+        btnSync.innerHTML = originalIcon;
+        btnSync.disabled = false;
+        
+        console.log('🏁 Sincronização finalizada');
+    });
+}
+
+// 🔧 CORREÇÃO ADICIONAL: Função para forçar limpeza de cache
+function forcarLimpezaCache() {
+    console.log('🧹 Forçando limpeza completa de cache...');
+    
+    return Promise.all([
+        // Limpa cache do navegador
+        'caches' in window ? caches.keys().then(names => 
+            Promise.all(names.map(name => caches.delete(name)))
+        ) : Promise.resolve(),
+        
+        // Limpa localStorage
+        new Promise(resolve => {
+            try {
+                localStorage.clear();
+                resolve();
+            } catch (e) {
+                resolve();
+            }
+        }),
+        
+        // Limpa sessionStorage
+        new Promise(resolve => {
+            try {
+                sessionStorage.clear();
+                resolve();
+            } catch (e) {
+                resolve();
+            }
+        })
+    ]).then(() => {
+        console.log('✅ Cache limpo completamente');
+    }).catch(err => {
+        console.log('⚠️ Erro na limpeza:', err);
+    });
+}
         
         function baixarTodosPendentes() {
             const pendentes = document.querySelectorAll('.boleto-card.pendente, .boleto-card.vencido').length;
@@ -1815,16 +2004,19 @@ function renderizarBoletoCard($boleto, $statusClass) {
     $botaoPixClass = 'btn-pix';
     $valorExibicao = $valorFormatado;
     
-    //Verificar vencimento antes de mostrar desconto
-		$dataVencimento = new DateTime($boleto['vencimento']);
-		$agora = new DateTime();
-		$venceuCompletamente = ($agora > $dataVencimento);
+    // Verifica se tem desconto PIX personalizado disponível
+       $temDescontoPix = false;
+       $economiaTexto = '';
+       $cardExtraClass = '';
+       $botaoPixClass = 'btn-pix';
+       $valorExibicao = $valorFormatado;
+       
+       if ($boleto['pode_usar_desconto'] ?? false) {
+           $temDescontoPix = true;
+           $economiaTexto = 'Economia: R$ ' . number_format($boleto['economia_pix'], 2, ',', '.');
+           $cardExtraClass = ' com-desconto-pix';
+           $botaoPixClass = 'btn-pix com-desconto';
 
-	if (($boleto['pode_usar_desconto'] ?? false) && !$venceuCompletamente) {
-        $temDescontoPix = true;
-        $economiaTexto = 'Economia: R$ ' . number_format($boleto['economia_pix'], 2, ',', '.');
-        $cardExtraClass = ' com-desconto-pix';
-        $botaoPixClass = 'btn-pix com-desconto';
         
         // Mostra valor original e valor com desconto
         $valorOriginal = 'R$ ' . number_format($boleto['valor'], 2, ',', '.');

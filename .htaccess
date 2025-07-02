@@ -1,68 +1,128 @@
-# Sistema de Boletos IMEPEDU - .htaccess CORRIGIDO PARA UPLOAD
-# Arquivo: .htaccess (VERSÃO CORRIGIDA)
+# Sistema de Boletos IMEPEDU - .htaccess CORRIGIDO COMPLETO
+# Arquivo: .htaccess (VERSÃO FINAL COM CORREÇÃO DE SINCRONIZAÇÃO)
+# Versão: 2.3.1 - Correção definitiva para upload e sincronização
 
-# 🔧 CORREÇÃO: Remove .php das URLs para arquivos públicos (exceto admin e upload)
-RewriteCond %{REQUEST_FILENAME} !-d
-RewriteCond %{REQUEST_FILENAME} !-f
-RewriteCond %{REQUEST_URI} !^/api/
-RewriteCond %{REQUEST_URI} !^/(config|src|logs|vendor)/
-RewriteCond %{REQUEST_URI} !^/admin/
-RewriteCond %{REQUEST_URI} !logout
-RewriteCond %{REQUEST_URI} !upload
-RewriteRule ^([^\.]+)$ $1.php [NC,L]
-
-# Página inicial
+# ==== CONFIGURAÇÃO BÁSICA ====
+RewriteEngine On
 DirectoryIndex index.php
 
-# ==== CONFIGURAÇÃO DE EXPIRAÇÃO ====
+# ==== CORREÇÃO CRÍTICA: API DE SINCRONIZAÇÃO NUNCA CACHEADA ====
 
-<IfModule mod_expires.c>
-    ExpiresActive On
+<LocationMatch "^/api/atualizar_dados\.php">
+    # NUNCA cachear API de atualização - Headers mais agressivos
+    Header always set Cache-Control "no-cache, no-store, must-revalidate, private, max-age=0, s-maxage=0"
+    Header always set Pragma "no-cache"
+    Header always set Expires "Thu, 01 Jan 1970 00:00:00 GMT"
+    Header always set Last-Modified "Thu, 01 Jan 1970 00:00:00 GMT"
+    Header always set ETag ""
+    Header unset ETag
     
-    # 🔧 CORREÇÃO: NUNCA expira uploads e logout
-    <FilesMatch "(logout\.php|upload.*\.php)">
-        ExpiresDefault "access plus 0 seconds"
-    </FilesMatch>
+    # Headers especiais para identificação e bypass
+    Header always set X-API-Sync "no-cache"
+    Header always set X-SW-Bypass "true"
+    Header always set X-Force-Fresh "true"
+    Header always set X-Cache-Status "DISABLED"
+    Header always set X-Response-Type "api-sync"
+    Header always set X-No-Cache-Reason "sync-api"
     
-    # 🔧 CORREÇÃO: Admin area com expiração mínima
-    <LocationMatch "^/admin/">
-        ExpiresDefault "access plus 5 minutes"
-    </LocationMatch>
+    # Remove qualquer cache intermediário
+    Header always set Vary "Cache-Control, Pragma, X-Requested-With"
+    Header always set X-Accel-Expires "0"
+    FileETag None
     
-    # Recursos estáticos
-    ExpiresByType text/css "access plus 1 month"
-    ExpiresByType application/javascript "access plus 1 month"
-    ExpiresByType image/png "access plus 1 month"
-    ExpiresByType image/jpg "access plus 1 month"
-    ExpiresByType image/jpeg "access plus 1 month"
-    ExpiresByType image/gif "access plus 1 month"
-    ExpiresByType image/ico "access plus 1 month"
-    ExpiresByType image/svg+xml "access plus 1 month"
-    
-    # Páginas PHP (exceto admin)
-    ExpiresByType text/html "access plus 1 hour"
-    
-    # APIs com cache curto
-    <FilesMatch "^api/">
-        ExpiresDefault "access plus 5 minutes"
-    </FilesMatch>
-</IfModule>
+    # Headers para debug
+    Header always set X-Server-Time "%{TIME_YEAR}%{TIME_MON}%{TIME_DAY}%{TIME_HOUR}%{TIME_MIN}%{TIME_SEC}e"
+    Header always set X-Request-ID "%{UNIQUE_ID}e"
+</LocationMatch>
 
-# ==== CONFIGURAÇÃO ETAGS ====
+# ==== CORREÇÃO PARA TODAS AS APIs COM PARÂMETROS ESPECIAIS ====
 
-<IfModule mod_headers.c>
-    # 🔧 CORREÇÃO: Remove ETag de upload e logout para forçar sempre nova requisição
-    <FilesMatch "(logout\.php|upload.*\.php)">
-        Header unset ETag
-        FileETag None
-    </FilesMatch>
+# Qualquer requisição com force_refresh=1
+<If "%{QUERY_STRING} =~ /force_refresh=1/">
+    Header always set Cache-Control "no-cache, no-store, must-revalidate, private, max-age=0"
+    Header always set Pragma "no-cache"
+    Header always set Expires "0"
+    Header always set X-Force-Refresh "true"
+    Header always set X-SW-Bypass "required"
+    Header always set X-Cache-Bypass "force-refresh"
+    FileETag None
+</If>
+
+# Requisições com timestamp + random (cache busting)
+<If "%{QUERY_STRING} =~ /t=\d+.*r=/">
+    Header always set Cache-Control "no-cache, no-store, must-revalidate"
+    Header always set Pragma "no-cache"
+    Header always set X-Timestamp-Bypass "true"
+    Header always set X-Cache-Bypass "timestamp"
+    FileETag None
+</If>
+
+# Requisições de teste e debug
+<If "%{QUERY_STRING} =~ /(test|debug|nocache|bypass)=/">
+    Header always set Cache-Control "no-cache, no-store, must-revalidate"
+    Header always set Pragma "no-cache"
+    Header always set X-Debug-Mode "true"
+    Header always set X-Cache-Bypass "debug"
+    FileETag None
+</If>
+
+# ==== CORREÇÃO PARA MÉTODOS POST EM APIs ====
+
+<If "%{REQUEST_METHOD} == 'POST' && %{REQUEST_URI} =~ /\/api\//">
+    Header always set Cache-Control "no-cache, no-store, must-revalidate, private, max-age=0"
+    Header always set Pragma "no-cache"
+    Header always set Expires "0"
+    Header always set X-Post-API "no-cache"
+    Header always set X-Method "POST"
+    Header always set X-API-Post-Time "%{TIME_YEAR}%{TIME_MON}%{TIME_DAY}%{TIME_HOUR}%{TIME_MIN}%{TIME_SEC}e"
+    FileETag None
+</If>
+
+# ==== CORREÇÃO GERAL PARA DIRETÓRIO /api/ ====
+
+<LocationMatch "^/api/">
+    # APIs têm cache muito limitado por padrão
+    Header always set Cache-Control "private, no-cache, must-revalidate, max-age=30"
+    Header always set Pragma "no-cache"
+    Header always set X-API-Protected "true"
+    Header always set X-API-Version "2.3.1"
     
-    # 🔧 CORREÇÃO: Admin area com ETag limitado
-    <LocationMatch "^/admin/">
-        Header unset ETag
-        FileETag Size
-    </LocationMatch>
-</IfModule>
+    # Para POST requests, cache ZERO
+    <If "%{REQUEST_METHOD} == 'POST'">
+        Header always set Cache-Control "no-cache, no-store, must-revalidate, private"
+        Header always set Expires "0"
+        Header always set X-Post-Request "no-cache"
+        Header always set X-Post-Timestamp "%{TIME_YEAR}%{TIME_MON}%{TIME_DAY}%{TIME_HOUR}%{TIME_MIN}%{TIME_SEC}e"
+    </If>
+</LocationMatch>
+
+# ==== CORREÇÃO PARA AJAX E HEADERS ESPECIAIS ====
+
+# AJAX Requests
+<If "%{HTTP:X-Requested-With} == 'XMLHttpRequest'">
+    Header always set Cache-Control "no-cache, no-store, must-revalidate"
+    Header always set X-Ajax-Request "no-cache"
+    Header always set X-Ajax-Time "%{TIME_YEAR}%{TIME_MON}%{TIME_DAY}%{TIME_HOUR}%{TIME_MIN}%{TIME_SEC}e"
+    FileETag None
+</If>
+
+# Headers de bypass do Service Worker
+<If "%{HTTP:X-SW-Bypass} == 'true'">
+    Header always set Cache-Control "no-cache, no-store, must-revalidate, private"
+    Header always set Pragma "no-cache"
+    Header always set Expires "0"
+    Header always set X-SW-Bypass-Confirmed "true"
+    Header always set X-SW-Bypass-Time "%{TIME_YEAR}%{TIME_MON}%{TIME_DAY}%{TIME_HOUR}%{TIME_MIN}%{TIME_SEC}e"
+    FileETag None
+</If>
+
+# Headers de force refresh
+<If "%{HTTP:X-Force-Refresh} != ''">
+    Header always set Cache-Control "no-cache, no-store, must-revalidate"
+    Header always set Pragma "no-cache"
+    Header always set X-Force-Refresh-Confirmed "true"
+    FileETag None
+</If>
 
 # ==== PROTEÇÃO CONTRA CACHE DE UPLOAD ====
 
@@ -71,10 +131,194 @@ DirectoryIndex index.php
     Header always set Pragma "no-cache"
     Header always set Expires "Thu, 01 Jan 1970 00:00:00 GMT"
     Header always set X-Upload-Protection "enabled"
+    Header always set X-Upload-Safe "true"
     FileETag None
 </LocationMatch>
 
-# ==== SERVICE WORKER CONFIGURATION ====
+<LocationMatch "^/admin/api/.*upload">
+    Header always set Cache-Control "no-cache, no-store, must-revalidate, private"
+    Header always set Pragma "no-cache"
+    Header always set Expires "0"
+    Header always set X-Upload-API "true"
+    Header always set X-SW-Bypass "true"
+    FileETag None
+</LocationMatch>
+
+# ==== LOGOUT E SESSÃO ====
+
+<FilesMatch "(logout\.php)">
+    Header always set Cache-Control "no-cache, no-store, must-revalidate, private"
+    Header always set Pragma "no-cache"
+    Header always set Expires "0"
+    Header always set Last-Modified "Thu, 01 Jan 1970 00:00:00 GMT"
+    Header always set ETag ""
+    Header unset ETag
+    Header always set X-Logout-Safe "true"
+    Header always set X-Session-Control "no-cache"
+</FilesMatch>
+
+# ==== ADMIN AREA ====
+
+<LocationMatch "^/admin/">
+    Header always set Cache-Control "private, no-cache, must-revalidate, max-age=300"
+    Header always set Pragma "no-cache"
+    Header always set X-Admin-Area "true"
+    Header always set X-Admin-Version "2.3.1"
+    
+    # POST requests no admin = zero cache
+    <If "%{REQUEST_METHOD} == 'POST'">
+        Header always set Cache-Control "no-cache, no-store, must-revalidate, private"
+        Header always set Expires "0"
+        Header always set X-Admin-Post "no-cache"
+    </If>
+</LocationMatch>
+
+# ==== URL REWRITING ====
+
+<IfModule mod_rewrite.c>
+    RewriteBase /
+
+    # ==== CORREÇÃO: Rewrite rules para forçar cache-busting ====
+    
+    # API de atualização - força parâmetros únicos
+    RewriteCond %{REQUEST_URI} ^/api/atualizar_dados\.php$
+    RewriteCond %{REQUEST_METHOD} =POST
+    RewriteCond %{QUERY_STRING} !force_refresh=
+    RewriteRule ^api/atualizar_dados\.php$ /api/atualizar_dados.php?force_refresh=1&t=%{TIME}&method=post&v=2.3.1 [L,QSA]
+    
+    # Todas as APIs POST - adiciona cache busting
+    RewriteCond %{REQUEST_URI} ^/api/.*\.php$
+    RewriteCond %{REQUEST_METHOD} =POST
+    RewriteCond %{QUERY_STRING} !nocache=
+    RewriteRule ^api/(.*)$ /api/$1?nocache=%{TIME}&method=post&api_v=2.3.1 [L,QSA]
+    
+    # Upload com cache-busting especial
+    RewriteCond %{REQUEST_URI} ^/admin/upload-boletos\.php$
+    RewriteCond %{REQUEST_METHOD} =POST
+    RewriteCond %{QUERY_STRING} !bypass_cache=
+    RewriteRule ^admin/upload-boletos\.php$ /admin/upload-boletos.php?bypass_cache=%{TIME}&method=post&upload_v=2.3.1 [L,QSA]
+    
+    # APIs de upload com timestamp único
+    RewriteCond %{REQUEST_URI} ^/admin/api/.*upload.*\.php$
+    RewriteCond %{REQUEST_METHOD} =POST
+    RewriteCond %{QUERY_STRING} !nocache=
+    RewriteRule ^admin/api/(.*)$ /admin/api/$1?nocache=%{TIME}&upload=1&v=2.3.1 [L,QSA]
+    
+    # Logout com parâmetros únicos
+    RewriteCond %{REQUEST_URI} ^/logout\.php$
+    RewriteCond %{QUERY_STRING} !t=
+    RewriteRule ^logout\.php$ /logout.php?t=%{TIME}&r=%{REMOTE_ADDR}&logout_v=2.3.1 [L,R=302]
+
+    # ==== URLs AMIGÁVEIS ====
+    
+    # Remove .php das URLs para arquivos públicos (exceto admin e upload)
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_URI} !^/api/
+    RewriteCond %{REQUEST_URI} !^/(config|src|logs|vendor)/
+    RewriteCond %{REQUEST_URI} !^/admin/
+    RewriteCond %{REQUEST_URI} !logout
+    RewriteCond %{REQUEST_URI} !upload
+    RewriteRule ^([^\.]+)$ $1.php [NC,L]
+
+    # URLs específicas do sistema
+    RewriteRule ^login/?$ login.php [L]
+    RewriteRule ^logout/?$ logout.php [L]
+    RewriteRule ^dashboard/?$ dashboard.php [L]
+    RewriteRule ^admin/?$ admin/dashboard.php [L]
+    RewriteRule ^boleto/([0-9]+)/?$ boleto.php?id=$1 [L]
+
+    # API routes
+    RewriteRule ^api/atualizar-dados/?$ api/atualizar_dados.php [L]
+    RewriteRule ^api/([a-zA-Z_]+)/?$ api/$1.php [L]
+
+    # Admin API routes
+    RewriteRule ^admin/api/gerar-numeros-sequenciais/?$ admin/api/gerar-numeros-sequenciais.php [L]
+
+    # Busca específica para Breu Branco
+    RewriteCond %{QUERY_STRING} polo=breubranco\.imepedu\.com\.br
+    RewriteRule ^admin/api/buscar-cursos\.php$ /admin/api/buscar-cursos-breubranco-especifico.php [L,QSA]
+
+    # Bloqueia acesso direto a arquivos sensíveis
+    RewriteRule ^(config|src|logs|vendor)/ - [F,L]
+    RewriteRule \.(bak|backup|old|tmp)$ - [F,L]
+    
+    # Permite uploads de PDF na pasta correta
+    RewriteCond %{REQUEST_URI} ^/uploads/boletos/.*\.pdf$
+    RewriteRule ^(.*)$ - [L]
+</IfModule>
+
+# ==== CONFIGURAÇÃO DE EXPIRAÇÃO ====
+
+<IfModule mod_expires.c>
+    ExpiresActive On
+    
+    # APIs de sincronização NUNCA expiram (forçam nova requisição)
+    <FilesMatch "(atualizar_dados\.php|logout\.php|upload.*\.php)">
+        ExpiresDefault "access plus 0 seconds"
+        Header always set Cache-Control "no-cache, no-store, must-revalidate"
+    </FilesMatch>
+    
+    # Admin area com expiração mínima
+    <LocationMatch "^/admin/">
+        ExpiresDefault "access plus 5 minutes"
+        <If "%{REQUEST_METHOD} == 'POST'">
+            ExpiresDefault "access plus 0 seconds"
+        </If>
+    </LocationMatch>
+    
+    # Recursos estáticos (CSS, JS, imagens)
+    ExpiresByType text/css "access plus 1 month"
+    ExpiresByType application/javascript "access plus 1 month"
+    ExpiresByType image/png "access plus 1 month"
+    ExpiresByType image/jpg "access plus 1 month"
+    ExpiresByType image/jpeg "access plus 1 month"
+    ExpiresByType image/gif "access plus 1 month"
+    ExpiresByType image/ico "access plus 1 month"
+    ExpiresByType image/svg+xml "access plus 1 month"
+    ExpiresByType font/woff "access plus 1 month"
+    ExpiresByType font/woff2 "access plus 1 month"
+    
+    # Páginas PHP (exceto admin e APIs)
+    ExpiresByType text/html "access plus 1 hour"
+    
+    # APIs gerais com cache muito curto
+    <FilesMatch "^api/.*\.php$">
+        ExpiresDefault "access plus 2 minutes"
+        <If "%{REQUEST_METHOD} == 'POST'">
+            ExpiresDefault "access plus 0 seconds"
+        </If>
+    </FilesMatch>
+</IfModule>
+
+# ==== CONFIGURAÇÃO ETAGS ====
+
+<IfModule mod_headers.c>
+    # Remove ETag de uploads, logout e APIs de sync
+    <FilesMatch "(logout\.php|upload.*\.php|atualizar_dados\.php)">
+        Header unset ETag
+        FileETag None
+        Header always set X-ETag-Disabled "true"
+    </FilesMatch>
+    
+    # Admin area com ETag limitado
+    <LocationMatch "^/admin/">
+        Header unset ETag
+        FileETag Size
+        Header always set X-ETag-Limited "true"
+    </LocationMatch>
+    
+    # APIs com ETag controlado
+    <LocationMatch "^/api/">
+        FileETag MTime Size
+        <If "%{REQUEST_METHOD} == 'POST'">
+            Header unset ETag
+            FileETag None
+        </If>
+    </LocationMatch>
+</IfModule>
+
+# ==== SERVICE WORKER E PWA ====
 
 <FilesMatch "sw\.js$">
     Header set Cache-Control "no-cache, no-store, must-revalidate"
@@ -82,13 +326,13 @@ DirectoryIndex index.php
     Header set Expires "0"
     Header set Service-Worker-Allowed "/"
     Header set X-Service-Worker "enabled"
+    Header set X-SW-Version "2.3.1"
 </FilesMatch>
-
-# ==== MANIFEST PWA ====
 
 <FilesMatch "manifest\.json$">
     Header set Content-Type "application/manifest+json"
     Header set Cache-Control "public, max-age=86400"
+    Header set X-PWA-Manifest "enabled"
 </FilesMatch>
 
 # ==== COMPRESSÃO ====
@@ -105,64 +349,68 @@ DirectoryIndex index.php
     AddOutputFilterByType DEFLATE application/x-javascript
     AddOutputFilterByType DEFLATE application/json
     
-    # 🔧 CORREÇÃO: NÃO comprimir uploads para evitar problemas
+    # NÃO comprimir uploads e arquivos binários
     SetEnvIfNoCase Request_URI \
-        \.(?:gif|jpe?g|png|pdf|doc|docx|xls|xlsx)$ no-gzip dont-vary
+        \.(?:gif|jpe?g|png|pdf|doc|docx|xls|xlsx|zip|rar)$ no-gzip dont-vary
     SetEnvIfNoCase Request_URI /upload no-gzip dont-vary
     SetEnvIfNoCase Request_URI multipart no-gzip dont-vary
+    
+    # Headers de compressão
+    Header append Vary Accept-Encoding
 </IfModule>
 
-# ==== SEGURANÇA ADICIONAL ====
-
-<IfModule mod_rewrite.c>
-    # Bloqueia acesso direto a arquivos sensíveis
-    RewriteRule ^(config|src|logs|vendor)/ - [F,L]
-    
-    # Bloqueia tentativas de acesso a arquivos de backup
-    RewriteRule \.(bak|backup|old|tmp)$ - [F,L]
-    
-    # 🔧 CORREÇÃO: Permite uploads de PDF na pasta correta
-    RewriteCond %{REQUEST_URI} ^/uploads/boletos/.*\.pdf$
-    RewriteRule ^(.*)$ - [L]
-    
-    # Força HTTPS para área administrativa (descomente em produção)
-    # RewriteCond %{HTTPS} off
-    # RewriteCond %{REQUEST_URI} ^/admin
-    # RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
-</IfModule>
-
-# ==== HEADERS FINAIS PARA DEBUG ====
+# ==== SEGURANÇA ====
 
 <IfModule mod_headers.c>
-    # Headers para identificar quando cache foi usado
-    Header always set X-Cache-Status "MISS"
+    # Headers de segurança padrão
+    Header always set X-Content-Type-Options nosniff
+    Header always set X-Frame-Options DENY
+    Header always set X-XSS-Protection "1; mode=block"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    Header always set X-Robots-Tag "noindex, nofollow"
+    
+    # Headers personalizados para identificação
     Header always set X-Server-Type "Apache"
+    Header always set X-System-Version "IMEPEDU-Boletos-2.3.1"
     Header always set X-Upload-Ready "true"
+    Header always set X-Sync-Ready "true"
     
-    # 🔧 CORREÇÃO: Headers específicos para upload
-    <FilesMatch "(upload.*\.php)">
-        Header always set X-Upload-Safe "true"
-        Header always set X-Cache-Control "disabled"
-        Header always set X-SW-Bypass "required"
-    </FilesMatch>
-    
-    # Header específico para logout
-    <FilesMatch "(logout\.php)">
-        Header always set X-Logout-Safe "true"
-        Header always set X-Cache-Control "disabled"
-    </FilesMatch>
-    
-    # 🔧 CORREÇÃO: Headers para detectar POST requests
+    # Headers específicos para diferentes tipos de requisição
     <If "%{REQUEST_METHOD} == 'POST'">
         Header always set X-Request-Method "POST"
         Header always set X-Post-Protected "true"
+        Header always set X-CSRF-Protected "true"
     </If>
+    
+    # CORS para APIs
+    Header always set Access-Control-Allow-Origin "*"
+    Header always set Access-Control-Allow-Methods "GET, POST, OPTIONS"
+    Header always set Access-Control-Allow-Headers "Content-Type, Authorization, X-Requested-With, X-SW-Bypass, X-Force-Refresh"
+    Header always set Access-Control-Expose-Headers "X-API-Sync, X-Response-Time, X-Request-ID"
+    
+    # Cache headers específicos por tipo de conteúdo
+    <FilesMatch "\.(css|js)$">
+        Header set Cache-Control "public, max-age=2592000"
+        Header set X-Static-Resource "true"
+    </FilesMatch>
+    
+    <FilesMatch "\.(png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$">
+        Header set Cache-Control "public, max-age=2592000"
+        Header set X-Asset-Resource "true"
+    </FilesMatch>
+    
+    <FilesMatch "\.php$">
+        Header set X-PHP-Resource "true"
+        <If "%{REQUEST_URI} !~ /\/admin\// && %{QUERY_STRING} !~ /logout/">
+            Header set Cache-Control "private, max-age=1800"
+        </If>
+    </FilesMatch>
 </IfModule>
 
 # ==== CONFIGURAÇÕES DE UPLOAD PHP ====
 
 <IfModule mod_php.c>
-    # Configurações específicas para upload
+    # Configurações para upload de arquivos
     php_value upload_tmp_dir "/tmp"
     php_flag file_uploads On
     php_value max_file_uploads 50
@@ -172,14 +420,22 @@ DirectoryIndex index.php
     php_value max_input_time 300
     php_value memory_limit 512M
     
-    # Configurações de sessão para admin
+    # Configurações de sessão
     php_value session.gc_maxlifetime 7200
     php_value session.cookie_lifetime 0
     php_flag session.cookie_secure Off
     php_flag session.cookie_httponly On
+    php_value session.name "IMEPEDU_SESSION"
+    
+    # Configurações de cache do PHP
+    php_value opcache.enable 1
+    php_value opcache.enable_cli 0
+    php_value opcache.memory_consumption 128
+    php_value opcache.max_accelerated_files 4000
+    php_value opcache.revalidate_freq 60
 </IfModule>
 
-# ==== MIME TYPES PARA UPLOAD ====
+# ==== MIME TYPES ====
 
 <IfModule mod_mime.c>
     AddType application/pdf .pdf
@@ -187,167 +443,54 @@ DirectoryIndex index.php
     AddType application/vnd.openxmlformats-officedocument.wordprocessingml.document .docx
     AddType application/vnd.ms-excel .xls
     AddType application/vnd.openxmlformats-officedocument.spreadsheetml.sheet .xlsx
+    AddType application/zip .zip
+    AddType application/x-rar-compressed .rar
+    AddType application/json .json
+    AddType text/javascript .js
+    AddType font/woff .woff
+    AddType font/woff2 .woff2
 </IfModule>
 
-# ==== CONFIGURAÇÃO FINAL ====
+# ==== CONFIGURAÇÕES FINAIS ====
 
 # Desabilita listagem de diretórios
-Options -Indexes
+Options -Indexes +FollowSymLinks
 
-# Configuração de erro personalizada
+# Páginas de erro personalizadas
 ErrorDocument 404 /404.php
 ErrorDocument 500 /500.php
+ErrorDocument 403 /403.php
 
-# ==== LOG PARA DEBUG (remover em produção) ====
+# Proteção contra hotlinking
+RewriteCond %{HTTP_REFERER} !^$
+RewriteCond %{HTTP_REFERER} !^https?://(.+\.)?imepedu\.com\.br [NC]
+RewriteCond %{REQUEST_URI} \.(jpe?g|png|gif|pdf)$ [NC]
+RewriteRule \.(jpe?g|png|gif|pdf)$ - [F]
 
-# LogLevel info rewrite:trace3
-# RewriteLog /var/log/apache2/rewrite.log
-# RewriteLogLevel 3CORREÇÃO CRÍTICA: Configuração específica para uploads
-RewriteEngine On
+# ==== MONITORAMENTO E DEBUG ====
 
-# ==== CONFIGURAÇÕES DE UPLOAD ====
-
-# Permite uploads grandes (ajuste conforme necessário)
-php_value upload_max_filesize 10M
-php_value post_max_size 128M
-php_value max_execution_time 300
-php_value max_input_time 300
-php_value memory_limit 512M
-
-# ==== HEADERS DE SEGURANÇA E CACHE ====
-
+# Headers para monitoramento (remover em produção se necessário)
 <IfModule mod_headers.c>
-    # Headers de segurança padrão
-    Header always set X-Content-Type-Options nosniff
-    Header always set X-Frame-Options DENY
-    Header always set X-XSS-Protection "1; mode=block"
-    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    Header always set X-Debug-Time "%{TIME_YEAR}-%{TIME_MON}-%{TIME_DAY} %{TIME_HOUR}:%{TIME_MIN}:%{TIME_SEC}e"
+    Header always set X-Debug-Method "%{REQUEST_METHOD}e"
+    Header always set X-Debug-URI "%{REQUEST_URI}e"
     
-    # 🔧 CORREÇÃO: Headers específicos para upload - NUNCA cachear
-    <LocationMatch "^/admin/upload-boletos\.php">
-        Header always set Cache-Control "no-cache, no-store, must-revalidate, private"
-        Header always set Pragma "no-cache"
-        Header always set Expires "0"
-        Header always set Last-Modified "Thu, 01 Jan 1970 00:00:00 GMT"
-        Header always set ETag ""
-        Header unset ETag
-        Header always set X-Upload-Safe "true"
-        Header always set X-SW-Bypass "true"
-    </LocationMatch>
-    
-    # 🔧 CORREÇÃO: Admin API uploads - NUNCA cachear
-    <LocationMatch "^/admin/api/.*upload">
-        Header always set Cache-Control "no-cache, no-store, must-revalidate, private"
-        Header always set Pragma "no-cache"
-        Header always set Expires "0"
-        Header always set X-Upload-API "true"
-        Header always set X-SW-Bypass "true"
-    </LocationMatch>
-    
-    # 🔧 CORREÇÃO: Uploads em geral - NUNCA cachear
-    <FilesMatch "\.(pdf|doc|docx|xls|xlsx)$">
-        Header always set Cache-Control "no-cache, no-store, must-revalidate, private"
-        Header always set Pragma "no-cache" 
-        Header always set X-File-Upload "true"
-        Header always set X-SW-Bypass "true"
-    </FilesMatch>
-    
-    # 🔧 CORREÇÃO: Multipart form data - headers especiais
-    <If "%{REQUEST_METHOD} == 'POST' && %{CONTENT_TYPE} =~ /multipart\/form-data/">
-        Header always set Cache-Control "no-cache, no-store, must-revalidate, private"
-        Header always set Pragma "no-cache"
-        Header always set X-Multipart-Upload "true"
-        Header always set X-SW-Bypass "true"
-    </If>
-    
-    # 🔧 CORREÇÃO: Headers específicos para logout - NUNCA cachear
-    <FilesMatch "(logout\.php)">
-        Header always set Cache-Control "no-cache, no-store, must-revalidate, private"
-        Header always set Pragma "no-cache"
-        Header always set Expires "0"
-        Header always set Last-Modified "Thu, 01 Jan 1970 00:00:00 GMT"
-        Header always set ETag ""
-        Header unset ETag
-        Header always set X-Logout-Safe "true"
-    </FilesMatch>
-    
-    # 🔧 CORREÇÃO: Admin area geral - cache limitado
-    <LocationMatch "^/admin/">
-        Header always set Cache-Control "private, no-cache, must-revalidate"
-        Header always set Pragma "no-cache"
-        Header always set X-Admin-Area "true"
-    </LocationMatch>
-    
-    # CORS para API
-    Header always set Access-Control-Allow-Origin "*"
-    Header always set Access-Control-Allow-Methods "GET, POST, OPTIONS"
-    Header always set Access-Control-Allow-Headers "Content-Type, Authorization"
-    
-    # Cache positivo para recursos estáticos
-    <FilesMatch "\.(css|js|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$">
-        Header set Cache-Control "public, max-age=86400"
-    </FilesMatch>
-    
-    # Cache moderado para páginas normais (não admin)
-    <FilesMatch "\.(php)$">
-        <If "%{REQUEST_URI} !~ /\/admin\// && %{QUERY_STRING} !~ /logout/">
-            Header set Cache-Control "private, max-age=3600"
-        </If>
-    </FilesMatch>
+    # Header para identificar se o .htaccess está funcionando
+    Header always set X-Htaccess-Version "2.3.1-SYNC-FIXED"
+    Header always set X-Config-Status "active"
 </IfModule>
 
-# ==== REWRITE RULES PARA UPLOAD ====
+# ==== LOGS PARA DEBUG (descomente se necessário) ====
 
-<IfModule mod_rewrite.c>
-    RewriteBase /
+# Para debugar problemas de cache/sincronização
+# LogLevel info rewrite:trace3
+# CustomLog /var/log/apache2/imepedu_access.log combined
+# ErrorLog /var/log/apache2/imepedu_error.log
 
-    # Rota para geração de números sequenciais
-    RewriteRule ^admin/api/gerar-numeros-sequenciais/?$ admin/api/gerar-numeros-sequenciais.php [L]
+# Para debugar especificamente a API de sincronização
+# <If "%{REQUEST_URI} =~ /api\/atualizar_dados/">
+#     LogLevel debug
+#     CustomLog /var/log/apache2/sync_debug.log combined
+# </If>
 
-    # Força cache-busting para APIs de numeração
-    <LocationMatch "^/admin/api/gerar-numeros">
-        Header always set Cache-Control "no-cache, no-store, must-revalidate, private"
-        Header always set Pragma "no-cache"
-        Header always set X-Numbers-API "no-cache"
-    </LocationMatch>
-    
-    # 🔧 CORREÇÃO: Força parâmetros únicos para upload para evitar cache
-    RewriteCond %{REQUEST_URI} ^/admin/upload-boletos\.php$
-    RewriteCond %{REQUEST_METHOD} =POST
-    RewriteCond %{QUERY_STRING} !bypass_cache=
-    RewriteRule ^admin/upload-boletos\.php$ /admin/upload-boletos.php?bypass_cache=%{TIME}&method=post [L,QSA]
-    
-    # 🔧 CORREÇÃO: Upload APIs com cache-busting
-    RewriteCond %{REQUEST_URI} ^/admin/api/.*upload.*\.php$
-    RewriteCond %{REQUEST_METHOD} =POST
-    RewriteCond %{QUERY_STRING} !nocache=
-    RewriteRule ^admin/api/(.*)$ /admin/api/$1?nocache=%{TIME}&upload=1 [L,QSA]
-    
-    # Regra específica para busca de cursos do Breu Branco
-    RewriteCond %{QUERY_STRING} polo=breubranco\.imepedu\.com\.br
-    RewriteRule ^admin/api/buscar-cursos\.php$ /admin/api/buscar-cursos-breubranco-especifico.php [L,QSA]
-    
-    # Força HTTPS (descomente em produção)
-    # RewriteCond %{HTTPS} off
-    # RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
-    
-    # 🔧 CORREÇÃO: Força parâmetros únicos para logout para evitar cache
-    RewriteCond %{REQUEST_URI} ^/logout\.php$
-    RewriteCond %{QUERY_STRING} !t=
-    RewriteRule ^logout\.php$ /logout.php?t=%{TIME}&r=%{REMOTE_ADDR} [L,R=302]
-</IfModule>
-
-# ==== URLs AMIGÁVEIS ====
-
-# URLs amigáveis - rotas específicas do sistema
-RewriteRule ^login/?$ login.php [L]
-RewriteRule ^logout/?$ logout.php [L]
-RewriteRule ^dashboard/?$ dashboard.php [L]
-RewriteRule ^admin/?$ admin/dashboard.php [L]
-RewriteRule ^boleto/([0-9]+)/?$ boleto.php?id=$1 [L]
-
-# API routes
-RewriteRule ^api/atualizar-dados/?$ api/atualizar_dados.php [L]
-RewriteRule ^api/([a-zA-Z_]+)/?$ api/$1.php [L]
-
-# 🔧
+# ==== FIM DA CONFIGURAÇÃO ====
