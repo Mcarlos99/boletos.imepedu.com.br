@@ -1,12 +1,15 @@
 <?php
 /**
- * Sistema de Boletos IMEPEDU - Dashboard com Sistema de Desconto PIX
+ * Sistema de Boletos IMEPEDU - Dashboard com Desconto PIX Personalizado
  * Arquivo: dashboard.php
  */
 
 session_start();
+ini_set('log_errors', 1);
+error_log("Dashboard: Iniciando para sessão: " . session_id());
 
 if (!isset($_SESSION['aluno_cpf'])) {
+    error_log("Dashboard: Usuário não logado, redirecionando para login");
     header('Location: /login.php');
     exit;
 }
@@ -16,30 +19,24 @@ require_once 'config/moodle.php';
 require_once 'src/AlunoService.php';
 require_once 'src/BoletoService.php';
 
+error_log("Dashboard: CPF: " . $_SESSION['aluno_cpf'] . ", Polo: " . ($_SESSION['subdomain'] ?? 'não definido'));
+
 $alunoService = new AlunoService();
 $boletoService = new BoletoService();
 
 $aluno = $alunoService->buscarAlunoPorCPFESubdomain($_SESSION['aluno_cpf'], $_SESSION['subdomain']);
 if (!$aluno) {
+    error_log("Dashboard: Aluno não encontrado");
     session_destroy();
     header('Location: /login.php');
     exit;
 }
 
+error_log("Dashboard: Aluno encontrado - ID: {$aluno['id']}, Nome: {$aluno['nome']}");
+
 $cursos = $alunoService->buscarCursosAlunoPorSubdomain($aluno['id'], $_SESSION['subdomain']);
+error_log("Dashboard: Cursos encontrados: " . count($cursos));
 
-// Busca configuração de desconto PIX para o polo
-$db = (new Database())->getConnection();
-$stmtDesconto = $db->prepare("
-    SELECT * FROM configuracoes_desconto_pix 
-    WHERE polo_subdomain = ? AND ativo = 1
-    ORDER BY id DESC 
-    LIMIT 1
-");
-$stmtDesconto->execute([$_SESSION['subdomain']]);
-$configDesconto = $stmtDesconto->fetch(PDO::FETCH_ASSOC);
-
-// Busca boletos com informações de desconto
 $dadosBoletos = [];
 $resumoGeral = [
     'total_boletos' => 0,
@@ -54,10 +51,14 @@ $resumoGeral = [
 ];
 
 try {
+    $db = (new Database())->getConnection();
+    
     $stmt = $db->prepare("
         SELECT b.*, c.nome as curso_nome, c.subdomain,
                b.pix_desconto_disponivel,
-               b.pix_desconto_usado
+               b.pix_desconto_usado,
+               b.pix_valor_desconto,
+               b.pix_valor_minimo
         FROM boletos b
         INNER JOIN cursos c ON b.curso_id = c.id
         WHERE b.aluno_id = ? 
@@ -66,6 +67,8 @@ try {
     ");
     $stmt->execute([$aluno['id'], $_SESSION['subdomain']]);
     $todosBoletos = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    error_log("Dashboard: Total boletos encontrados: " . count($todosBoletos));
     
     if (!empty($todosBoletos)) {
         $boletosPorPeriodo = [
@@ -90,42 +93,45 @@ try {
             $boleto['dias_vencimento'] = (int)$diasVencimento;
             $boleto['esta_vencido'] = ($boleto['status'] == 'pendente' && $diasVencimento < 0);
             
-            // Calcula economia potencial PIX
+            // Calcula economia potencial PIX personalizada
             $boleto['economia_pix'] = 0;
             $boleto['pode_usar_desconto'] = false;
+            $boleto['valor_final_pix'] = $boleto['valor'];
             
-            if ($boleto['pix_desconto_disponivel'] && !$boleto['pix_desconto_usado'] && 
-                $boleto['status'] !== 'pago' && !$boleto['esta_vencido'] && $configDesconto) {
+            if ($boleto['pix_desconto_disponivel'] && 
+                !$boleto['pix_desconto_usado'] && 
+                $boleto['status'] !== 'pago' && 
+                !$boleto['esta_vencido'] &&
+                $boleto['pix_valor_desconto'] > 0) {
                 
-                if ($boleto['valor'] >= $configDesconto['valor_minimo_boleto']) {
-                    if ($configDesconto['tipo_desconto'] === 'fixo') {
-                        $boleto['economia_pix'] = min($configDesconto['valor_desconto_fixo'], $boleto['valor'] - 10);
-                    } else {
-                        $boleto['economia_pix'] = min(
-                            ($boleto['valor'] * $configDesconto['percentual_desconto']) / 100,
-                            $boleto['valor'] - 10
-                        );
+                $valorMinimo = $boleto['pix_valor_minimo'] ?? 0;
+                if ($valorMinimo == 0 || $boleto['valor'] >= $valorMinimo) {
+                    $valorDesconto = (float)$boleto['pix_valor_desconto'];
+                    
+                    $valorFinal = $boleto['valor'] - $valorDesconto;
+                    if ($valorFinal < 10.00) {
+                        $valorDesconto = $boleto['valor'] - 10.00;
+                        $valorFinal = 10.00;
                     }
                     
-                    if ($boleto['economia_pix'] > 0) {
+                    if ($valorDesconto > 0) {
+                        $boleto['economia_pix'] = $valorDesconto;
+                        $boleto['valor_final_pix'] = $valorFinal;
                         $boleto['pode_usar_desconto'] = true;
-                        $resumoGeral['economia_potencial_pix'] += $boleto['economia_pix'];
+                        $resumoGeral['economia_potencial_pix'] += $valorDesconto;
                         $resumoGeral['boletos_com_desconto']++;
                     }
                 }
             }
             
-            // Atualiza status se vencido
             if ($boleto['esta_vencido'] && $boleto['status'] == 'pendente') {
                 $boletoService->atualizarStatusVencido($boleto['id']);
                 $boleto['status'] = 'vencido';
             }
             
-            // Agrupa por período
             if ($boleto['status'] == 'pago') {
                 $dataLimite = clone $hoje;
                 $dataLimite->modify('-3 months');
-                
                 if ($vencimento >= $dataLimite) {
                     $boletosPorPeriodo['pagos_recentes'][] = $boleto;
                 }
@@ -139,7 +145,6 @@ try {
                 $boletosPorPeriodo['futuros'][] = $boleto;
             }
             
-            // Atualiza resumo geral
             $resumoGeral['total_boletos']++;
             $resumoGeral['valor_total'] += $boleto['valor'];
             
@@ -160,6 +165,7 @@ try {
         }
         
         $dadosBoletos = $boletosPorPeriodo;
+        error_log("Dashboard: Agrupamento concluído");
     }
     
 } catch (Exception $e) {
@@ -168,6 +174,7 @@ try {
 }
 
 $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
+error_log("Dashboard: Resumo final - Polo: {$_SESSION['subdomain']}, Total: " . $resumoGeral['total_boletos']);
 ?>
 
 <!DOCTYPE html>
@@ -183,7 +190,6 @@ $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
     <meta name="mobile-web-app-capable" content="yes">
     
     <link rel="manifest" href="/manifest.json">
-    
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     
@@ -199,16 +205,13 @@ $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
             --light-color: #f8f9fa;
             --pix-color: #32BCAD;
             --pix-discount-color: #28a745;
-            
             --mobile-padding: 16px;
             --mobile-margin: 12px;
             --card-radius: 12px;
             --shadow-mobile: 0 2px 8px rgba(0,0,0,0.1);
         }
         
-        * {
-            box-sizing: border-box;
-        }
+        * { box-sizing: border-box; }
         
         body {
             background-color: var(--light-color);
@@ -236,9 +239,7 @@ $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
             margin-bottom: 12px;
         }
         
-        .user-info {
-            flex: 1;
-        }
+        .user-info { flex: 1; }
         
         .user-name {
             font-size: 1.1rem;
@@ -274,7 +275,6 @@ $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
             transform: scale(0.98);
         }
         
-        /* Cards de resumo com PIX */
         .summary-cards {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
@@ -292,9 +292,7 @@ $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
             transition: transform 0.2s;
         }
         
-        .summary-card:active {
-            transform: scale(0.98);
-        }
+        .summary-card:active { transform: scale(0.98); }
         
         .summary-card.pix-discount {
             background: linear-gradient(135deg, #e8f5e8, #f0f8f0);
@@ -327,7 +325,6 @@ $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
         .text-info { color: var(--info-color) !important; }
         .text-pix { color: var(--pix-discount-color) !important; }
         
-        /* Banner de economia PIX */
         .pix-economy-banner {
             background: linear-gradient(135deg, var(--pix-discount-color), #1e7e34);
             color: white;
@@ -349,17 +346,11 @@ $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
             margin: 8px 0;
         }
         
-        .pix-economy-banner small {
-            opacity: 0.9;
-        }
+        .pix-economy-banner small { opacity: 0.9; }
         
-        .main-container {
-            padding: 0 16px 80px 16px;
-        }
+        .main-container { padding: 0 16px 80px 16px; }
         
-        .boletos-section {
-            margin-bottom: 24px;
-        }
+        .boletos-section { margin-bottom: 24px; }
         
         .section-header {
             display: flex;
@@ -387,7 +378,6 @@ $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
             font-size: 0.75rem;
             font-weight: 600;
         }
-        
         .boleto-card {
             background: white;
             border-radius: var(--card-radius);
@@ -399,9 +389,7 @@ $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
             position: relative;
         }
         
-        .boleto-card:active {
-            transform: scale(0.98);
-        }
+        .boleto-card:active { transform: scale(0.98); }
         
         .boleto-card.pendente { border-left-color: var(--warning-color); }
         .boleto-card.vencido { border-left-color: var(--danger-color); }
@@ -464,9 +452,7 @@ $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
             line-height: 1.2;
         }
         
-        .boleto-body {
-            padding: 12px 16px;
-        }
+        .boleto-body { padding: 12px 16px; }
         
         .boleto-dates {
             display: flex;
@@ -475,9 +461,7 @@ $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
             margin-bottom: 12px;
         }
         
-        .vencimento-info {
-            flex: 1;
-        }
+        .vencimento-info { flex: 1; }
         
         .vencimento-data {
             font-size: 0.9rem;
@@ -502,6 +486,12 @@ $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
         .desconto-info .desconto-valor {
             font-weight: 700;
             color: var(--pix-discount-color);
+        }
+        
+        .desconto-info .valor-minimo {
+            font-size: 0.75rem;
+            color: #666;
+            margin-top: 4px;
         }
         
         .boleto-status {
@@ -547,9 +537,7 @@ $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
             cursor: pointer;
         }
         
-        .btn-action:active {
-            transform: scale(0.95);
-        }
+        .btn-action:active { transform: scale(0.95); }
         
         .btn-download {
             background: var(--info-color);
@@ -633,9 +621,7 @@ $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
             overflow-y: auto;
         }
         
-        .modal-bottom.show {
-            transform: translateY(0);
-        }
+        .modal-bottom.show { transform: translateY(0); }
         
         .modal-header-custom {
             padding: 16px;
@@ -654,9 +640,7 @@ $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
             margin: 0 auto 12px auto;
         }
         
-        .modal-body-custom {
-            padding: 16px;
-        }
+        .modal-body-custom { padding: 16px; }
         
         .overlay {
             position: fixed;
@@ -840,19 +824,12 @@ $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
                 padding: 24px;
             }
             
-            .mobile-header {
-                padding: 20px 24px;
-            }
+            .mobile-header { padding: 20px 24px; }
             
-            .pix-economy-banner {
-                margin: 0 24px 16px 24px;
-            }
+            .pix-economy-banner { margin: 0 24px 16px 24px; }
         }
-        
         @media (min-width: 1024px) {
-            .main-container {
-                max-width: 800px;
-            }
+            .main-container { max-width: 800px; }
         }
     </style>
 </head>
@@ -909,14 +886,13 @@ $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
 
     <?php if ($resumoGeral['economia_potencial_pix'] > 0): ?>
     <div class="pix-economy-banner">
-        <h6><i class="fas fa-qrcode me-2"></i>Economia PIX Disponível!</h6>
+        <h6><i class="fas fa-gift me-2"></i>Economia PIX Personalizada Disponível!</h6>
         <div class="economy-amount">R$ <?= number_format($resumoGeral['economia_potencial_pix'], 2, ',', '.') ?></div>
-        <small>Pague <?= $resumoGeral['boletos_com_desconto'] ?> boleto(s) via PIX e economize!</small>
+        <small>Pague <?= $resumoGeral['boletos_com_desconto'] ?> boleto(s) via PIX e economize com desconto personalizado!</small>
     </div>
     <?php endif; ?>
 
     <main class="main-container">
-        
         <?php if (empty($dadosBoletos) || array_sum(array_map('count', $dadosBoletos)) === 0): ?>
             <div class="empty-state">
                 <i class="fas fa-receipt"></i>
@@ -940,7 +916,7 @@ $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
                 </div>
                 
                 <?php foreach ($dadosBoletos['vencidos'] as $boleto): ?>
-                    <?= renderizarBoletoCard($boleto, 'vencido', $configDesconto) ?>
+                    <?= renderizarBoletoCard($boleto, 'vencido') ?>
                 <?php endforeach; ?>
             </section>
             <?php endif; ?>
@@ -956,7 +932,7 @@ $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
                 </div>
                 
                 <?php foreach ($dadosBoletos['este_mes'] as $boleto): ?>
-                    <?= renderizarBoletoCard($boleto, 'pendente', $configDesconto) ?>
+                    <?= renderizarBoletoCard($boleto, 'pendente') ?>
                 <?php endforeach; ?>
             </section>
             <?php endif; ?>
@@ -972,7 +948,7 @@ $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
                 </div>
                 
                 <?php foreach ($dadosBoletos['proximo_mes'] as $boleto): ?>
-                    <?= renderizarBoletoCard($boleto, 'pendente', $configDesconto) ?>
+                    <?= renderizarBoletoCard($boleto, 'pendente') ?>
                 <?php endforeach; ?>
             </section>
             <?php endif; ?>
@@ -988,7 +964,7 @@ $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
                 </div>
                 
                 <?php foreach ($dadosBoletos['futuros'] as $boleto): ?>
-                    <?= renderizarBoletoCard($boleto, 'pendente', $configDesconto) ?>
+                    <?= renderizarBoletoCard($boleto, 'pendente') ?>
                 <?php endforeach; ?>
             </section>
             <?php endif; ?>
@@ -1004,7 +980,7 @@ $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
                 </div>
                 
                 <?php foreach ($dadosBoletos['pagos_recentes'] as $boleto): ?>
-                    <?= renderizarBoletoCard($boleto, 'pago', $configDesconto) ?>
+                    <?= renderizarBoletoCard($boleto, 'pago') ?>
                 <?php endforeach; ?>
             </section>
             <?php endif; ?>
@@ -1016,7 +992,6 @@ $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
         <i class="fas fa-plus"></i>
     </button>
 
-    <!-- Modal - Menu Principal -->
     <div class="overlay" id="menuOverlay" onclick="fecharMenu()"></div>
     <div class="modal-bottom" id="menuModal">
         <div class="modal-header-custom">
@@ -1045,15 +1020,14 @@ $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
                     <i class="fas fa-info-circle text-info me-3"></i>
                     Informações
                 </button>
-                <a href="/logout.php" class="list-group-item list-group-item-action text-danger">
+                <button class="list-group-item list-group-item-action text-danger" onclick="logoutLimpo()">
                     <i class="fas fa-sign-out-alt me-3"></i>
                     Sair
-                </a>
+                </button>
             </div>
         </div>
     </div>
 
-    <!-- Modal - Ações Rápidas -->
     <div class="overlay" id="acoesOverlay" onclick="fecharAcoes()"></div>
     <div class="modal-bottom" id="acoesModal">
         <div class="modal-header-custom">
@@ -1090,7 +1064,20 @@ $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
         </div>
     </div>
 
-    <!-- Modal - PIX -->
+    <div class="overlay" id="boletoOverlay" onclick="fecharDetalhes()"></div>
+    <div class="modal-bottom" id="boletoModal">
+        <div class="modal-header-custom">
+            <div class="modal-handle"></div>
+            <h3 class="mb-0">Detalhes do Boleto</h3>
+        </div>
+        <div class="modal-body-custom" id="boletoDetalhes">
+            <div class="loading-spinner">
+                <div class="spinner"></div>
+                Carregando...
+            </div>
+        </div>
+    </div>
+
     <div class="overlay" id="pixOverlay" onclick="fecharPix()"></div>
     <div class="modal-bottom" id="pixModal">
         <div class="modal-header-custom">
@@ -1103,26 +1090,46 @@ $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
         <div class="modal-body-custom" id="pixConteudo">
             <div class="loading-spinner">
                 <div class="spinner"></div>
-                Gerando código PIX...
+                Gerando código PIX com desconto personalizado...
             </div>
         </div>
     </div>
 
-    <!-- Toast Container -->
     <div class="toast-container" id="toastContainer"></div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    
     <script>
         let isUpdating = false;
+        let swipeStartY = 0;
+        let swipeStartTime = 0;
         let currentBoletoId = null;
         
         document.addEventListener('DOMContentLoaded', function() {
-            console.log('Dashboard com desconto PIX inicializado');
-            setupEventListeners();
+            console.log('Dashboard Mobile com PIX personalizado inicializado');
+            registerServiceWorker();
+            setupSwipeGestures();
+            checkAutoUpdate();
+            setupConnectivityListeners();
         });
         
-        function setupEventListeners() {
+        function registerServiceWorker() {
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register('/sw.js')
+                    .then(registration => {
+                        console.log('Service Worker registrado:', registration);
+                        navigator.serviceWorker.addEventListener('message', event => {
+                            if (event.data.type === 'SW_UPDATED') {
+                                showToast(event.data.message, 'info');
+                            }
+                        });
+                    })
+                    .catch(error => {
+                        console.log('Erro ao registrar Service Worker:', error);
+                    });
+            }
+        }
+        
+        function setupSwipeGestures() {
             document.addEventListener('touchstart', function(e) {
                 swipeStartY = e.touches[0].clientY;
                 swipeStartTime = Date.now();
@@ -1137,7 +1144,9 @@ $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
                     atualizarDados();
                 }
             }, { passive: true });
-            
+        }
+        
+        function setupConnectivityListeners() {
             window.addEventListener('online', function() {
                 showToast('Conexão restaurada!', 'success');
                 setTimeout(() => atualizarDados(true), 1000);
@@ -1146,6 +1155,17 @@ $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
             window.addEventListener('offline', function() {
                 showToast('Você está offline', 'warning');
             });
+        }
+        
+        function checkAutoUpdate() {
+            const lastUpdate = localStorage.getItem('lastUpdate');
+            const now = Date.now();
+            
+            if (!lastUpdate || (now - parseInt(lastUpdate)) > 30 * 60 * 1000) {
+                setTimeout(() => {
+                    atualizarDados(true);
+                }, 2000);
+            }
         }
         
         function mostrarMenu() {
@@ -1174,7 +1194,6 @@ $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
         
         function downloadBoleto(boletoId) {
             console.log('Iniciando download do boleto:', boletoId);
-            
             showToast('Preparando download...', 'info');
             
             const link = document.createElement('a');
@@ -1192,7 +1211,7 @@ $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
         }
         
         function mostrarPix(boletoId) {
-            console.log('Gerando PIX para boleto:', boletoId);
+            console.log('Gerando PIX personalizado para boleto:', boletoId);
             
             currentBoletoId = boletoId;
             
@@ -1203,7 +1222,7 @@ $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
             document.getElementById('pixConteudo').innerHTML = `
                 <div class="loading-spinner">
                     <div class="spinner"></div>
-                    Gerando código PIX com desconto...
+                    Gerando código PIX com desconto personalizado...
                 </div>
             `;
             
@@ -1220,7 +1239,7 @@ $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
             .then(data => {
                 if (data.success) {
                     exibirPixGerado(data);
-                    showToast('Código PIX gerado!', 'success');
+                    showToast('Código PIX personalizado gerado!', 'success');
                 } else {
                     exibirErroPix(data.message);
                     showToast('Erro: ' + data.message, 'error');
@@ -1240,7 +1259,7 @@ $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
             if (desconto.tem_desconto) {
                 descontoHtml = `
                     <div class="pix-discount-highlight">
-                        <h6><i class="fas fa-gift me-2"></i>Desconto PIX Aplicado!</h6>
+                        <h6><i class="fas fa-gift me-2"></i>Desconto PIX Personalizado Aplicado!</h6>
                         <div>
                             <span class="original-amount">R$ ${boleto.valor_original_formatado.replace('R$ ', '')}</span>
                             <span class="discount-amount">R$ ${boleto.valor_final_formatado.replace('R$ ', '')}</span>
@@ -1249,6 +1268,12 @@ $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
                             <i class="fas fa-check-circle me-1"></i>
                             ${desconto.economia}
                         </small>
+                        <div class="mt-2">
+                            <small class="text-muted">
+                                <i class="fas fa-info-circle me-1"></i>
+                                Desconto personalizado definido pela administração
+                            </small>
+                        </div>
                     </div>
                 `;
             }
@@ -1274,8 +1299,11 @@ $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
                             Escaneie com o app do seu banco
                         </p>
                         ${desconto.tem_desconto ? 
-                            `<p class="text-success"><strong>Valor a pagar: ${boleto.valor_final_formatado}</strong></p>` : 
+                            `<p class="text-success"><strong>Valor final a pagar: ${boleto.valor_final_formatado}</strong></p>` : 
                             `<p class="text-primary"><strong>Valor a pagar: ${boleto.valor_final_formatado}</strong></p>`
+                        }
+                        ${desconto.tem_desconto ? 
+                            `<p class="text-muted"><small>Desconto válido até o vencimento</small></p>` : ''
                         }
                     </div>
                     
@@ -1304,13 +1332,19 @@ $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
                                 <i class="fas fa-clock me-1"></i>
                                 <strong>Válido até:</strong> ${pix.validade_formatada}
                             </small>
+                            ${desconto.tem_desconto ? 
+                                `<br><small class="text-success">
+                                    <i class="fas fa-gift me-1"></i>
+                                    <strong>Desconto válido:</strong> até o vencimento do boleto
+                                </small>` : ''
+                            }
                         </div>
                     </div>
                     
                     <div class="d-grid gap-2">
                         <button class="btn ${desconto.tem_desconto ? 'btn-success' : 'btn-primary'}" onclick="compartilharPix()">
                             <i class="fas fa-share me-1"></i>
-                            Compartilhar PIX ${desconto.tem_desconto ? 'com Desconto' : ''}
+                            Compartilhar PIX ${desconto.tem_desconto ? 'com Desconto Personalizado' : ''}
                         </button>
                         <button class="btn btn-outline-secondary" onclick="fecharPix()">
                             Fechar
@@ -1379,7 +1413,7 @@ $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
                 
                 navigator.share({
                     title: 'Pagamento PIX - IMEPEDU Boletos',
-                    text: `Código PIX para pagamento com desconto:\n\n${codigo}`,
+                    text: `Código PIX para pagamento com desconto personalizado:\n\n${codigo}`,
                 }).catch(error => {
                     console.log('Erro ao compartilhar:', error);
                 });
@@ -1394,6 +1428,92 @@ $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
             document.getElementById('pixModal').classList.remove('show');
             document.body.style.overflow = '';
             currentBoletoId = null;
+        }
+        
+        function mostrarDetalhes(boletoId) {
+            document.getElementById('boletoOverlay').classList.add('show');
+            document.getElementById('boletoModal').classList.add('show');
+            document.body.style.overflow = 'hidden';
+            
+            const detalhesDiv = document.getElementById('boletoDetalhes');
+            detalhesDiv.innerHTML = `
+                <div class="loading-spinner">
+                    <div class="spinner"></div>
+                    Carregando detalhes...
+                </div>
+            `;
+            
+            fetch(`/api/boleto-detalhes.php?id=${boletoId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        exibirDetalhesBoleto(data.boleto);
+                    } else {
+                        exibirErroDetalhes(data.message);
+                    }
+                })
+                .catch(error => {
+                    console.error('Erro ao buscar detalhes:', error);
+                    exibirErroDetalhes('Erro de conexão');
+                });
+        }
+        
+        function exibirDetalhesBoleto(boleto) {
+            const html = `
+                <div class="mb-3">
+                    <h5>Informações do Boleto</h5>
+                    <p><strong>Número:</strong> #${boleto.numero_boleto}</p>
+                    <p><strong>Valor:</strong> R$ ${parseFloat(boleto.valor).toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p>
+                    <p><strong>Vencimento:</strong> ${new Date(boleto.vencimento).toLocaleDateString('pt-BR')}</p>
+                    <p><strong>Status:</strong> <span class="status-${boleto.status}">${boleto.status.charAt(0).toUpperCase() + boleto.status.slice(1)}</span></p>
+                    ${boleto.descricao ? `<p><strong>Descrição:</strong> ${boleto.descricao}</p>` : ''}
+                </div>
+                <div class="mb-3">
+                    <h5>Informações do Curso</h5>
+                    <p><strong>Curso:</strong> ${boleto.curso_nome}</p>
+                    <p><strong>Polo:</strong> ${boleto.subdomain.replace('.imepedu.com.br', '')}</p>
+                </div>
+                <div class="d-grid gap-2">
+                    ${boleto.status !== 'pago' ? `
+                        <button class="btn btn-primary" onclick="downloadBoleto(${boleto.id}); fecharDetalhes();">
+                            <i class="fas fa-download"></i> Download PDF
+                        </button>
+                        <button class="btn btn-success" onclick="mostrarPix(${boleto.id}); fecharDetalhes();">
+                            <i class="fas fa-qrcode"></i> Código PIX
+                        </button>
+                    ` : `
+                        <div class="alert alert-success">
+                            <i class="fas fa-check-circle me-2"></i>
+                            Este boleto já foi pago!
+                        </div>
+                    `}
+                    <button class="btn btn-outline-secondary" onclick="fecharDetalhes()">
+                        Fechar
+                    </button>
+                </div>
+            `;
+            
+            document.getElementById('boletoDetalhes').innerHTML = html;
+        }
+        
+        function exibirErroDetalhes(mensagem) {
+            const html = `
+                <div class="text-center p-4">
+                    <i class="fas fa-exclamation-triangle fa-2x text-warning mb-3"></i>
+                    <p>${mensagem}</p>
+                    <button class="btn btn-outline-secondary" onclick="fecharDetalhes()">
+                        Fechar
+                    </button>
+                </div>
+            `;
+            
+            document.getElementById('boletoDetalhes').innerHTML = html;
+        }
+        
+        function fecharDetalhes() {
+            document.getElementById('boletoOverlay').classList.remove('show');
+            document.getElementById('boletoModal').classList.remove('show');
+            document.body.style.overflow = '';
         }
         
         function atualizarDados(silencioso = false) {
@@ -1500,7 +1620,7 @@ $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
             const info = `
                 <div class="mb-3">
                     <h5>Sistema de Boletos IMEPEDU</h5>
-                    <p>Versão: 2.2 PIX com Desconto</p>
+                    <p>Versão: 2.3 PIX Personalizado</p>
                     <p>Última atualização: ${new Date().toLocaleDateString('pt-BR')}</p>
                 </div>
                 <div class="mb-3">
@@ -1509,7 +1629,8 @@ $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
                         <li><i class="fas fa-check text-success me-2"></i> Visualização de boletos</li>
                         <li><i class="fas fa-check text-success me-2"></i> Download de PDFs</li>
                         <li><i class="fas fa-check text-success me-2"></i> Códigos PIX</li>
-                        <li><i class="fas fa-check text-success me-2"></i> Desconto PIX automático</li>
+                        <li><i class="fas fa-check text-success me-2"></i> Desconto PIX personalizado</li>
+                        <li><i class="fas fa-check text-success me-2"></i> Controle total do administrador</li>
                         <li><i class="fas fa-check text-success me-2"></i> Sincronização automática</li>
                         <li><i class="fas fa-check text-success me-2"></i> Interface mobile-first</li>
                     </ul>
@@ -1545,7 +1666,7 @@ $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
             if (navigator.share) {
                 navigator.share({
                     title: 'Sistema de Boletos IMEPEDU',
-                    text: 'Acesse seus boletos acadêmicos com desconto PIX!',
+                    text: 'Acesse seus boletos acadêmicos com desconto PIX personalizado!',
                     url: window.location.href
                 });
             } else {
@@ -1556,6 +1677,52 @@ $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
                     showToast('Não foi possível compartilhar', 'error');
                 });
             }
+        }
+        
+        function logoutLimpo() {
+            console.log('🚪 Iniciando logout limpo...');
+            showToast('Fazendo logout...', 'info');
+            
+            const executarLogout = async () => {
+                try {
+                    console.log('🗑️ Limpando dados locais...');
+                    
+                    if (typeof localStorage !== 'undefined') {
+                        localStorage.clear();
+                    }
+                    if (typeof sessionStorage !== 'undefined') {
+                        sessionStorage.clear();
+                    }
+                    
+                    if ('serviceWorker' in navigator) {
+                        try {
+                            const registration = await navigator.serviceWorker.getRegistration();
+                            if (registration && registration.active) {
+                                console.log('📨 Enviando comando de logout para SW...');
+                                registration.active.postMessage({
+                                    type: 'FORCE_LOGOUT',
+                                    timestamp: Date.now()
+                                });
+                                
+                                await new Promise(resolve => setTimeout(resolve, 500));
+                            }
+                        } catch (swError) {
+                            console.log('⚠️ Erro ao comunicar com SW:', swError);
+                        }
+                    }
+                    
+                    const logoutUrl = `/logout.php?t=${Date.now()}&pwa=1`;
+                    console.log('🏠 Redirecionando para:', logoutUrl);
+                    
+                    window.location.replace(logoutUrl);
+                    
+                } catch (error) {
+                    console.error('❌ Erro no logout:', error);
+                    window.location.replace(`/logout.php?t=${Date.now()}&fallback=1`);
+                }
+            };
+            
+            setTimeout(executarLogout, 300);
         }
         
         function showToast(message, type = 'info') {
@@ -1591,16 +1758,22 @@ $configPolo = MoodleConfig::getConfig($_SESSION['subdomain']) ?: [];
             }, 5000);
         }
         
-        console.log('✅ Dashboard com Sistema de Desconto PIX carregado!');
+        console.log('✅ Dashboard com Sistema de Desconto PIX Personalizado carregado!');
+        console.log('🆕 Funcionalidades implementadas:');
+        console.log('   - Desconto PIX 100% configurável pelo administrador');
+        console.log('   - Valor do desconto definido no momento do upload');
+        console.log('   - Funciona em qualquer polo sem configuração prévia');
+        console.log('   - Interface otimizada para móvel');
+        console.log('   - Controle total do admin sobre os descontos');
     </script>
 </body>
 </html>
 
 <?php
 /**
- * Função para renderizar card de boleto com informações de desconto PIX
+ * Função para renderizar card de boleto com informações de desconto PIX personalizado
  */
-function renderizarBoletoCard($boleto, $statusClass, $configDesconto = null) {
+function renderizarBoletoCard($boleto, $statusClass) {
     $vencimento = new DateTime($boleto['vencimento']);
     $hoje = new DateTime();
     $diasVencimento = $hoje->diff($vencimento)->format('%r%a');
@@ -1630,17 +1803,24 @@ function renderizarBoletoCard($boleto, $statusClass, $configDesconto = null) {
     
     $temPDF = !empty($boleto['arquivo_pdf']);
     
-    // Verifica se tem desconto PIX disponível
+    // Verifica se tem desconto PIX personalizado disponível
     $temDescontoPix = false;
     $economiaTexto = '';
     $cardExtraClass = '';
     $botaoPixClass = 'btn-pix';
+    $valorExibicao = $valorFormatado;
     
     if ($boleto['pode_usar_desconto'] ?? false) {
         $temDescontoPix = true;
         $economiaTexto = 'Economia: R$ ' . number_format($boleto['economia_pix'], 2, ',', '.');
         $cardExtraClass = ' com-desconto-pix';
         $botaoPixClass = 'btn-pix com-desconto';
+        
+        // Mostra valor original e valor com desconto
+        $valorOriginal = 'R$ ' . number_format($boleto['valor'], 2, ',', '.');
+        $valorComDesconto = 'R$ ' . number_format($boleto['valor_final_pix'], 2, ',', '.');
+        $valorExibicao = '<span class="boleto-valor-original">' . $valorOriginal . '</span>' . 
+                        '<span class="boleto-valor-desconto">' . $valorComDesconto . '</span>';
     }
     
     ob_start();
@@ -1657,7 +1837,7 @@ function renderizarBoletoCard($boleto, $statusClass, $configDesconto = null) {
                     </div>
                     <div class="boleto-curso"><?= htmlspecialchars($boleto['curso_nome']) ?></div>
                 </div>
-                <div class="boleto-valor"><?= $valorFormatado ?></div>
+                <div class="boleto-valor"><?= $valorExibicao ?></div>
             </div>
         </div>
         
@@ -1665,8 +1845,18 @@ function renderizarBoletoCard($boleto, $statusClass, $configDesconto = null) {
             <?php if ($temDescontoPix): ?>
             <div class="desconto-info">
                 <i class="fas fa-gift text-success me-1"></i>
-                <strong>Desconto PIX Disponível!</strong><br>
+                <strong>Desconto PIX Personalizado Disponível!</strong><br>
                 <span class="desconto-valor"><?= $economiaTexto ?></span>
+                <?php if ($boleto['pix_valor_minimo'] && $boleto['pix_valor_minimo'] > 0): ?>
+                    <div class="valor-minimo">
+                        <i class="fas fa-info-circle me-1"></i>
+                        Valor mínimo: R$ <?= number_format($boleto['pix_valor_minimo'], 2, ',', '.') ?>
+                    </div>
+                <?php endif; ?>
+                <div class="valor-minimo">
+                    <i class="fas fa-clock me-1"></i>
+                    Válido até o vencimento
+                </div>
             </div>
             <?php endif; ?>
             
@@ -1712,7 +1902,7 @@ function renderizarBoletoCard($boleto, $statusClass, $configDesconto = null) {
             <?php endif; ?>
             
             <button class="btn-action <?= $botaoPixClass ?>" onclick="mostrarPix(<?= $boleto['id'] ?>)" 
-                    title="<?= $temDescontoPix ? 'Gerar PIX com desconto' : 'Gerar código PIX' ?>">
+                    title="<?= $temDescontoPix ? 'Gerar PIX com desconto personalizado de R$ ' . number_format($boleto['economia_pix'], 2, ',', '.') : 'Gerar código PIX' ?>">
                 <i class="fas fa-qrcode"></i> PIX<?= $temDescontoPix ? ' 💰' : '' ?>
             </button>
         </div>
