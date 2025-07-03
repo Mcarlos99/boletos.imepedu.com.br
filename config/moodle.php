@@ -54,7 +54,7 @@ class MoodleConfig {
             'phone' => '(94) xxxx-xxxx',
             'address' => 'Rua AVA',
             'cep' => '68450-000',
-            'active' => false,
+            'active' => true,
             'timezone' => 'America/Belem',
             'max_students' => 8000
         ],

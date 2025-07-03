@@ -93,41 +93,58 @@ try {
             $boleto['dias_vencimento'] = (int)$diasVencimento;
             $boleto['esta_vencido'] = ($boleto['status'] == 'pendente' && $diasVencimento < 0);
             
-            // Calcula economia potencial PIX personalizada
-            $boleto['economia_pix'] = 0;
-            $boleto['pode_usar_desconto'] = false;
-            $boleto['valor_final_pix'] = $boleto['valor'];
-            
-			//Verificação mais rigorosa do vencimento
-			$dataVencimento = new DateTime($boleto['vencimento']);
-			$agora = new DateTime();
-			$venceuCompletamente = ($agora > $dataVencimento);
+// Calcula economia potencial PIX personalizada
+$boleto['economia_pix'] = 0;
+$boleto['pode_usar_desconto'] = false;
+$boleto['valor_final_pix'] = $boleto['valor'];
 
-			if ($boleto['pix_desconto_disponivel'] && 
-    			!$boleto['pix_desconto_usado'] && 
-    			$boleto['status'] !== 'pago' && 
-    			!$venceuCompletamente && // 🔧 NOVA VERIFICAÇÃO
-    			$boleto['pix_valor_desconto'] > 0) {
-                
-                $valorMinimo = $boleto['pix_valor_minimo'] ?? 0;
-                if ($valorMinimo == 0 || $boleto['valor'] >= $valorMinimo) {
-                    $valorDesconto = (float)$boleto['pix_valor_desconto'];
-                    
-                    $valorFinal = $boleto['valor'] - $valorDesconto;
-                    if ($valorFinal < 10.00) {
-                        $valorDesconto = $boleto['valor'] - 10.00;
-                        $valorFinal = 10.00;
-                    }
-                    
-                    if ($valorDesconto > 0) {
-                        $boleto['economia_pix'] = $valorDesconto;
-                        $boleto['valor_final_pix'] = $valorFinal;
-                        $boleto['pode_usar_desconto'] = true;
-                        $resumoGeral['economia_potencial_pix'] += $valorDesconto;
-                        $resumoGeral['boletos_com_desconto']++;
-                    }
-                }
-            }
+// 🔧 CORREÇÃO: Verificação mais precisa do vencimento
+$dataVencimento = new DateTime($boleto['vencimento']);
+$agora = new DateTime();
+
+// Define o final do dia de vencimento (23:59:59)
+$fimDiaVencimento = clone $dataVencimento;
+$fimDiaVencimento->setTime(23, 59, 59);
+
+// Só considera vencido DEPOIS do final do dia de vencimento
+$venceuCompletamente = ($agora > $fimDiaVencimento);
+
+// Log para debug (remover em produção)
+error_log("Debug Desconto PIX - Boleto {$boleto['numero_boleto']}: " . 
+          "Vencimento: {$dataVencimento->format('Y-m-d H:i:s')}, " .
+          "Agora: {$agora->format('Y-m-d H:i:s')}, " .
+          "Fim do dia: {$fimDiaVencimento->format('Y-m-d H:i:s')}, " .
+          "Venceu: " . ($venceuCompletamente ? 'SIM' : 'NÃO'));
+
+if ($boleto['pix_desconto_disponivel'] && 
+    !$boleto['pix_desconto_usado'] && 
+    $boleto['status'] !== 'pago' && 
+    !$venceuCompletamente && // 🔧 NOVA VERIFICAÇÃO CORRIGIDA
+    $boleto['pix_valor_desconto'] > 0) {
+    
+    $valorMinimo = $boleto['pix_valor_minimo'] ?? 0;
+    if ($valorMinimo == 0 || $boleto['valor'] >= $valorMinimo) {
+        $valorDesconto = (float)$boleto['pix_valor_desconto'];
+        
+        $valorFinal = $boleto['valor'] - $valorDesconto;
+        if ($valorFinal < 10.00) {
+            $valorDesconto = $boleto['valor'] - 10.00;
+            $valorFinal = 10.00;
+        }
+        
+        if ($valorDesconto > 0) {
+            $boleto['economia_pix'] = $valorDesconto;
+            $boleto['valor_final_pix'] = $valorFinal;
+            $boleto['pode_usar_desconto'] = true;
+            $resumoGeral['economia_potencial_pix'] += $valorDesconto;
+            $resumoGeral['boletos_com_desconto']++;
+            
+            // Log para debug
+            error_log("Desconto PIX aplicado - Boleto {$boleto['numero_boleto']}: " .
+                      "Economia R$ {$valorDesconto}, Valor final: R$ {$valorFinal}");
+        }
+    }
+}
             
             if ($boleto['esta_vencido'] && $boleto['status'] == 'pendente') {
                 $boletoService->atualizarStatusVencido($boleto['id']);
@@ -1997,32 +2014,64 @@ function renderizarBoletoCard($boleto, $statusClass) {
     
     $temPDF = !empty($boleto['arquivo_pdf']);
     
-    // Verifica se tem desconto PIX personalizado disponível
+    // 🔧 CORREÇÃO: Verifica desconto PIX com validação de vencimento corrigida
     $temDescontoPix = false;
     $economiaTexto = '';
     $cardExtraClass = '';
     $botaoPixClass = 'btn-pix';
     $valorExibicao = $valorFormatado;
     
-    // Verifica se tem desconto PIX personalizado disponível
-       $temDescontoPix = false;
-       $economiaTexto = '';
-       $cardExtraClass = '';
-       $botaoPixClass = 'btn-pix';
-       $valorExibicao = $valorFormatado;
-       
-       if ($boleto['pode_usar_desconto'] ?? false) {
-           $temDescontoPix = true;
-           $economiaTexto = 'Economia: R$ ' . number_format($boleto['economia_pix'], 2, ',', '.');
-           $cardExtraClass = ' com-desconto-pix';
-           $botaoPixClass = 'btn-pix com-desconto';
-
+    // Verificação corrigida - considera desconto válido até o final do dia de vencimento
+    $agora = new DateTime();
+    $fimDiaVencimento = clone $vencimento;
+    $fimDiaVencimento->setTime(23, 59, 59);
+    $descontoVencido = ($agora > $fimDiaVencimento);
+    
+    // 🔧 NOVA LÓGICA: Usa dados já calculados no loop principal OU recalcula se necessário
+    if (isset($boleto['pode_usar_desconto']) && $boleto['pode_usar_desconto']) {
+        $temDescontoPix = true;
+    } else {
+        // Recalcula se não foi definido (fallback)
+        $temDescontoPix = (
+            ($boleto['pix_desconto_disponivel'] ?? false) &&
+            !($boleto['pix_desconto_usado'] ?? false) &&
+            $boleto['status'] !== 'pago' &&
+            !$descontoVencido &&
+            ($boleto['pix_valor_desconto'] ?? 0) > 0
+        );
         
-        // Mostra valor original e valor com desconto
-        $valorOriginal = 'R$ ' . number_format($boleto['valor'], 2, ',', '.');
-        $valorComDesconto = 'R$ ' . number_format($boleto['valor_final_pix'], 2, ',', '.');
-        $valorExibicao = '<span class="boleto-valor-original">' . $valorOriginal . '</span>' . 
-                        '<span class="boleto-valor-desconto">' . $valorComDesconto . '</span>';
+        if ($temDescontoPix) {
+            $valorMinimo = $boleto['pix_valor_minimo'] ?? 0;
+            if ($valorMinimo > 0 && $boleto['valor'] < $valorMinimo) {
+                $temDescontoPix = false;
+            }
+        }
+    }
+    
+    if ($temDescontoPix) {
+        // Usa economia já calculada OU calcula
+        $economia = $boleto['economia_pix'] ?? (float)($boleto['pix_valor_desconto'] ?? 0);
+        $valorFinal = $boleto['valor_final_pix'] ?? ($boleto['valor'] - $economia);
+        
+        // Garante valor mínimo de R$ 10,00
+        if ($valorFinal < 10.00) {
+            $economia = $boleto['valor'] - 10.00;
+            $valorFinal = 10.00;
+        }
+        
+        if ($economia > 0) {
+            $economiaTexto = 'Economia: R$ ' . number_format($economia, 2, ',', '.');
+            $cardExtraClass = ' com-desconto-pix';
+            $botaoPixClass = 'btn-pix com-desconto';
+            
+            // Mostra valor original e valor com desconto
+            $valorOriginal = 'R$ ' . number_format($boleto['valor'], 2, ',', '.');
+            $valorComDesconto = 'R$ ' . number_format($valorFinal, 2, ',', '.');
+            $valorExibicao = '<span class="boleto-valor-original">' . $valorOriginal . '</span>' . 
+                            '<span class="boleto-valor-desconto">' . $valorComDesconto . '</span>';
+        } else {
+            $temDescontoPix = false; // Se economia é 0, não tem desconto válido
+        }
     }
     
     ob_start();
@@ -2049,7 +2098,7 @@ function renderizarBoletoCard($boleto, $statusClass) {
                 <i class="fas fa-gift text-success me-1"></i>
                 <strong>Desconto PIX Personalizado Disponível!</strong><br>
                 <span class="desconto-valor"><?= $economiaTexto ?></span>
-                <?php if ($boleto['pix_valor_minimo'] && $boleto['pix_valor_minimo'] > 0): ?>
+                <?php if (($boleto['pix_valor_minimo'] ?? 0) > 0): ?>
                     <div class="valor-minimo">
                         <i class="fas fa-info-circle me-1"></i>
                         Valor mínimo: R$ <?= number_format($boleto['pix_valor_minimo'], 2, ',', '.') ?>
@@ -2057,7 +2106,13 @@ function renderizarBoletoCard($boleto, $statusClass) {
                 <?php endif; ?>
                 <div class="valor-minimo">
                     <i class="fas fa-clock me-1"></i>
-                    Válido até o vencimento
+                    <?php if ($diasVencimento == 0): ?>
+                        <span class="text-warning">⚡ Último dia para usar o desconto!</span>
+                    <?php elseif ($diasVencimento > 0): ?>
+                        Válido por mais <?= $diasVencimento ?> dia(s)
+                    <?php else: ?>
+                        Desconto expirado
+                    <?php endif; ?>
                 </div>
             </div>
             <?php endif; ?>
@@ -2104,8 +2159,11 @@ function renderizarBoletoCard($boleto, $statusClass) {
             <?php endif; ?>
             
             <button class="btn-action <?= $botaoPixClass ?>" onclick="mostrarPix(<?= $boleto['id'] ?>)" 
-                    title="<?= $temDescontoPix ? 'Gerar PIX com desconto personalizado de R$ ' . number_format($boleto['economia_pix'], 2, ',', '.') : 'Gerar código PIX' ?>">
-                <i class="fas fa-qrcode"></i> PIX<?= $temDescontoPix ? ' ' : '' ?>
+                    title="<?= $temDescontoPix ? 'Gerar PIX com desconto personalizado' : 'Gerar código PIX' ?>">
+                <i class="fas fa-qrcode"></i> PIX
+                <?php if ($temDescontoPix): ?>
+<!--                     <small class="d-block" style="font-size: 0.6rem; line-height: 1;">-<?= number_format($economia ?? 0, 0) ?></small>
+ -->                <?php endif; ?>
             </button>
         </div>
         <?php elseif ($temPDF): ?>
