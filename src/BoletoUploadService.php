@@ -1068,29 +1068,43 @@ class BoletoUploadService {
                 $prefixoData = date('Ymd');
             }
             
+            // CORREÇÃO: Query mais robusta
             $stmt = $this->db->prepare("
-                SELECT MAX(CAST(SUBSTRING(numero_boleto, 9) AS UNSIGNED)) as ultimo_sequencial
+                SELECT numero_boleto
                 FROM boletos 
                 WHERE numero_boleto LIKE ?
+                ORDER BY numero_boleto DESC
+                LIMIT 1
             ");
             $stmt->execute([$prefixoData . '%']);
-            $resultado = $stmt->fetch();
+            $ultimoBoleto = $stmt->fetch();
             
-            $ultimoSequencial = $resultado['ultimo_sequencial'] ?? 0;
+            $ultimoSequencial = 0;
+            if ($ultimoBoleto) {
+                $numeroCompleto = $ultimoBoleto['numero_boleto'];
+                // Extrai os últimos 4 dígitos
+                $sequencial = substr($numeroCompleto, -4);
+                $ultimoSequencial = intval($sequencial);
+            }
+            
             $novoSequencial = $ultimoSequencial + 1;
-            
             $sequencialFormatado = str_pad($novoSequencial, 4, '0', STR_PAD_LEFT);
             $numeroCompleto = $prefixoData . $sequencialFormatado;
+            
+            error_log("NUMERAÇÃO: Gerado número {$numeroCompleto} (último: {$ultimoSequencial})");
             
             return $numeroCompleto;
             
         } catch (Exception $e) {
-            error_log("ERRO na numeração segura: " . $e->getMessage());
+            error_log("NUMERAÇÃO: Erro na geração - " . $e->getMessage());
             
-            $timestamp = substr(time(), -6);
-            $random = str_pad(mt_rand(1, 999999), 6, '0', STR_PAD_LEFT);
+            // Fallback com timestamp
+            $timestamp = time();
+            $random = mt_rand(1000, 9999);
+            $numeroFallback = $timestamp . $random;
             
-            return $timestamp . $random;
+            error_log("NUMERAÇÃO: Usando fallback - {$numeroFallback}");
+            return $numeroFallback;
         }
     }
     
@@ -1179,12 +1193,14 @@ class BoletoUploadService {
         }
     }
 
-    /**
- * 🆕 Gera parcelas automaticamente apenas com PIX (sem PDF)
+/**
+ * 🆕 CORRIGIDO: Gera parcelas automaticamente apenas com PIX (sem PDF)
  */
 public function gerarParcelasPix($post) {
     try {
         $this->db->beginTransaction();
+        
+        error_log("PARCELAS PIX: Iniciando geração com dados: " . json_encode($post));
         
         // Validação dos dados básicos
         $dadosValidados = $this->validarDadosParcelasPixIndividuais($post);
@@ -1195,6 +1211,8 @@ public function gerarParcelasPix($post) {
             $dadosValidados['curso_id'], 
             $dadosValidados['polo']
         );
+        
+        error_log("PARCELAS PIX: Aluno encontrado - ID: {$aluno['id']}, Nome: {$aluno['nome']}");
         
         $parcelasGeradas = [];
         $sucessos = 0;
@@ -1207,6 +1225,8 @@ public function gerarParcelasPix($post) {
         // Processa cada parcela individual
         foreach ($dadosValidados['parcelas'] as $index => $parcelaData) {
             try {
+                error_log("PARCELAS PIX: Processando parcela " . ($index + 1) . ": " . json_encode($parcelaData));
+                
                 // Valida dados da parcela
                 $this->validarDadosParcela($parcelaData, $index + 1);
                 
@@ -1224,10 +1244,12 @@ public function gerarParcelasPix($post) {
                     $valorFinalPix = max(10, $valorOriginal - $descontoAplicado);
                     $parcelasComPix++;
                     $economiaTotal += $descontoAplicado;
+                    
+                    error_log("PARCELAS PIX: Desconto aplicado - Original: R$ {$valorOriginal}, Desconto: R$ {$descontoAplicado}, Final: R$ {$valorFinalPix}");
                 }
                 
-                // Salva a parcela no banco
-                $boletoId = $this->salvarBoleto([
+                // Salva a parcela no banco - CORREÇÃO: Verificar colunas existentes
+                $dadosBoleto = [
                     'aluno_id' => $aluno['id'],
                     'curso_id' => $dadosValidados['curso_id'],
                     'numero_boleto' => $numeroBoleto,
@@ -1240,14 +1262,23 @@ public function gerarParcelasPix($post) {
                     'pix_desconto_disponivel' => $parcelaData['pix_disponivel'] ? 1 : 0,
                     'pix_desconto_usado' => 0,
                     'pix_valor_desconto' => $parcelaData['pix_disponivel'] ? $parcelaData['valor_desconto'] : null,
-                    'pix_valor_minimo' => $parcelaData['pix_disponivel'] ? $parcelaData['valor_minimo'] : null,
-                    'tipo_boleto' => 'pix_only'
-                ]);
+                    'pix_valor_minimo' => $parcelaData['pix_disponivel'] ? $parcelaData['valor_minimo'] : null
+                ];
+                
+                // CORREÇÃO: Adicionar tipo_boleto se a coluna existir
+                $colunas = $this->obterColunasTabelaBoletos();
+                if (in_array('tipo_boleto', $colunas)) {
+                    $dadosBoleto['tipo_boleto'] = 'pix_only';
+                }
+                
+                $boletoId = $this->salvarBoleto($dadosBoleto);
+                
+                error_log("PARCELAS PIX: Boleto salvo - ID: {$boletoId}, Número: {$numeroBoleto}");
                 
                 $parcelasGeradas[] = [
                     'boleto_id' => $boletoId,
                     'numero_boleto' => $numeroBoleto,
-                    'parcela' => $parcelaData['numero'],
+                    'parcela' => $parcelaData['numero'] ?? ($index + 1),
                     'descricao' => $parcelaData['descricao'],
                     'valor_original' => $valorOriginal,
                     'vencimento' => date('d/m/Y', strtotime($parcelaData['vencimento'])),
@@ -1266,7 +1297,7 @@ public function gerarParcelasPix($post) {
                     'erro' => $e->getMessage()
                 ];
                 
-                error_log("Erro ao gerar parcela individual {$index}: " . $e->getMessage());
+                error_log("PARCELAS PIX: Erro na parcela " . ($index + 1) . ": " . $e->getMessage());
             }
         }
         
@@ -1278,6 +1309,8 @@ public function gerarParcelasPix($post) {
             "valor total R$ " . number_format($valorTotalGerado, 2, ',', '.') . 
             ", economia R$ " . number_format($economiaTotal, 2, ',', '.') . 
             ", {$parcelasComPix} com desconto PIX");
+        
+        error_log("PARCELAS PIX: Operação concluída - {$sucessos} sucessos, {$erros} erros");
         
         return [
             'success' => true,
@@ -1294,15 +1327,19 @@ public function gerarParcelasPix($post) {
         
     } catch (Exception $e) {
         $this->db->rollback();
-        error_log("Erro ao gerar parcelas PIX individuais: " . $e->getMessage());
+        error_log("PARCELAS PIX: Erro geral - " . $e->getMessage());
+        error_log("PARCELAS PIX: Stack trace - " . $e->getTraceAsString());
         throw new Exception($e->getMessage());
     }
 }
 
+
 /**
- * 🆕 Valida dados para geração de parcelas PIX individuais
+ * 🆕 CORRIGIDO: Valida dados para geração de parcelas PIX individuais
  */
 private function validarDadosParcelasPixIndividuais($post) {
+    error_log("VALIDAÇÃO PIX: Iniciando validação com dados: " . json_encode(array_keys($post)));
+    
     $erros = [];
     
     // Validações obrigatórias
@@ -1311,6 +1348,7 @@ private function validarDadosParcelasPixIndividuais($post) {
     if (empty($post['aluno_cpf'])) $erros[] = "CPF do aluno é obrigatório";
     
     if (!empty($erros)) {
+        error_log("VALIDAÇÃO PIX: Erros básicos - " . implode(', ', $erros));
         throw new Exception(implode(', ', $erros));
     }
     
@@ -1326,26 +1364,44 @@ private function validarDadosParcelasPixIndividuais($post) {
     
     // Validação das parcelas individuais
     if (empty($post['parcelas_individuais'])) {
+        error_log("VALIDAÇÃO PIX: Dados das parcelas não encontrados nos POST");
         throw new Exception("Dados das parcelas não encontrados");
     }
     
     $parcelas = json_decode($post['parcelas_individuais'], true);
     if (!$parcelas || !is_array($parcelas)) {
+        error_log("VALIDAÇÃO PIX: Formato inválido das parcelas - " . $post['parcelas_individuais']);
         throw new Exception("Formato de dados das parcelas inválido");
     }
     
-    if (count($parcelas) < 2 || count($parcelas) > 32) {
-        throw new Exception("Quantidade de parcelas deve ser entre 2 e 32");
+    if (count($parcelas) < 1 || count($parcelas) > 32) {
+        throw new Exception("Quantidade de parcelas deve ser entre 1 e 32");
     }
     
+    error_log("VALIDAÇÃO PIX: Processando " . count($parcelas) . " parcelas");
+    
     // Filtra apenas parcelas com valor válido
-    $parcelasValidas = array_filter($parcelas, function($parcela) {
-        return isset($parcela['valor']) && floatval($parcela['valor']) > 0;
-    });
+    $parcelasValidas = [];
+    foreach ($parcelas as $index => $parcela) {
+        if (isset($parcela['valor']) && floatval($parcela['valor']) > 0) {
+            // CORREÇÃO: Garantir que todos os campos necessários existam
+            $parcelasValidas[] = [
+                'numero' => $parcela['numero'] ?? ($index + 1),
+                'descricao' => $parcela['descricao'] ?? '',
+                'vencimento' => $parcela['vencimento'] ?? '',
+                'valor' => floatval($parcela['valor']),
+                'pix_disponivel' => !empty($parcela['pix_disponivel']),
+                'valor_desconto' => floatval($parcela['valor_desconto'] ?? 0),
+                'valor_minimo' => floatval($parcela['valor_minimo'] ?? 0)
+            ];
+        }
+    }
     
     if (empty($parcelasValidas)) {
         throw new Exception("Pelo menos uma parcela deve ter valor válido");
     }
+    
+    error_log("VALIDAÇÃO PIX: " . count($parcelasValidas) . " parcelas válidas encontradas");
     
     return [
         'polo' => $post['polo'],
@@ -1356,7 +1412,7 @@ private function validarDadosParcelasPixIndividuais($post) {
 }
 
 /**
- * 🆕 Valida dados de uma parcela individual
+ * 🆕 CORRIGIDO: Valida dados de uma parcela individual
  */
 private function validarDadosParcela($parcela, $numero) {
     $erros = [];
