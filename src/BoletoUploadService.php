@@ -1178,5 +1178,643 @@ class BoletoUploadService {
             return [];
         }
     }
+
+    /**
+ * 🆕 Gera parcelas automaticamente apenas com PIX (sem PDF)
+ */
+public function gerarParcelasPix($post) {
+    try {
+        $this->db->beginTransaction();
+        
+        // Validação dos dados básicos
+        $dadosValidados = $this->validarDadosParcelasPixIndividuais($post);
+        
+        // Verifica se o aluno existe
+        $aluno = $this->verificarAlunoFlexivel(
+            $dadosValidados['cpf'], 
+            $dadosValidados['curso_id'], 
+            $dadosValidados['polo']
+        );
+        
+        $parcelasGeradas = [];
+        $sucessos = 0;
+        $erros = 0;
+        $detalhesErros = [];
+        $valorTotalGerado = 0;
+        $economiaTotal = 0;
+        $parcelasComPix = 0;
+        
+        // Processa cada parcela individual
+        foreach ($dadosValidados['parcelas'] as $index => $parcelaData) {
+            try {
+                // Valida dados da parcela
+                $this->validarDadosParcela($parcelaData, $index + 1);
+                
+                // Gera número único para o boleto
+                $numeroBoleto = $this->gerarNumeroSequencialSeguro();
+                $this->verificarNumeroBoletoUnico($numeroBoleto);
+                
+                // Calcula valores com desconto PIX
+                $valorOriginal = floatval($parcelaData['valor']);
+                $valorFinalPix = $valorOriginal;
+                $descontoAplicado = 0;
+                
+                if ($parcelaData['pix_disponivel'] && $parcelaData['valor_desconto'] > 0) {
+                    $descontoAplicado = min($parcelaData['valor_desconto'], $valorOriginal - 10);
+                    $valorFinalPix = max(10, $valorOriginal - $descontoAplicado);
+                    $parcelasComPix++;
+                    $economiaTotal += $descontoAplicado;
+                }
+                
+                // Salva a parcela no banco
+                $boletoId = $this->salvarBoleto([
+                    'aluno_id' => $aluno['id'],
+                    'curso_id' => $dadosValidados['curso_id'],
+                    'numero_boleto' => $numeroBoleto,
+                    'valor' => $valorOriginal,
+                    'vencimento' => $parcelaData['vencimento'],
+                    'descricao' => $parcelaData['descricao'],
+                    'arquivo_pdf' => null, // Sem arquivo PDF para parcelas PIX
+                    'status' => 'pendente',
+                    'admin_id' => $_SESSION['admin_id'] ?? null,
+                    'pix_desconto_disponivel' => $parcelaData['pix_disponivel'] ? 1 : 0,
+                    'pix_desconto_usado' => 0,
+                    'pix_valor_desconto' => $parcelaData['pix_disponivel'] ? $parcelaData['valor_desconto'] : null,
+                    'pix_valor_minimo' => $parcelaData['pix_disponivel'] ? $parcelaData['valor_minimo'] : null,
+                    'tipo_boleto' => 'pix_only'
+                ]);
+                
+                $parcelasGeradas[] = [
+                    'boleto_id' => $boletoId,
+                    'numero_boleto' => $numeroBoleto,
+                    'parcela' => $parcelaData['numero'],
+                    'descricao' => $parcelaData['descricao'],
+                    'valor_original' => $valorOriginal,
+                    'vencimento' => date('d/m/Y', strtotime($parcelaData['vencimento'])),
+                    'tem_desconto_pix' => $parcelaData['pix_disponivel'],
+                    'valor_desconto' => $descontoAplicado,
+                    'valor_final_pix' => $valorFinalPix
+                ];
+                
+                $valorTotalGerado += $valorOriginal;
+                $sucessos++;
+                
+            } catch (Exception $e) {
+                $erros++;
+                $detalhesErros[] = [
+                    'parcela' => $parcelaData['numero'] ?? ($index + 1),
+                    'erro' => $e->getMessage()
+                ];
+                
+                error_log("Erro ao gerar parcela individual {$index}: " . $e->getMessage());
+            }
+        }
+        
+        $this->db->commit();
+        
+        // Log da operação
+        $this->registrarLog('parcelas_pix_individuais_geradas', null, 
+            "Parcelas PIX individuais para {$aluno['nome']}: {$sucessos} parcelas, " .
+            "valor total R$ " . number_format($valorTotalGerado, 2, ',', '.') . 
+            ", economia R$ " . number_format($economiaTotal, 2, ',', '.') . 
+            ", {$parcelasComPix} com desconto PIX");
+        
+        return [
+            'success' => true,
+            'message' => 'Parcelas PIX personalizadas geradas com sucesso!',
+            'aluno_nome' => $aluno['nome'],
+            'parcelas_geradas' => $sucessos,
+            'parcelas_com_erro' => $erros,
+            'valor_total' => $valorTotalGerado,
+            'economia_total' => $economiaTotal,
+            'parcelas_com_pix' => $parcelasComPix,
+            'detalhes_parcelas' => $parcelasGeradas,
+            'detalhes_erros' => $detalhesErros
+        ];
+        
+    } catch (Exception $e) {
+        $this->db->rollback();
+        error_log("Erro ao gerar parcelas PIX individuais: " . $e->getMessage());
+        throw new Exception($e->getMessage());
+    }
+}
+
+/**
+ * 🆕 Valida dados para geração de parcelas PIX individuais
+ */
+private function validarDadosParcelasPixIndividuais($post) {
+    $erros = [];
+    
+    // Validações obrigatórias
+    if (empty($post['polo'])) $erros[] = "Polo é obrigatório";
+    if (empty($post['curso_id'])) $erros[] = "Curso é obrigatório";
+    if (empty($post['aluno_cpf'])) $erros[] = "CPF do aluno é obrigatório";
+    
+    if (!empty($erros)) {
+        throw new Exception(implode(', ', $erros));
+    }
+    
+    // Validação do CPF
+    $cpf = preg_replace('/[^0-9]/', '', $post['aluno_cpf']);
+    if (strlen($cpf) !== 11) {
+        throw new Exception("CPF deve conter 11 dígitos");
+    }
+    
+    if (!$this->validarCPF($cpf)) {
+        throw new Exception("CPF inválido");
+    }
+    
+    // Validação das parcelas individuais
+    if (empty($post['parcelas_individuais'])) {
+        throw new Exception("Dados das parcelas não encontrados");
+    }
+    
+    $parcelas = json_decode($post['parcelas_individuais'], true);
+    if (!$parcelas || !is_array($parcelas)) {
+        throw new Exception("Formato de dados das parcelas inválido");
+    }
+    
+    if (count($parcelas) < 2 || count($parcelas) > 32) {
+        throw new Exception("Quantidade de parcelas deve ser entre 2 e 32");
+    }
+    
+    // Filtra apenas parcelas com valor válido
+    $parcelasValidas = array_filter($parcelas, function($parcela) {
+        return isset($parcela['valor']) && floatval($parcela['valor']) > 0;
+    });
+    
+    if (empty($parcelasValidas)) {
+        throw new Exception("Pelo menos uma parcela deve ter valor válido");
+    }
+    
+    return [
+        'polo' => $post['polo'],
+        'curso_id' => intval($post['curso_id']),
+        'cpf' => $cpf,
+        'parcelas' => $parcelasValidas
+    ];
+}
+
+/**
+ * 🆕 Valida dados de uma parcela individual
+ */
+private function validarDadosParcela($parcela, $numero) {
+    $erros = [];
+    
+    if (empty($parcela['descricao'])) {
+        $erros[] = "Descrição é obrigatória";
+    }
+    
+    if (empty($parcela['vencimento'])) {
+        $erros[] = "Data de vencimento é obrigatória";
+    } elseif (strtotime($parcela['vencimento']) < strtotime(date('Y-m-d'))) {
+        $erros[] = "Data de vencimento não pode ser anterior a hoje";
+    }
+    
+    $valor = floatval($parcela['valor'] ?? 0);
+    if ($valor <= 0) {
+        $erros[] = "Valor deve ser maior que zero";
+    } elseif ($valor < 10.00) {
+        $erros[] = "Valor mínimo é R$ 10,00";
+    }
+    
+    // Validação específica do PIX
+    if (!empty($parcela['pix_disponivel'])) {
+        $valorDesconto = floatval($parcela['valor_desconto'] ?? 0);
+        
+        if ($valorDesconto <= 0) {
+            $erros[] = "Valor do desconto PIX é obrigatório quando PIX está habilitado";
+        }
+        
+        if ($valorDesconto >= $valor) {
+            $erros[] = "Valor do desconto não pode ser maior ou igual ao valor da parcela";
+        }
+        
+        // Verifica se após o desconto o valor mínimo é respeitado
+        $valorFinalComDesconto = $valor - $valorDesconto;
+        if ($valorFinalComDesconto < 10.00) {
+            $erros[] = "Valor da parcela com desconto seria R$ " . 
+                      number_format($valorFinalComDesconto, 2, ',', '.') . 
+                      ", mas o mínimo é R$ 10,00";
+        }
+        
+        // Validação do valor mínimo para aplicar desconto
+        $valorMinimo = floatval($parcela['valor_minimo'] ?? 0);
+        if ($valorMinimo > 0 && $valor < $valorMinimo) {
+            $erros[] = "Valor da parcela (R$ " . number_format($valor, 2, ',', '.') . 
+                      ") é menor que o valor mínimo para desconto (R$ " . 
+                      number_format($valorMinimo, 2, ',', '.') . ")";
+        }
+    }
+    
+    if (!empty($erros)) {
+        throw new Exception("Parcela {$numero}: " . implode(', ', $erros));
+    }
+}
+
+/**
+ * 🆕 Busca parcelas individuais de um aluno (com detalhes)
+ */
+public function buscarParcelasIndividuaisAluno($alunoId, $cursoId = null) {
+    $where = ['b.aluno_id = ?', 'b.tipo_boleto = ?'];
+    $params = [$alunoId, 'pix_only'];
+    
+    if ($cursoId) {
+        $where[] = 'b.curso_id = ?';
+        $params[] = $cursoId;
+    }
+    
+    $whereClause = implode(' AND ', $where);
+    
+    $stmt = $this->db->prepare("
+        SELECT b.*, c.nome as curso_nome, c.subdomain,
+               b.pix_desconto_disponivel,
+               b.pix_desconto_usado,
+               b.pix_valor_desconto,
+               b.pix_valor_minimo,
+               CASE 
+                   WHEN b.pix_desconto_disponivel = 1 AND b.pix_desconto_usado = 0 
+                        AND b.vencimento >= CURDATE() AND b.status = 'pendente'
+                   THEN 1 ELSE 0 
+               END as desconto_ativo,
+               CASE 
+                   WHEN b.pix_desconto_disponivel = 1 AND b.pix_valor_desconto > 0
+                   THEN GREATEST(10, b.valor - b.pix_valor_desconto)
+                   ELSE b.valor 
+               END as valor_com_pix
+        FROM boletos b
+        INNER JOIN cursos c ON b.curso_id = c.id
+        WHERE {$whereClause}
+        ORDER BY b.vencimento ASC, b.created_at ASC
+    ");
+    $stmt->execute($params);
+    
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/**
+ * 🆕 Estatísticas detalhadas de parcelas PIX individuais
+ */
+public function getEstatisticasParcelasPixIndividuais() {
+    try {
+        // Total de parcelas PIX individuais
+        $stmt = $this->db->query("
+            SELECT COUNT(*) as total_parcelas,
+                   SUM(valor) as valor_total,
+                   AVG(valor) as valor_medio
+            FROM boletos 
+            WHERE tipo_boleto = 'pix_only'
+        ");
+        $totais = $stmt->fetch();
+        
+        // Parcelas com desconto PIX
+        $stmt = $this->db->query("
+            SELECT COUNT(*) as com_desconto,
+                   SUM(pix_valor_desconto) as desconto_total_disponivel,
+                   AVG(pix_valor_desconto) as desconto_medio
+            FROM boletos 
+            WHERE tipo_boleto = 'pix_only' 
+            AND pix_desconto_disponivel = 1
+        ");
+        $descontos = $stmt->fetch();
+        
+        // Parcelas por status
+        $stmt = $this->db->query("
+            SELECT status, COUNT(*) as quantidade
+            FROM boletos 
+            WHERE tipo_boleto = 'pix_only'
+            GROUP BY status
+        ");
+        $porStatus = [];
+        while ($row = $stmt->fetch()) {
+            $porStatus[$row['status']] = $row['quantidade'];
+        }
+        
+        // Parcelas vencendo nos próximos 30 dias
+        $stmt = $this->db->query("
+            SELECT COUNT(*) as vencendo_30_dias
+            FROM boletos 
+            WHERE tipo_boleto = 'pix_only'
+            AND status = 'pendente'
+            AND vencimento BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY)
+        ");
+        $vencendo = $stmt->fetch();
+        
+        // Economia total já utilizada
+        $stmt = $this->db->query("
+            SELECT COUNT(*) as descontos_usados,
+                   SUM(pix_valor_desconto) as economia_realizada
+            FROM boletos 
+            WHERE tipo_boleto = 'pix_only'
+            AND pix_desconto_usado = 1
+        ");
+        $economiaUsada = $stmt->fetch();
+        
+        return [
+            'total_parcelas' => $totais['total_parcelas'] ?? 0,
+            'valor_total' => $totais['valor_total'] ?? 0,
+            'valor_medio' => $totais['valor_medio'] ?? 0,
+            'parcelas_com_desconto' => $descontos['com_desconto'] ?? 0,
+            'desconto_total_disponivel' => $descontos['desconto_total_disponivel'] ?? 0,
+            'desconto_medio' => $descontos['desconto_medio'] ?? 0,
+            'por_status' => $porStatus,
+            'vencendo_30_dias' => $vencendo['vencendo_30_dias'] ?? 0,
+            'descontos_ja_usados' => $economiaUsada['descontos_usados'] ?? 0,
+            'economia_realizada' => $economiaUsada['economia_realizada'] ?? 0,
+            'percentual_com_desconto' => $totais['total_parcelas'] > 0 ? 
+                round((($descontos['com_desconto'] ?? 0) / $totais['total_parcelas']) * 100, 1) : 0
+        ];
+        
+    } catch (Exception $e) {
+        error_log("Erro nas estatísticas de parcelas individuais: " . $e->getMessage());
+        return [
+            'total_parcelas' => 0,
+            'valor_total' => 0,
+            'valor_medio' => 0,
+            'parcelas_com_desconto' => 0,
+            'desconto_total_disponivel' => 0,
+            'desconto_medio' => 0,
+            'por_status' => [],
+            'vencendo_30_dias' => 0,
+            'descontos_ja_usados' => 0,
+            'economia_realizada' => 0,
+            'percentual_com_desconto' => 0
+        ];
+    }
+}
+
+/**
+ * 🆕 Duplica parcelas de um boleto existente
+ */
+public function duplicarParcelasPix($boletoId, $quantidadeParcelas, $intervaloDias = 30) {
+    try {
+        $this->db->beginTransaction();
+        
+        // Busca o boleto original
+        $boletoOriginal = $this->buscarBoletoPorId($boletoId);
+        if (!$boletoOriginal) {
+            throw new Exception("Boleto original não encontrado");
+        }
+        
+        $parcelasGeradas = [];
+        $dataBase = new DateTime($boletoOriginal['vencimento']);
+        
+        for ($i = 1; $i <= $quantidadeParcelas; $i++) {
+            $novaData = clone $dataBase;
+            $novaData->modify("+{$i} month");
+            
+            $numeroBoleto = $this->gerarNumeroSequencialSeguro();
+            $this->verificarNumeroBoletoUnico($numeroBoleto);
+            
+            $boletoId = $this->salvarBoleto([
+                'aluno_id' => $boletoOriginal['aluno_id'],
+                'curso_id' => $boletoOriginal['curso_id'],
+                'numero_boleto' => $numeroBoleto,
+                'valor' => $boletoOriginal['valor'],
+                'vencimento' => $novaData->format('Y-m-d'),
+                'descricao' => $boletoOriginal['descricao'] . " - Parcela " . ($i + 1),
+                'arquivo_pdf' => null,
+                'status' => 'pendente',
+                'admin_id' => $_SESSION['admin_id'] ?? null,
+                'pix_desconto_disponivel' => $boletoOriginal['pix_desconto_disponivel'],
+                'pix_desconto_usado' => 0,
+                'pix_valor_desconto' => $boletoOriginal['pix_valor_desconto'],
+                'pix_valor_minimo' => $boletoOriginal['pix_valor_minimo'],
+                'tipo_boleto' => 'pix_only'
+            ]);
+            
+            $parcelasGeradas[] = $boletoId;
+        }
+        
+        $this->db->commit();
+        
+        $this->registrarLog('parcelas_duplicadas', $boletoId, 
+            "Duplicadas {$quantidadeParcelas} parcelas baseadas no boleto {$boletoOriginal['numero_boleto']}");
+        
+        return [
+            'success' => true,
+            'parcelas_geradas' => count($parcelasGeradas),
+            'boletos_ids' => $parcelasGeradas
+        ];
+        
+    } catch (Exception $e) {
+        $this->db->rollback();
+        error_log("Erro ao duplicar parcelas: " . $e->getMessage());
+        throw new Exception($e->getMessage());
+    }
+}
+
+
+/**
+ * 🆕 Valida dados para geração de parcelas PIX
+ */
+private function validarDadosParcelasPix($post) {
+    $erros = [];
+    
+    // Validações obrigatórias
+    if (empty($post['polo'])) $erros[] = "Polo é obrigatório";
+    if (empty($post['curso_id'])) $erros[] = "Curso é obrigatório";
+    if (empty($post['aluno_cpf'])) $erros[] = "CPF do aluno é obrigatório";
+    if (empty($post['quantidade_parcelas'])) $erros[] = "Quantidade de parcelas é obrigatória";
+    if (empty($post['valor_total'])) $erros[] = "Valor total é obrigatório";
+    if (empty($post['primeira_parcela'])) $erros[] = "Data da primeira parcela é obrigatória";
+    if (empty($post['descricao_base'])) $erros[] = "Descrição base é obrigatória";
+    
+    if (!empty($erros)) {
+        throw new Exception(implode(', ', $erros));
+    }
+    
+    // Validação do CPF
+    $cpf = preg_replace('/[^0-9]/', '', $post['aluno_cpf']);
+    if (strlen($cpf) !== 11) {
+        throw new Exception("CPF deve conter 11 dígitos");
+    }
+    
+    if (!$this->validarCPF($cpf)) {
+        throw new Exception("CPF inválido");
+    }
+    
+    // Validação da quantidade de parcelas
+    $quantidadeParcelas = intval($post['quantidade_parcelas']);
+    if ($quantidadeParcelas < 2 || $quantidadeParcelas > 32) {
+        throw new Exception("Quantidade de parcelas deve ser entre 2 e 32");
+    }
+    
+    // Validação dos valores
+    $valorTotal = floatval($post['valor_total']);
+    if ($valorTotal <= 0) {
+        throw new Exception("Valor total deve ser maior que zero");
+    }
+    
+    $valorParcela = $valorTotal / $quantidadeParcelas;
+    if ($valorParcela < 10.00) {
+        throw new Exception("Valor da parcela não pode ser menor que R$ 10,00 (Valor atual: R$ " . 
+                          number_format($valorParcela, 2, ',', '.') . ")");
+    }
+    
+    // Validação da data
+    if (strtotime($post['primeira_parcela']) < strtotime(date('Y-m-d'))) {
+        throw new Exception("Data da primeira parcela não pode ser anterior a hoje");
+    }
+    
+    // Validação do desconto PIX
+    $pixDesconto = isset($post['parcelas_pix_desconto']) ? intval($post['parcelas_pix_desconto']) : 0;
+    $valorDesconto = null;
+    $valorMinimo = null;
+    
+    if ($pixDesconto) {
+        if (empty($post['parcelas_valor_desconto']) || floatval($post['parcelas_valor_desconto']) <= 0) {
+            throw new Exception("Valor do desconto PIX é obrigatório quando desconto está habilitado");
+        }
+        
+        $valorDesconto = floatval($post['parcelas_valor_desconto']);
+        $valorMinimo = floatval($post['parcelas_valor_minimo'] ?? 0);
+        
+        if ($valorDesconto >= $valorParcela) {
+            throw new Exception("Valor do desconto (R$ " . number_format($valorDesconto, 2, ',', '.') . 
+                              ") não pode ser maior ou igual ao valor da parcela (R$ " . 
+                              number_format($valorParcela, 2, ',', '.') . ")");
+        }
+        
+        // Verifica se após o desconto o valor mínimo é respeitado
+        $valorFinalComDesconto = $valorParcela - $valorDesconto;
+        if ($valorFinalComDesconto < 10.00) {
+            throw new Exception("Valor da parcela com desconto seria R$ " . 
+                              number_format($valorFinalComDesconto, 2, ',', '.') . 
+                              ", mas o mínimo é R$ 10,00. Reduza o desconto.");
+        }
+    }
+    
+    return [
+        'polo' => $post['polo'],
+        'curso_id' => intval($post['curso_id']),
+        'cpf' => $cpf,
+        'quantidade_parcelas' => $quantidadeParcelas,
+        'valor_total' => $valorTotal,
+        'valor_parcela' => $valorParcela,
+        'primeira_parcela' => $post['primeira_parcela'],
+        'descricao_base' => trim($post['descricao_base']),
+        'pix_desconto_disponivel' => $pixDesconto,
+        'valor_desconto_pix' => $valorDesconto,
+        'valor_minimo_pix' => $valorMinimo
+    ];
+}
+
+/**
+ * 🆕 Lista boletos PIX (sem arquivo PDF)
+ */
+public function listarBoletosPix($filtros = [], $pagina = 1, $itensPorPagina = 20) {
+    $filtros['tipo_boleto'] = 'pix_only';
+    return $this->listarBoletos($filtros, $pagina, $itensPorPagina);
+}
+
+/**
+ * 🆕 Busca parcelas de um aluno específico
+ */
+public function buscarParcelasAluno($alunoId, $cursoId = null) {
+    $where = ['b.aluno_id = ?'];
+    $params = [$alunoId];
+    
+    if ($cursoId) {
+        $where[] = 'b.curso_id = ?';
+        $params[] = $cursoId;
+    }
+    
+    // Foca em boletos PIX ou sem arquivo
+    $where[] = "(b.arquivo_pdf IS NULL OR b.tipo_boleto = 'pix_only')";
+    
+    $whereClause = implode(' AND ', $where);
+    
+    $stmt = $this->db->prepare("
+        SELECT b.*, c.nome as curso_nome, c.subdomain,
+               b.pix_desconto_disponivel,
+               b.pix_desconto_usado,
+               b.pix_valor_desconto,
+               b.pix_valor_minimo
+        FROM boletos b
+        INNER JOIN cursos c ON b.curso_id = c.id
+        WHERE {$whereClause}
+        ORDER BY b.vencimento ASC, b.created_at ASC
+    ");
+    $stmt->execute($params);
+    
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/**
+ * 🆕 Estatísticas de parcelas PIX
+ */
+public function getEstatisticasParcelasPix() {
+    try {
+        // Total de boletos PIX
+        $stmt = $this->db->query("
+            SELECT COUNT(*) as total_pix
+            FROM boletos 
+            WHERE arquivo_pdf IS NULL OR tipo_boleto = 'pix_only'
+        ");
+        $totalPix = $stmt->fetch()['total_pix'];
+        
+        // Boletos PIX com desconto disponível
+        $stmt = $this->db->query("
+            SELECT COUNT(*) as com_desconto
+            FROM boletos 
+            WHERE (arquivo_pdf IS NULL OR tipo_boleto = 'pix_only')
+            AND pix_desconto_disponivel = 1
+        ");
+        $comDesconto = $stmt->fetch()['com_desconto'];
+        
+        // Valor total dos boletos PIX
+        $stmt = $this->db->query("
+            SELECT SUM(valor) as valor_total
+            FROM boletos 
+            WHERE (arquivo_pdf IS NULL OR tipo_boleto = 'pix_only')
+            AND status = 'pendente'
+        ");
+        $valorTotal = $stmt->fetch()['valor_total'] ?? 0;
+        
+        // Desconto total disponível
+        $stmt = $this->db->query("
+            SELECT SUM(pix_valor_desconto) as desconto_total
+            FROM boletos 
+            WHERE (arquivo_pdf IS NULL OR tipo_boleto = 'pix_only')
+            AND pix_desconto_disponivel = 1
+            AND pix_desconto_usado = 0
+            AND status = 'pendente'
+            AND vencimento >= CURDATE()
+        ");
+        $descontoTotal = $stmt->fetch()['desconto_total'] ?? 0;
+        
+        // Boletos PIX vencidos
+        $stmt = $this->db->query("
+            SELECT COUNT(*) as vencidos
+            FROM boletos 
+            WHERE (arquivo_pdf IS NULL OR tipo_boleto = 'pix_only')
+            AND status = 'pendente'
+            AND vencimento < CURDATE()
+        ");
+        $vencidos = $stmt->fetch()['vencidos'];
+        
+        return [
+            'total_boletos_pix' => $totalPix,
+            'com_desconto_disponivel' => $comDesconto,
+            'valor_total_pendente' => $valorTotal,
+            'desconto_total_disponivel' => $descontoTotal,
+            'boletos_vencidos' => $vencidos,
+            'percentual_com_desconto' => $totalPix > 0 ? round(($comDesconto / $totalPix) * 100, 1) : 0
+        ];
+        
+    } catch (Exception $e) {
+        error_log("Erro nas estatísticas PIX: " . $e->getMessage());
+        return [
+            'total_boletos_pix' => 0,
+            'com_desconto_disponivel' => 0,
+            'valor_total_pendente' => 0,
+            'desconto_total_disponivel' => 0,
+            'boletos_vencidos' => 0,
+            'percentual_com_desconto' => 0
+        ];
+    }
+}
+
 }
 ?>

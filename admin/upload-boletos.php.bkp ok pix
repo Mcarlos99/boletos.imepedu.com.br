@@ -47,49 +47,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $sucesso = "Upload múltiplo processado! {$resultado['sucessos']} boletos enviados para {$resultado['aluno_nome']}, {$resultado['erros']} erros.";
             
         } elseif (isset($_POST['acao']) && $_POST['acao'] === 'gerar_parcelas_pix') {
-            // 🆕 FUNCIONALIDADE ATUALIZADA: Parcelas PIX com controle individual
+            // 🆕 NOVA FUNCIONALIDADE: Gerar Parcelas PIX
             $resultado = $uploadService->gerarParcelasPix($_POST);
             
-            // Monta mensagem detalhada com informações das parcelas individuais
-            $mensagemDetalhada = "<strong>Parcelas PIX personalizadas geradas com sucesso!</strong><br>";
+            // Monta mensagem detalhada
+            $mensagemDetalhada = "Parcelas PIX geradas com sucesso!<br>";
             $mensagemDetalhada .= "• <strong>{$resultado['parcelas_geradas']} parcelas</strong> criadas para <strong>{$resultado['aluno_nome']}</strong><br>";
             $mensagemDetalhada .= "• Valor total: <strong>R$ " . number_format($resultado['valor_total'], 2, ',', '.') . "</strong><br>";
+            $mensagemDetalhada .= "• Valor por parcela: <strong>R$ " . number_format($resultado['valor_parcela'], 2, ',', '.') . "</strong><br>";
             
-            if ($resultado['parcelas_com_pix'] > 0) {
-                $mensagemDetalhada .= "• Parcelas com desconto PIX: <strong>{$resultado['parcelas_com_pix']}</strong><br>";
-                $mensagemDetalhada .= "• Economia total possível: <strong>R$ " . number_format($resultado['economia_total'], 2, ',', '.') . "</strong><br>";
+            if ($resultado['desconto_pix_ativo']) {
+                $descontoTotal = $resultado['parcelas_geradas'] * $resultado['valor_desconto_por_parcela'];
+                $mensagemDetalhada .= "• Desconto PIX: <strong>R$ " . number_format($resultado['valor_desconto_por_parcela'], 2, ',', '.') . "</strong> por parcela<br>";
+                $mensagemDetalhada .= "• Economia total possível: <strong>R$ " . number_format($descontoTotal, 2, ',', '.') . "</strong>";
             } else {
-                $mensagemDetalhada .= "• <strong>Nenhuma parcela configurada com desconto PIX</strong><br>";
+                $mensagemDetalhada .= "• <strong>Sem desconto PIX</strong>";
             }
             
             if ($resultado['parcelas_com_erro'] > 0) {
-                $mensagemDetalhada .= "• <span class='text-warning'>{$resultado['parcelas_com_erro']} parcela(s) com erro</span><br>";
-                
-                // Detalha os erros se houver
-                if (!empty($resultado['detalhes_erros'])) {
-                    $mensagemDetalhada .= "<br><strong>Erros encontrados:</strong><br>";
-                    foreach ($resultado['detalhes_erros'] as $erro) {
-                        $mensagemDetalhada .= "• Parcela {$erro['parcela']}: {$erro['erro']}<br>";
-                    }
-                }
-            }
-            
-            // Adiciona resumo das parcelas geradas
-            if (!empty($resultado['detalhes_parcelas'])) {
-                $mensagemDetalhada .= "<br><details><summary><strong>Ver detalhes das parcelas geradas</strong></summary>";
-                $mensagemDetalhada .= "<div style='margin-top: 10px; font-size: 0.9em;'>";
-                
-                foreach ($resultado['detalhes_parcelas'] as $parcela) {
-                    $mensagemDetalhada .= "📅 {$parcela['vencimento']} - {$parcela['descricao']} - ";
-                    $mensagemDetalhada .= "R$ " . number_format($parcela['valor_original'], 2, ',', '.');
-                    
-                    if ($parcela['tem_desconto_pix'] && $parcela['valor_desconto'] > 0) {
-                        $mensagemDetalhada .= " (PIX: R$ " . number_format($parcela['valor_final_pix'], 2, ',', '.') . ")";
-                    }
-                    $mensagemDetalhada .= "<br>";
-                }
-                
-                $mensagemDetalhada .= "</div></details>";
+                $mensagemDetalhada .= "<br>• <span class='text-warning'>{$resultado['parcelas_com_erro']} parcela(s) com erro</span>";
             }
             
             $sucesso = $mensagemDetalhada;
@@ -97,19 +73,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
     } catch (Exception $e) {
         $erro = $e->getMessage();
-        
-        // Log mais detalhado para debug
-        error_log("ERRO no upload de boletos: " . $e->getMessage());
-        error_log("POST data: " . print_r($_POST, true));
-        
-        // Se for erro de parcelas individuais, adiciona contexto
-        if (isset($_POST['acao']) && $_POST['acao'] === 'gerar_parcelas_pix') {
-            if (isset($_POST['parcelas_individuais'])) {
-                $parcelas = json_decode($_POST['parcelas_individuais'], true);
-                $quantidadeParcelas = is_array($parcelas) ? count($parcelas) : 0;
-                error_log("Tentativa de gerar {$quantidadeParcelas} parcelas individuais falhou");
-            }
-        }
     }
 }
 
@@ -959,24 +922,22 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                     </div>
                     
                     <!-- ========== ABA 2: MÚLTIPLOS PARA UM ALUNO (COM PARCELAS PIX) ========== -->
-                    <!-- ========== ABA 2: MÚLTIPLOS PARA UM ALUNO (COM CONTROLE INDIVIDUAL) ========== -->
                     <div class="tab-pane fade" id="multiplo-aluno" role="tabpanel">
                         <div class="alert alert-info">
                             <i class="fas fa-info-circle"></i>
-                            <strong>Opções para Múltiplos Boletos:</strong> Gere parcelas com controle individual de valores e descontos PIX ou envie vários arquivos PDF para o mesmo aluno.
+                            <strong>Opções para Múltiplos Boletos:</strong> Gere parcelas automaticamente apenas com PIX ou envie vários arquivos PDF para o mesmo aluno.
                         </div>
                         
-                        <!-- 🆕 NOVA FUNCIONALIDADE: GERAR PARCELAS PIX COM CONTROLE INDIVIDUAL -->
+                        <!-- 🆕 NOVA FUNCIONALIDADE: GERAR PARCELAS PIX -->
                         <div class="section-title">
-                            <i class="fas fa-qrcode"></i> Opção 1: Gerar Parcelas PIX com Controle Individual
+                            <i class="fas fa-qrcode"></i> Opção 1: Gerar Parcelas PIX Automaticamente
                         </div>
-
+                        
                         <form method="POST" id="gerarParcelasPixForm" class="parcelas-pix-form">
                             <input type="hidden" name="acao" value="gerar_parcelas_pix">
                             
-                            <!-- Dados do Aluno -->
                             <div class="row">
-                                <div class="col-md-4">
+                                <div class="col-md-3">
                                     <div class="mb-3">
                                         <label for="polo_parcelas" class="form-label">
                                             <i class="fas fa-map-marker-alt"></i> Polo
@@ -993,7 +954,7 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                                     </div>
                                 </div>
                                 
-                                <div class="col-md-4">
+                                <div class="col-md-3">
                                     <div class="mb-3">
                                         <label for="curso_parcelas" class="form-label">
                                             <i class="fas fa-book"></i> Curso
@@ -1004,7 +965,7 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                                     </div>
                                 </div>
                                 
-                                <div class="col-md-4">
+                                <div class="col-md-3">
                                     <div class="mb-3">
                                         <label for="aluno_cpf_parcelas" class="form-label">
                                             <i class="fas fa-user"></i> CPF do Aluno
@@ -1013,10 +974,7 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                                                placeholder="000.000.000-00" maxlength="14" required>
                                     </div>
                                 </div>
-                            </div>
-                            
-                            <!-- Configuração Inicial das Parcelas -->
-                            <div class="row">
+                                
                                 <div class="col-md-3">
                                     <div class="mb-3">
                                         <label for="quantidade_parcelas" class="form-label">
@@ -1028,6 +986,35 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                                                 <option value="<?= $i ?>"><?= $i ?>x</option>
                                             <?php endfor; ?>
                                         </select>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-md-3">
+                                    <div class="mb-3">
+                                        <label for="valor_total_parcelas" class="form-label">
+                                            <i class="fas fa-dollar-sign"></i> Valor Total
+                                        </label>
+                                        <div class="input-group">
+                                            <span class="input-group-text">R$</span>
+                                            <input type="number" class="form-control" id="valor_total_parcelas" name="valor_total" 
+                                                   step="0.01" min="0" placeholder="Ex: 1500.00" required>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="col-md-3">
+                                    <div class="mb-3">
+                                        <label for="valor_parcela" class="form-label">
+                                            <i class="fas fa-equals"></i> Valor da Parcela
+                                        </label>
+                                        <div class="input-group">
+                                            <span class="input-group-text">R$</span>
+                                            <input type="number" class="form-control" id="valor_parcela" name="valor_parcela" 
+                                                   step="0.01" min="0" placeholder="Calculado automaticamente" readonly>
+                                        </div>
+                                        <small class="form-text text-muted">Calculado automaticamente</small>
                                     </div>
                                 </div>
                                 
@@ -1050,139 +1037,84 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                                         <small class="form-text text-muted">Será: "Mensalidade 01/12", etc.</small>
                                     </div>
                                 </div>
+                            </div>
+                            
+                            <!-- Configuração de Desconto PIX para Parcelas -->
+                            <div class="pix-desconto-section">
+                                <div class="pix-desconto-title">
+                                    <i class="fas fa-qrcode"></i> 
+                                    Configuração de Desconto PIX para as Parcelas
+                                </div>
                                 
-                                <div class="col-md-3">
-                                    <div class="mb-3">
-                                        <label class="form-label">
-                                            <i class="fas fa-magic"></i> Gerar Parcelas
-                                        </label>
-                                        <button type="button" class="btn btn-outline-primary w-100" onclick="gerarListaParcelas()">
-                                            <i class="fas fa-plus"></i> Criar Lista de Parcelas
-                                        </button>
+                                <div class="form-check mb-3">
+                                    <input class="form-check-input" type="checkbox" id="parcelas_pix_desconto" 
+                                           name="parcelas_pix_desconto" value="1" onchange="toggleParcelasPixDesconto()">
+                                    <label class="form-check-label" for="parcelas_pix_desconto">
+                                        <strong>Aplicar Desconto PIX em todas as parcelas</strong>
+                                    </label>
+                                </div>
+                                
+                                <div class="pix-desconto-controls" id="parcelasPixDescontoControls" style="display: none;">
+                                    <div class="row">
+                                        <div class="col-md-4">
+                                            <label for="parcelas_valor_desconto" class="form-label">
+                                                <i class="fas fa-percentage"></i> Valor do Desconto por Parcela
+                                            </label>
+                                            <div class="input-group">
+                                                <span class="input-group-text">R$</span>
+                                                <input type="number" class="form-control" id="parcelas_valor_desconto" 
+                                                       name="parcelas_valor_desconto" step="0.01" min="0" 
+                                                       placeholder="Ex: 25.00">
+                                            </div>
+                                            <small class="form-text text-muted">Desconto fixo aplicado a cada parcela</small>
+                                        </div>
+                                        
+                                        <div class="col-md-4">
+                                            <label for="parcelas_valor_minimo" class="form-label">
+                                                <i class="fas fa-calculator"></i> Valor Mínimo (Opcional)
+                                            </label>
+                                            <div class="input-group">
+                                                <span class="input-group-text">R$</span>
+                                                <input type="number" class="form-control" id="parcelas_valor_minimo" 
+                                                       name="parcelas_valor_minimo" step="0.01" min="0" 
+                                                       placeholder="Ex: 50.00">
+                                            </div>
+                                            <small class="form-text text-muted">Valor mínimo da parcela para aplicar desconto</small>
+                                        </div>
+                                        
+                                        <div class="col-md-4">
+                                            <label class="form-label">
+                                                <i class="fas fa-info-circle"></i> Desconto Total
+                                            </label>
+                                            <div class="form-control-plaintext" id="desconto_total_info">
+                                                <strong>R$ 0,00</strong>
+                                            </div>
+                                            <small class="form-text text-muted">Total de desconto (todas as parcelas)</small>
+                                        </div>
                                     </div>
+                                </div>
+                                
+                                <div class="alert alert-pix mt-3">
+                                    <i class="fas fa-info-circle"></i>
+                                    <strong>Parcelas PIX:</strong> Cada parcela terá PIX disponível até sua data de vencimento. 
+                                    O desconto será aplicado individualmente em cada parcela paga via PIX.
                                 </div>
                             </div>
                             
-                            <!-- Lista de Parcelas Individuais -->
-                            <div id="listaParcelasIndividuais" class="mt-4" style="display: none;">
-                                <h6><i class="fas fa-list"></i> Configure Cada Parcela Individualmente:</h6>
-                                
-                                <!-- Ferramentas de Controle -->
-                                <div class="row mt-3 mb-3">
-                                    <div class="col-md-6">
-                                        <button type="button" class="btn btn-outline-success btn-sm" onclick="aplicarValorGlobalParcelas()">
-                                            <i class="fas fa-dollar-sign"></i> Aplicar Valor Global
-                                        </button>
-                                        <button type="button" class="btn btn-outline-info btn-sm" onclick="aplicarDescontoGlobalParcelas()">
-                                            <i class="fas fa-qrcode"></i> Aplicar Desconto Global
-                                        </button>
-                                        <button type="button" class="btn btn-outline-warning btn-sm" onclick="calcularValoresTotais()">
-                                            <i class="fas fa-calculator"></i> Calcular Totais
-                                        </button>
-                                    </div>
-                                    <div class="col-md-6 text-end">
-                                        <div class="badge bg-info fs-6" id="resumoTotalParcelas">
-                                            Total: R$ 0,00 | Com PIX: R$ 0,00 | Economia: R$ 0,00
-                                        </div>
-                                    </div>
-                                </div>
-                                
-                                <!-- Campos Globais Rápidos -->
-                                <div class="row mb-3 p-3 bg-light rounded">
-                                    <div class="col-md-3">
-                                        <label for="valor_global_parcelas" class="form-label small">Valor Global</label>
-                                        <div class="input-group input-group-sm">
-                                            <span class="input-group-text">R$</span>
-                                            <input type="number" class="form-control" id="valor_global_parcelas" 
-                                                   step="0.01" min="0" placeholder="Ex: 150.00">
-                                        </div>
-                                    </div>
-                                    <div class="col-md-3">
-                                        <label for="desconto_global_parcelas" class="form-label small">Desconto PIX Global</label>
-                                        <div class="input-group input-group-sm">
-                                            <span class="input-group-text">R$</span>
-                                            <input type="number" class="form-control" id="desconto_global_parcelas" 
-                                                   step="0.01" min="0" placeholder="Ex: 25.00">
-                                        </div>
-                                    </div>
-                                    <div class="col-md-3">
-                                        <label for="minimo_global_parcelas" class="form-label small">Valor Mínimo Global</label>
-                                        <div class="input-group input-group-sm">
-                                            <span class="input-group-text">R$</span>
-                                            <input type="number" class="form-control" id="minimo_global_parcelas" 
-                                                   step="0.01" min="0" placeholder="Ex: 50.00">
-                                        </div>
-                                    </div>
-                                    <div class="col-md-3">
-                                        <label class="form-label small">PIX Global</label>
-                                        <div class="form-check">
-                                            <input class="form-check-input" type="checkbox" id="pix_global_parcelas">
-                                            <label class="form-check-label small" for="pix_global_parcelas">
-                                                Habilitar PIX em todas
-                                            </label>
-                                        </div>
-                                    </div>
-                                </div>
-                                
-                                <!-- Tabela de Parcelas -->
-                                <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
-                                    <table class="table table-sm table-bordered">
-                                        <thead class="table-dark sticky-top">
-                                            <tr>
-                                                <th width="8%">#</th>
-                                                <th width="20%">Descrição</th>
-                                                <th width="12%">Vencimento</th>
-                                                <th width="15%">Valor (R$)</th>
-                                                <th width="10%">PIX</th>
-                                                <th width="15%">Desconto (R$)</th>
-                                                <th width="12%">Mín. (R$)</th>
-                                                <th width="8%">Ações</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="tabelaParcelasIndividuais">
-                                            <!-- Parcelas geradas dinamicamente -->
-                                        </tbody>
-                                    </table>
-                                </div>
-                                
-                                <!-- Resumo Final -->
-                                <div class="row mt-3">
-                                    <div class="col-md-4">
-                                        <div class="card border-success">
-                                            <div class="card-body text-center p-2">
-                                                <h6 class="card-title text-success mb-1">
-                                                    <i class="fas fa-calculator"></i> Valor Total
-                                                </h6>
-                                                <h5 class="mb-0" id="valorTotalFinal">R$ 0,00</h5>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-4">
-                                        <div class="card border-info">
-                                            <div class="card-body text-center p-2">
-                                                <h6 class="card-title text-info mb-1">
-                                                    <i class="fas fa-qrcode"></i> Total com PIX
-                                                </h6>
-                                                <h5 class="mb-0" id="valorPixFinal">R$ 0,00</h5>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-4">
-                                        <div class="card border-warning">
-                                            <div class="card-body text-center p-2">
-                                                <h6 class="card-title text-warning mb-1">
-                                                    <i class="fas fa-piggy-bank"></i> Economia Total
-                                                </h6>
-                                                <h5 class="mb-0" id="economiaFinal">R$ 0,00</h5>
-                                            </div>
-                                        </div>
-                                    </div>
+                            <!-- Preview das Parcelas -->
+                            <div id="preview_parcelas" class="mt-4" style="display: none;">
+                                <h6><i class="fas fa-eye"></i> Preview das Parcelas:</h6>
+                                <div id="preview_parcelas_content" class="bg-white p-3 rounded border">
+                                    <!-- Conteúdo gerado dinamicamente -->
                                 </div>
                             </div>
                             
                             <div class="text-center mt-4">
-                                <button type="submit" class="btn btn-gerar-parcelas" id="btnGerarParcelasIndividuais" disabled>
-                                    <i class="fas fa-qrcode"></i> Gerar Parcelas PIX Personalizadas
+                                <button type="button" class="btn btn-outline-info me-2" onclick="gerarPreviewParcelas()">
+                                    <i class="fas fa-eye"></i> Visualizar Parcelas
+                                </button>
+                                <button type="submit" class="btn btn-gerar-parcelas" id="btnGerarParcelas" disabled>
+                                    <i class="fas fa-qrcode"></i> Gerar Parcelas PIX
                                 </button>
                             </div>
                         </form>
@@ -1336,10 +1268,7 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                                 </button>
                             </div>
                         </form>
-                    </div>                          
-
-
-
+                    </div>
                     
                     <!-- ========== ABA 3: UPLOAD EM LOTE ========== -->
                     <div class="tab-pane fade" id="lote" role="tabpanel">
@@ -2837,416 +2766,18 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
             }, 5000);
         }
         
-// ========== PARCELAS PIX INDIVIDUAIS ==========
-
-let parcelasIndividuais = [];
-
-// Gerar lista inicial de parcelas
-function gerarListaParcelas() {
-    const quantidade = parseInt(document.getElementById('quantidade_parcelas')?.value);
-    const primeiraParcela = document.getElementById('primeira_parcela')?.value;
-    const descricaoBase = document.getElementById('descricao_parcelas')?.value;
-    
-    if (!quantidade || !primeiraParcela || !descricaoBase) {
-        showToast('Preencha quantidade, data da primeira parcela e descrição base', 'warning');
-        return;
-    }
-    
-    if (quantidade < 2 || quantidade > 32) {
-        showToast('Quantidade deve ser entre 2 e 32 parcelas', 'error');
-        return;
-    }
-    
-    // Limpar lista anterior
-    parcelasIndividuais = [];
-    
-    // Gerar parcelas
-    const dataBase = new Date(primeiraParcela);
-    
-    for (let i = 1; i <= quantidade; i++) {
-        const dataVencimento = new Date(dataBase);
-        dataVencimento.setMonth(dataVencimento.getMonth() + (i - 1));
+        // ========== LOGS E DEBUG ==========
         
-        const parcelaFormatada = String(i).padStart(2, '0');
-        const quantidadeFormatada = String(quantidade).padStart(2, '0');
-        const descricao = `${descricaoBase} ${parcelaFormatada}/${quantidadeFormatada}`;
-        
-        parcelasIndividuais.push({
-            id: i,
-            numero: i,
-            descricao: descricao,
-            vencimento: dataVencimento.toISOString().split('T')[0],
-            valor: 0,
-            pix_disponivel: false,
-            valor_desconto: 0,
-            valor_minimo: 0
-        });
-    }
-    
-    atualizarTabelaParcelas();
-    document.getElementById('listaParcelasIndividuais').style.display = 'block';
-    
-    // Scroll suave para a lista
-    document.getElementById('listaParcelasIndividuais').scrollIntoView({ 
-        behavior: 'smooth', 
-        block: 'nearest' 
-    });
-    
-    showToast(`${quantidade} parcelas criadas! Configure cada uma individualmente.`, 'success');
-}
-
-// Atualizar tabela de parcelas
-function atualizarTabelaParcelas() {
-    const tbody = document.getElementById('tabelaParcelasIndividuais');
-    if (!tbody || parcelasIndividuais.length === 0) return;
-    
-    let html = '';
-    
-    parcelasIndividuais.forEach((parcela, index) => {
-        const isValid = parcela.valor > 0;
-        const rowClass = isValid ? '' : 'table-warning';
-        
-        html += `
-            <tr class="${rowClass}">
-                <td class="text-center">
-                    <strong>${parcela.numero}ª</strong>
-                </td>
-                <td>
-                    <input type="text" class="form-control form-control-sm" 
-                           value="${parcela.descricao}"
-                           onchange="atualizarParcela(${index}, 'descricao', this.value)">
-                </td>
-                <td>
-                    <input type="date" class="form-control form-control-sm" 
-                           value="${parcela.vencimento}"
-                           onchange="atualizarParcela(${index}, 'vencimento', this.value)">
-                </td>
-                <td>
-                    <input type="number" class="form-control form-control-sm" 
-                           step="0.01" min="0" placeholder="0.00"
-                           value="${parcela.valor || ''}"
-                           onchange="atualizarParcela(${index}, 'valor', parseFloat(this.value) || 0)">
-                </td>
-                <td class="text-center">
-                    <div class="form-check">
-                        <input class="form-check-input" type="checkbox" 
-                               ${parcela.pix_disponivel ? 'checked' : ''}
-                               onchange="atualizarParcela(${index}, 'pix_disponivel', this.checked)">
-                    </div>
-                </td>
-                <td>
-                    <input type="number" class="form-control form-control-sm" 
-                           step="0.01" min="0" placeholder="0.00"
-                           value="${parcela.valor_desconto || ''}"
-                           ${parcela.pix_disponivel ? '' : 'disabled'}
-                           onchange="atualizarParcela(${index}, 'valor_desconto', parseFloat(this.value) || 0)">
-                </td>
-                <td>
-                    <input type="number" class="form-control form-control-sm" 
-                           step="0.01" min="0" placeholder="0.00"
-                           value="${parcela.valor_minimo || ''}"
-                           ${parcela.pix_disponivel ? '' : 'disabled'}
-                           onchange="atualizarParcela(${index}, 'valor_minimo', parseFloat(this.value) || 0)">
-                </td>
-                <td class="text-center">
-                    <button type="button" class="btn btn-sm btn-outline-primary" 
-                            onclick="duplicarValorParcela(${index})" title="Duplicar para próximas">
-                        <i class="fas fa-copy"></i>
-                    </button>
-                </td>
-            </tr>
-        `;
-    });
-    
-    tbody.innerHTML = html;
-    calcularValoresTotais();
-    verificarFormularioCompleto();
-}
-
-// Atualizar uma parcela específica
-function atualizarParcela(index, campo, valor) {
-    if (parcelasIndividuais[index]) {
-        parcelasIndividuais[index][campo] = valor;
-        
-        // Se desabilitou PIX, limpar desconto
-        if (campo === 'pix_disponivel' && !valor) {
-            parcelasIndividuais[index].valor_desconto = 0;
-            parcelasIndividuais[index].valor_minimo = 0;
-        }
-        
-        atualizarTabelaParcelas();
-    }
-}
-
-// Duplicar valor para as próximas parcelas
-function duplicarValorParcela(index) {
-    const parcela = parcelasIndividuais[index];
-    if (!parcela || parcela.valor <= 0) {
-        showToast('Configure o valor desta parcela primeiro', 'warning');
-        return;
-    }
-    
-    const confirmar = confirm(`Aplicar os valores da parcela ${parcela.numero} para todas as próximas parcelas?`);
-    if (!confirmar) return;
-    
-    for (let i = index + 1; i < parcelasIndividuais.length; i++) {
-        parcelasIndividuais[i].valor = parcela.valor;
-        parcelasIndividuais[i].pix_disponivel = parcela.pix_disponivel;
-        parcelasIndividuais[i].valor_desconto = parcela.valor_desconto;
-        parcelasIndividuais[i].valor_minimo = parcela.valor_minimo;
-    }
-    
-    atualizarTabelaParcelas();
-    showToast(`Valores aplicados às parcelas ${index + 2} até ${parcelasIndividuais.length}`, 'success');
-}
-
-// Aplicar valor global a todas as parcelas
-function aplicarValorGlobalParcelas() {
-    const valorGlobal = parseFloat(document.getElementById('valor_global_parcelas')?.value);
-    
-    if (!valorGlobal || valorGlobal <= 0) {
-        showToast('Digite um valor global válido', 'warning');
-        return;
-    }
-    
-    parcelasIndividuais.forEach(parcela => {
-        parcela.valor = valorGlobal;
-    });
-    
-    atualizarTabelaParcelas();
-    showToast(`Valor R$ ${valorGlobal.toFixed(2).replace('.', ',')} aplicado a todas as parcelas`, 'success');
-}
-
-// Aplicar desconto PIX global
-function aplicarDescontoGlobalParcelas() {
-    const descontoGlobal = parseFloat(document.getElementById('desconto_global_parcelas')?.value);
-    const minimoGlobal = parseFloat(document.getElementById('minimo_global_parcelas')?.value) || 0;
-    const pixGlobal = document.getElementById('pix_global_parcelas')?.checked;
-    
-    if (!pixGlobal && (!descontoGlobal || descontoGlobal <= 0)) {
-        showToast('Marque "PIX Global" ou digite um valor de desconto', 'warning');
-        return;
-    }
-    
-    parcelasIndividuais.forEach(parcela => {
-        if (pixGlobal) {
-            parcela.pix_disponivel = true;
-            if (descontoGlobal) parcela.valor_desconto = descontoGlobal;
-            if (minimoGlobal) parcela.valor_minimo = minimoGlobal;
-        }
-    });
-    
-    atualizarTabelaParcelas();
-    showToast('Configurações de PIX aplicadas a todas as parcelas', 'success');
-}
-
-// Calcular valores totais
-function calcularValoresTotais() {
-    let valorTotal = 0;
-    let valorComPix = 0;
-    let economia = 0;
-    
-    parcelasIndividuais.forEach(parcela => {
-        const valor = parseFloat(parcela.valor) || 0;
-        valorTotal += valor;
-        
-        if (parcela.pix_disponivel && parcela.valor_desconto > 0) {
-            const desconto = Math.min(parcela.valor_desconto, valor - 10);
-            const valorFinalPix = Math.max(10, valor - desconto);
-            valorComPix += valorFinalPix;
-            economia += (valor - valorFinalPix);
-        } else {
-            valorComPix += valor;
-        }
-    });
-    
-    // Atualizar displays
-    const elementos = {
-        'valorTotalFinal': valorTotal,
-        'valorPixFinal': valorComPix,
-        'economiaFinal': economia,
-        'resumoTotalParcelas': `Total: R$ ${valorTotal.toFixed(2).replace('.', ',')} | Com PIX: R$ ${valorComPix.toFixed(2).replace('.', ',')} | Economia: R$ ${economia.toFixed(2).replace('.', ',')}`
-    };
-    
-    Object.entries(elementos).forEach(([id, valor]) => {
-        const elemento = document.getElementById(id);
-        if (elemento) {
-            if (id === 'resumoTotalParcelas') {
-                elemento.textContent = valor;
-            } else {
-                elemento.textContent = `R$ ${valor.toFixed(2).replace('.', ',')}`;
-            }
-        }
-    });
-}
-
-// Verificar se formulário está completo
-function verificarFormularioCompleto() {
-    const campos = ['polo_parcelas', 'curso_parcelas', 'aluno_cpf_parcelas'];
-    let dadosValidos = true;
-    
-    // Verificar campos básicos
-    campos.forEach(campo => {
-        const elemento = document.getElementById(campo);
-        if (!elemento || !elemento.value.trim()) {
-            dadosValidos = false;
-        }
-    });
-    
-    // Verificar se tem parcelas válidas
-    const parcelasValidas = parcelasIndividuais.filter(p => p.valor > 0);
-    if (parcelasValidas.length === 0) {
-        dadosValidos = false;
-    }
-    
-    // Verificar configurações de PIX
-    const parcelasComPixInvalido = parcelasIndividuais.filter(p => 
-        p.pix_disponivel && (!p.valor_desconto || p.valor_desconto <= 0)
-    );
-    
-    if (parcelasComPixInvalido.length > 0) {
-        dadosValidos = false;
-    }
-    
-    const botao = document.getElementById('btnGerarParcelasIndividuais');
-    if (botao) {
-        botao.disabled = !dadosValidos;
-        
-        if (dadosValidos) {
-            botao.classList.remove('btn-secondary');
-            botao.classList.add('btn-gerar-parcelas');
-        } else {
-            botao.classList.remove('btn-gerar-parcelas');
-            botao.classList.add('btn-secondary');
-        }
-    }
-}
-
-// Event listeners para campos globais
-document.addEventListener('DOMContentLoaded', function() {
-    const camposGlobais = ['valor_global_parcelas', 'desconto_global_parcelas', 'minimo_global_parcelas'];
-    camposGlobais.forEach(id => {
-        const elemento = document.getElementById(id);
-        if (elemento) {
-            elemento.addEventListener('keypress', function(e) {
-                if (e.key === 'Enter') {
-                    e.preventDefault();
-                    if (id === 'valor_global_parcelas') {
-                        aplicarValorGlobalParcelas();
-                    } else {
-                        aplicarDescontoGlobalParcelas();
-                    }
-                }
-            });
-        }
-    });
-    
-    // Submissão do formulário de parcelas individuais
-    const formParcelasIndividuais = document.getElementById('gerarParcelasPixForm');
-    if (formParcelasIndividuais) {
-        formParcelasIndividuais.addEventListener('submit', function(e) {
-            e.preventDefault();
-            
-            if (parcelasIndividuais.length === 0) {
-                showToast('Gere a lista de parcelas primeiro', 'error');
-                return;
-            }
-            
-            const parcelasValidas = parcelasIndividuais.filter(p => p.valor > 0);
-            if (parcelasValidas.length === 0) {
-                showToast('Configure pelo menos uma parcela com valor válido', 'error');
-                return;
-            }
-            
-            // Validar configurações de PIX
-            const parcelasComPixInvalido = parcelasIndividuais.filter(p => 
-                p.pix_disponivel && (!p.valor_desconto || p.valor_desconto <= 0)
-            );
-            
-            if (parcelasComPixInvalido.length > 0) {
-                showToast(`${parcelasComPixInvalido.length} parcela(s) com PIX habilitado mas sem valor de desconto`, 'error');
-                return;
-            }
-            
-            // Validar valores mínimos
-            const parcelasComValorBaixo = parcelasIndividuais.filter(p => p.valor > 0 && p.valor < 10);
-            if (parcelasComValorBaixo.length > 0) {
-                showToast(`${parcelasComValorBaixo.length} parcela(s) com valor menor que R$ 10,00`, 'error');
-                return;
-            }
-            
-            // Confirmação
-            const valorTotal = parcelasValidas.reduce((sum, p) => sum + p.valor, 0);
-            const economia = parcelasValidas.reduce((sum, p) => {
-                if (p.pix_disponivel && p.valor_desconto > 0) {
-                    return sum + Math.min(p.valor_desconto, p.valor - 10);
-                }
-                return sum;
-            }, 0);
-            
-            const cpf = document.getElementById('aluno_cpf_parcelas').value;
-            const polo = document.getElementById('polo_parcelas').options[document.getElementById('polo_parcelas').selectedIndex].text;
-            
-            let mensagem = `Confirma a geração de ${parcelasValidas.length} parcelas PIX personalizadas?\n\n`;
-            mensagem += `👤 CPF: ${cpf}\n`;
-            mensagem += `🏢 Polo: ${polo}\n`;
-            mensagem += `💰 Valor total: R$ ${valorTotal.toFixed(2).replace('.', ',')}\n`;
-            mensagem += `🎯 Parcelas com PIX: ${parcelasValidas.filter(p => p.pix_disponivel).length}\n`;
-            if (economia > 0) {
-                mensagem += `💚 Economia total: R$ ${economia.toFixed(2).replace('.', ',')}\n`;
-            }
-            
-            if (!confirm(mensagem)) return;
-            
-            // Preparar dados para envio
-            const formData = new FormData(this);
-            
-            // Adicionar dados das parcelas
-            formData.append('parcelas_individuais', JSON.stringify(parcelasValidas));
-            
-            const submitBtn = document.getElementById('btnGerarParcelasIndividuais');
-            if (submitBtn) {
-                submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Gerando Parcelas...';
-                submitBtn.disabled = true;
-            }
-            
-            // Enviar via AJAX
-            fetch('/admin/upload-boletos.php', {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => response.text())
-            .then(data => {
-                if (data.includes('<!DOCTYPE html>') || data.includes('<html')) {
-                    location.reload();
-                } else {
-                    showToast('Parcelas PIX geradas com sucesso!', 'success');
-                    setTimeout(() => location.reload(), 2000);
-                }
-            })
-            .catch(error => {
-                console.error('Erro:', error);
-                showToast('Erro ao gerar parcelas: ' + error.message, 'error');
-            })
-            .finally(() => {
-                if (submitBtn) {
-                    submitBtn.innerHTML = '<i class="fas fa-qrcode"></i> Gerar Parcelas PIX Personalizadas';
-                    submitBtn.disabled = false;
-                }
-            });
-        });
-    }
-});
-
-console.log('✅ Sistema de Parcelas PIX Individuais carregado!');
-console.log('🆕 Funcionalidades:');
-console.log('   ⚡ Controle individual de cada parcela');
-console.log('   💰 Valores personalizados por parcela');
-console.log('   🎯 Desconto PIX configurável individualmente');
-console.log('   📊 Resumo financeiro em tempo real');
-console.log('   🔄 Aplicação global de valores');
-console.log('   📋 Suporte a até 32 parcelas');
-
+        console.log('✅ Sistema de Upload com Parcelas PIX totalmente carregado!');
+        console.log('🚀 Funcionalidades disponíveis:');
+        console.log('   ✨ Geração automática de parcelas mensais');
+        console.log('   💰 Desconto PIX configurável por parcela');
+        console.log('   👁️ Preview detalhado com resumo financeiro');
+        console.log('   🔒 Validação completa em tempo real');
+        console.log('   📱 Interface responsiva e intuitiva');
+        console.log('   ⚡ Integração completa com sistema existente');
+        console.log('   🎯 Upload individual, múltiplo e em lote');
+        console.log('   📊 Sistema de notificações avançado');
     </script>
 </body>
 </html>
