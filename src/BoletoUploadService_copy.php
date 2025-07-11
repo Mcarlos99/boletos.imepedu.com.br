@@ -1692,8 +1692,8 @@ private function validarDadosParcelasPix($post) {
     
     // Validação da quantidade de parcelas
     $quantidadeParcelas = intval($post['quantidade_parcelas']);
-    if ($quantidadeParcelas < 1 || $quantidadeParcelas > 32) {
-        throw new Exception("Quantidade de parcelas deve ser entre 1 e 32");
+    if ($quantidadeParcelas < 2 || $quantidadeParcelas > 32) {
+        throw new Exception("Quantidade de parcelas deve ser entre 2 e 32");
     }
     
     // Validação dos valores
