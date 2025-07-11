@@ -1,10 +1,9 @@
 <?php
 /**
-* Sistema de Boletos IMED - API para Detalhes do Aluno (ADMINISTRAÇÃO)
+ * Sistema de Boletos IMED - API para Detalhes do Aluno (ADMINISTRAÇÃO)
  * Arquivo: admin/api/aluno-detalhes.php
  * 
  * API específica para administradores visualizarem detalhes completos dos alunos
- * VERSÃO COMPLETA COM INTEGRAÇÃO DE DOCUMENTOS
  */
 
 session_start();
@@ -38,7 +37,6 @@ if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
 try {
     require_once '../../config/database.php';
     require_once '../../config/moodle.php';
-    require_once '../../src/DocumentosService.php'; // ✅ NOVO: Adicionado para documentos
     
     // Obtém ID do aluno
     $alunoId = filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT);
@@ -139,12 +137,6 @@ try {
     $stmtLogs->execute([$alunoId, $alunoId]);
     $atividades = $stmtLogs->fetchAll(PDO::FETCH_ASSOC);
     
-    // ✅ NOVO: Busca documentos do aluno
-    $documentosService = new DocumentosService();
-    $documentosAluno = $documentosService->listarDocumentosAluno($alunoId);
-    $statusDocumentos = $documentosService->getStatusDocumentosAluno($alunoId);
-    $tiposDocumentos = DocumentosService::getTiposDocumentos();
-    
     // Busca informações do polo
     $poloConfig = MoodleConfig::getConfig($aluno['subdomain']);
     
@@ -239,9 +231,6 @@ try {
         ];
     }
     
-    // ✅ NOVO: Gera HTML dos documentos para exibição
-    $documentosHtml = gerarHtmlDocumentosAdmin($documentosAluno, $statusDocumentos, $tiposDocumentos, $alunoId);
-    
     // Monta resposta completa
     $response = [
         'success' => true,
@@ -261,10 +250,7 @@ try {
                 date('d/m/Y H:i', strtotime($ultimoAcesso)) : null,
             'dias_inativo' => $diasInativo,
             'ativo' => $ativo,
-            'observacoes' => $aluno['observacoes'] ?? null,
-            // ✅ NOVO: Status dos documentos
-            'documentos_completos' => $aluno['documentos_completos'] ?? false,
-            'documentos_data_atualizacao' => $aluno['documentos_data_atualizacao'] ?? null
+            'observacoes' => $aluno['observacoes'] ?? null
         ],
         
         'polo' => [
@@ -301,14 +287,6 @@ try {
         
         'atividades' => $atividadesFormatadas,
         
-        // ✅ NOVO: Seção completa de documentos
-        'documentos' => [
-            'enviados' => $documentosAluno,
-            'status' => $statusDocumentos,
-            'tipos' => $tiposDocumentos,
-            'html' => $documentosHtml
-        ],
-        
         'resumo' => [
             'situacao_geral' => getSituacaoGeral($aluno, $estatisticas, $ativo),
             'proximas_acoes' => getProximasAcoes($aluno, $estatisticas, $ativo),
@@ -320,7 +298,7 @@ try {
         'meta' => [
             'gerado_em' => date('Y-m-d H:i:s'),
             'admin_id' => $_SESSION['admin_id'],
-            'versao_api' => '2.0' // ✅ NOVO: Incrementada para incluir documentos
+            'versao_api' => '1.0'
         ]
     ];
     
@@ -349,175 +327,6 @@ try {
         'timestamp' => date('Y-m-d H:i:s')
     ], JSON_UNESCAPED_UNICODE);
 }
-
-// =====================================
-// ✅ NOVA FUNÇÃO: GERAR HTML DOS DOCUMENTOS
-// =====================================
-
-/**
- * Gera HTML para exibir documentos no painel admin
- */
-function gerarHtmlDocumentosAdmin($documentos, $status, $tiposDocumentos, $alunoId) {
-    $html = '';
-    
-    // Cabeçalho da seção
-    $html .= '
-    <!-- Documentos do Aluno -->
-    <div class="row mb-4">
-        <div class="col-12">
-            <h6 class="text-primary mb-3">
-                <i class="fas fa-folder-open"></i> Documentos Enviados
-                <small class="text-muted">(' . $status['enviados'] . ' de ' . $status['total_tipos'] . ')</small>
-            </h6>
-            
-            <!-- Status Geral dos Documentos -->
-            <div class="card bg-light mb-3">
-                <div class="card-body">
-                    <div class="row text-center">
-                        <div class="col-3">
-                            <h6 class="mb-1 text-primary">' . $status['enviados'] . '</h6>
-                            <small class="text-muted">Enviados</small>
-                        </div>
-                        <div class="col-3">
-                            <h6 class="mb-1 text-success">' . $status['aprovados'] . '</h6>
-                            <small class="text-muted">Aprovados</small>
-                        </div>
-                        <div class="col-3">
-                            <h6 class="mb-1 text-warning">' . $status['pendentes'] . '</h6>
-                            <small class="text-muted">Pendentes</small>
-                        </div>
-                        <div class="col-3">
-                            <h6 class="mb-1 text-danger">' . $status['rejeitados'] . '</h6>
-                            <small class="text-muted">Rejeitados</small>
-                        </div>
-                    </div>
-                    
-                    <div class="progress mt-2" style="height: 6px;">
-                        <div class="progress-bar bg-success" style="width: ' . $status['percentual_completo'] . '%"></div>
-                    </div>
-                    <small class="text-muted d-block text-center mt-1">
-                        ' . $status['percentual_completo'] . '% dos documentos obrigatórios enviados
-                    </small>
-                </div>
-            </div>';
-    
-    // Lista de documentos
-    if (!empty($documentos)) {
-        $html .= '<div class="row">';
-        
-        foreach ($documentos as $tipo => $documento) {
-            $tipoInfo = $tiposDocumentos[$tipo] ?? ['nome' => $tipo, 'icone' => 'fas fa-file'];
-            
-            $statusColor = [
-                'pendente' => 'warning',
-                'aprovado' => 'success', 
-                'rejeitado' => 'danger'
-            ][$documento['status']] ?? 'secondary';
-            
-            $statusIcon = [
-                'pendente' => 'fas fa-clock',
-                'aprovado' => 'fas fa-check',
-                'rejeitado' => 'fas fa-times'
-            ][$documento['status']] ?? 'fas fa-question';
-            
-            $html .= '
-            <div class="col-md-6 mb-3">
-                <div class="card h-100">
-                    <div class="card-body">
-                        <div class="d-flex align-items-start">
-                            <div class="me-3">
-                                <div class="bg-' . $statusColor . ' text-white rounded-circle d-flex align-items-center justify-content-center" style="width: 40px; height: 40px;">
-                                    <i class="' . $tipoInfo['icone'] . '"></i>
-                                </div>
-                            </div>
-                            <div class="flex-grow-1">
-                                <h6 class="card-title mb-1">' . htmlspecialchars($tipoInfo['nome']) . '</h6>
-                                <p class="card-text small text-muted mb-2">' . htmlspecialchars($documento['nome_original']) . '</p>
-                                
-                                <div class="d-flex justify-content-between align-items-center mb-2">
-                                    <span class="badge bg-' . $statusColor . '">
-                                        <i class="' . $statusIcon . ' me-1"></i>' . ucfirst($documento['status']) . '
-                                    </span>
-                                    <small class="text-muted">' . $documento['tamanho_formatado'] . '</small>
-                                </div>
-                                
-                                <small class="text-muted d-block">
-                                    Enviado: ' . date('d/m/Y H:i', strtotime($documento['data_upload'])) . '
-                                </small>
-                                
-                                ' . ($documento['observacoes'] ? '
-                                <div class="alert alert-info p-2 mt-2">
-                                    <small><strong>Obs:</strong> ' . htmlspecialchars($documento['observacoes']) . '</small>
-                                </div>
-                                ' : '') . '
-                                
-                                <div class="btn-group w-100 mt-2" role="group">
-                                    <button class="btn btn-outline-primary btn-sm" onclick="downloadDocumentoAdmin(' . $documento['id'] . ')" title="Download">
-                                        <i class="fas fa-download"></i>
-                                    </button>
-                                    
-                                    ' . ($documento['status'] === 'pendente' ? '
-                                    <button class="btn btn-outline-success btn-sm" onclick="aprovarDocumento(' . $documento['id'] . ')" title="Aprovar">
-                                        <i class="fas fa-check"></i>
-                                    </button>
-                                    <button class="btn btn-outline-danger btn-sm" onclick="rejeitarDocumento(' . $documento['id'] . ')" title="Rejeitar">
-                                        <i class="fas fa-times"></i>
-                                    </button>
-                                    ' : '') . '
-                                    
-                                    <button class="btn btn-outline-secondary btn-sm" onclick="removerDocumento(' . $documento['id'] . ')" title="Remover">
-                                        <i class="fas fa-trash"></i>
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>';
-        }
-        
-        $html .= '</div>';
-    }
-    
-    // Documentos faltando
-    $documentosFaltando = [];
-    foreach ($tiposDocumentos as $tipo => $info) {
-        if (!isset($documentos[$tipo]) && $info['obrigatorio']) {
-            $documentosFaltando[] = $info['nome'];
-        }
-    }
-    
-    if (!empty($documentosFaltando)) {
-        $html .= '
-        <div class="alert alert-warning">
-            <h6><i class="fas fa-exclamation-triangle"></i> Documentos Obrigatórios Pendentes:</h6>
-            <ul class="mb-0">
-                ' . implode('', array_map(function($doc) { return '<li>' . $doc . '</li>'; }, $documentosFaltando)) . '
-            </ul>
-        </div>';
-    }
-    
-    // ✅ NOVO: Ações específicas para documentos
-    $html .= '
-        <div class="d-grid gap-2 d-md-flex justify-content-md-end mt-3">
-            <button class="btn btn-outline-primary btn-sm" onclick="window.open(\'/admin/documentos.php?aluno_id=' . $alunoId . '\', \'_blank\')">
-                <i class="fas fa-external-link-alt"></i> Ver Todos os Documentos
-            </button>
-            <button class="btn btn-outline-info btn-sm" onclick="notificarAluno(' . $alunoId . ', \'documentos\')">
-                <i class="fas fa-bell"></i> Notificar Aluno
-            </button>
-        </div>';
-    
-    $html .= '
-        </div>
-    </div>';
-    
-    return $html;
-}
-
-// =====================================
-// FUNÇÕES EXISTENTES (MANTIDAS)
-// =====================================
 
 /**
  * Calcula score do aluno baseado em diversos fatores
@@ -587,13 +396,7 @@ function getTipoAtividadeLabel($tipo) {
         'upload_multiplo_aluno' => 'Múltiplos Boletos Criados',
         'aluno_sincronizado' => 'Dados Sincronizados',
         'aluno_editado' => 'Dados Editados',
-        'detalhes_visualizado' => 'Detalhes Visualizados',
-        // ✅ NOVO: Labels para documentos
-        'documento_upload' => 'Documento Enviado',
-        'documento_aprovado' => 'Documento Aprovado',
-        'documento_rejeitado' => 'Documento Rejeitado',
-        'documento_removido' => 'Documento Removido',
-        'documento_download' => 'Download de Documento'
+        'detalhes_visualizado' => 'Detalhes Visualizados'
     ];
     
     return $labels[$tipo] ?? ucwords(str_replace('_', ' ', $tipo));
@@ -762,33 +565,6 @@ function getAlertas($aluno, $estatisticas, $ativo, $temBoletosVencidos) {
         ];
     }
     
-    // ✅ NOVO: Alerta para documentos incompletos
-    try {
-        $documentosService = new DocumentosService();
-        $statusDocumentos = $documentosService->getStatusDocumentosAluno($aluno['id']);
-        
-        if ($statusDocumentos['percentual_completo'] < 100) {
-            $alertas[] = [
-                'tipo' => 'documentos_incompletos',
-                'titulo' => 'Documentos Incompletos',
-                'mensagem' => "Faltam " . count($statusDocumentos['faltando']) . " documento(s) obrigatório(s)",
-                'severidade' => 'warning'
-            ];
-        }
-        
-        if ($statusDocumentos['rejeitados'] > 0) {
-            $alertas[] = [
-                'tipo' => 'documentos_rejeitados',
-                'titulo' => 'Documentos Rejeitados',
-                'mensagem' => "{$statusDocumentos['rejeitados']} documento(s) rejeitado(s) - necessário reenvio",
-                'severidade' => 'danger'
-            ];
-        }
-        
-    } catch (Exception $e) {
-        // Se falhar, não adiciona alerta de documentos
-    }
-    
     return $alertas;
 }
 
@@ -830,14 +606,6 @@ function getAcoesDisponiveisAdmin($aluno, $estatisticas) {
         'classe' => 'btn-success'
     ];
     
-    // ✅ NOVO: Ações para documentos
-    $acoes[] = [
-        'tipo' => 'ver_documentos',
-        'label' => 'Gerenciar Documentos',
-        'icone' => 'fas fa-folder-open',
-        'classe' => 'btn-warning'
-    ];
-    
     // Exportar dados sempre disponível
     $acoes[] = [
         'tipo' => 'exportar',
@@ -853,7 +621,7 @@ function getAcoesDisponiveisAdmin($aluno, $estatisticas) {
             'tipo' => 'cobrar',
             'label' => 'Enviar Cobrança',
             'icone' => 'fas fa-envelope',
-            'classe' => 'btn-danger'
+            'classe' => 'btn-warning'
         ];
     }
     
@@ -1064,35 +832,6 @@ function gerarRecomendacoes($aluno, $estatisticas, $ativo, $metricas = []) {
         ];
     }
     
-    // ✅ NOVO: Recomendações para documentos
-    try {
-        $documentosService = new DocumentosService();
-        $statusDocumentos = $documentosService->getStatusDocumentosAluno($aluno['id']);
-        
-        if ($statusDocumentos['percentual_completo'] < 100) {
-            $recomendacoes[] = [
-                'categoria' => 'documentos',
-                'titulo' => 'Completar Documentação',
-                'descricao' => 'Solicitar envio dos documentos obrigatórios faltantes',
-                'prioridade' => 'alta',
-                'acoes' => ['Enviar lista de documentos faltantes', 'Ligar para orientar', 'Notificar por email']
-            ];
-        }
-        
-        if ($statusDocumentos['rejeitados'] > 0) {
-            $recomendacoes[] = [
-                'categoria' => 'documentos',
-                'titulo' => 'Reenviar Documentos Rejeitados',
-                'descricao' => 'Orientar sobre correções necessárias nos documentos rejeitados',
-                'prioridade' => 'alta',
-                'acoes' => ['Explicar motivos da rejeição', 'Orientar sobre correções', 'Acompanhar reenvio']
-            ];
-        }
-        
-    } catch (Exception $e) {
-        // Se falhar, não adiciona recomendações de documentos
-    }
-    
     return $recomendacoes;
 }
 
@@ -1270,5 +1009,4 @@ function salvarDadosCache($chave, $dados) {
 
 // Log da execução para debug
 error_log("API Detalhes Aluno executada com sucesso - Timestamp: " . date('Y-m-d H:i:s'));
-
 ?>
