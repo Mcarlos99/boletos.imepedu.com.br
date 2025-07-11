@@ -853,6 +853,249 @@ error_log("Dashboard: Resumo final - Polo: {$_SESSION['subdomain']}, Total: " . 
         @media (min-width: 1024px) {
             .main-container { max-width: 800px; }
         }
+		
+		    .documentos-section {
+        margin-bottom: 24px;
+    }
+    
+    .progress-card {
+        background: white;
+        border-radius: var(--card-radius);
+        padding: 16px;
+        margin-bottom: 16px;
+        box-shadow: var(--shadow-mobile);
+    }
+    
+    .progress-info {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 8px;
+    }
+    
+    .progress-label {
+        font-weight: 600;
+        color: var(--dark-color);
+    }
+    
+    .progress-value {
+        font-weight: 700;
+        color: var(--primary-color);
+    }
+    
+    .progress-custom {
+        height: 8px;
+        background-color: #e9ecef;
+        border-radius: 4px;
+        margin-bottom: 8px;
+    }
+    
+    .progress-details {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.8rem;
+    }
+    
+    .documentos-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+    
+    .documento-card {
+        background: white;
+        border-radius: var(--card-radius);
+        padding: 16px;
+        box-shadow: var(--shadow-mobile);
+        border-left: 4px solid;
+        transition: all 0.2s;
+        position: relative;
+    }
+    
+    .documento-card:active {
+        transform: scale(0.98);
+    }
+    
+    .documento-card.obrigatorio {
+        border-left-color: var(--danger-color);
+    }
+    
+    .documento-card.opcional {
+        border-left-color: var(--info-color);
+    }
+    
+    .documento-card.enviado {
+        border-left-color: var(--warning-color);
+    }
+    
+    .documento-card.aprovado {
+        border-left-color: var(--success-color);
+    }
+    
+    .documento-card.rejeitado {
+        border-left-color: var(--danger-color);
+        background: #fdf2f2;
+    }
+    
+    .documento-header {
+        display: flex;
+        justify-content: between;
+        align-items: flex-start;
+        margin-bottom: 8px;
+    }
+    
+    .documento-icon {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-right: 12px;
+        font-size: 1.2rem;
+        color: white;
+    }
+    
+    .documento-info {
+        flex: 1;
+    }
+    
+    .documento-nome {
+        font-weight: 600;
+        color: var(--dark-color);
+        margin-bottom: 2px;
+        font-size: 0.9rem;
+    }
+    
+    .documento-descricao {
+        color: #666;
+        font-size: 0.8rem;
+        line-height: 1.3;
+        margin-bottom: 4px;
+    }
+    
+    .documento-status {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 8px;
+    }
+    
+    .status-badge {
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 0.7rem;
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+    
+    .status-faltando {
+        background: rgba(220,53,69,0.1);
+        color: var(--danger-color);
+    }
+    
+    .status-enviado {
+        background: rgba(255,193,7,0.1);
+        color: #856404;
+    }
+    
+    .status-aprovado {
+        background: rgba(40,167,69,0.1);
+        color: var(--success-color);
+    }
+    
+    .status-rejeitado {
+        background: rgba(220,53,69,0.1);
+        color: var(--danger-color);
+    }
+    
+    .documento-acoes {
+        display: flex;
+        gap: 8px;
+        margin-top: 12px;
+    }
+    
+    .btn-upload {
+        flex: 1;
+        background: var(--primary-color);
+        color: white;
+        border: none;
+        border-radius: 6px;
+        padding: 8px 12px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    
+    .btn-upload:hover {
+        background: var(--secondary-color);
+    }
+    
+    .btn-upload.substituir {
+        background: var(--warning-color);
+        color: #856404;
+    }
+    
+    .btn-download {
+        background: var(--info-color);
+        color: white;
+        border: none;
+        border-radius: 6px;
+        padding: 8px 12px;
+        font-size: 0.8rem;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    
+    .btn-download:hover {
+        background: #138496;
+    }
+    
+    .documento-meta {
+        font-size: 0.75rem;
+        color: #888;
+        margin-top: 8px;
+        display: flex;
+        justify-content: space-between;
+    }
+    
+    .documento-observacoes {
+        background: #fff3cd;
+        border: 1px solid #ffeaa7;
+        border-radius: 4px;
+        padding: 8px;
+        margin-top: 8px;
+        font-size: 0.8rem;
+        color: #856404;
+    }
+    
+    .upload-input {
+        display: none;
+    }
+    
+    .loading-docs .spinner {
+        width: 20px;
+        height: 20px;
+        border: 2px solid #f3f3f3;
+        border-top: 2px solid var(--primary-color);
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin: 0 auto;
+    }
+    
+    @media (min-width: 768px) {
+        .documentos-grid {
+            grid-template-columns: repeat(2, 1fr);
+        }
+    }
+    
+    @media (min-width: 1024px) {
+        .documentos-grid {
+            grid-template-columns: repeat(3, 1fr);
+        }
+    }
+	
     </style>
 </head>
 <body>
@@ -1008,6 +1251,47 @@ error_log("Dashboard: Resumo final - Polo: {$_SESSION['subdomain']}, Total: " . 
             <?php endif; ?>
             
         <?php endif; ?>
+		
+		<!-- Seção de Documentos -->
+<section class="documentos-section">
+    <div class="section-header">
+        <h2 class="section-title">
+            <i class="fas fa-folder-open text-info"></i>
+            Meus Documentos
+            <span class="section-count" id="documentosCount">0</span>
+        </h2>
+        <button class="btn btn-sm btn-outline-primary" onclick="atualizarDocumentos()" id="btnSyncDocs">
+            <i class="fas fa-sync-alt"></i>
+        </button>
+    </div>
+    
+    <!-- Status dos Documentos -->
+    <div class="documentos-status" id="documentosStatus" style="display: none;">
+        <div class="progress-card">
+            <div class="progress-info">
+                <span class="progress-label">Documentos Enviados</span>
+                <span class="progress-value" id="progressText">0 de 0</span>
+            </div>
+            <div class="progress progress-custom">
+                <div class="progress-bar bg-success" id="progressBar" style="width: 0%"></div>
+            </div>
+            <div class="progress-details">
+                <small class="text-success" id="aprovadosText">0 aprovados</small>
+                <small class="text-warning" id="pendentesText">0 pendentes</small>
+                <small class="text-danger" id="rejeitadosText">0 rejeitados</small>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Lista de Documentos -->
+    <div class="documentos-grid" id="documentosGrid">
+        <div class="loading-docs text-center py-4">
+            <div class="spinner"></div>
+            <p class="mt-2">Carregando documentos...</p>
+        </div>
+    </div>
+</section>
+		
     </main>
 
     <button class="fab" onclick="mostrarAcoesRapidas()" title="Ações rápidas">
@@ -1976,6 +2260,285 @@ function forcarLimpezaCache() {
         console.log('   - Funciona em qualquer polo sem configuração prévia');
         console.log('   - Interface otimizada para móvel');
         console.log('   - Controle total do admin sobre os descontos');
+      
+      
+      
+      
+
+    let documentosData = null;
+    
+    // Carrega documentos quando a página carrega
+    document.addEventListener('DOMContentLoaded', function() {
+        carregarDocumentos();
+    });
+    
+    /**
+     * Carrega documentos do aluno
+     */
+    function carregarDocumentos() {
+        fetch('/api/documentos-aluno.php')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    documentosData = data;
+                    exibirDocumentos(data);
+                    atualizarStatusDocumentos(data.status);
+                } else {
+                    exibirErroDocumentos(data.message);
+                }
+            })
+            .catch(error => {
+                console.error('Erro ao carregar documentos:', error);
+                exibirErroDocumentos('Erro de conexão');
+            });
+    }
+    
+    /**
+     * Exibe os documentos na interface
+     */
+    function exibirDocumentos(data) {
+        const grid = document.getElementById('documentosGrid');
+        const { documentos, documentos_faltando, tipos_documentos } = data;
+        
+        let html = '';
+        
+        // Combina documentos enviados e faltando
+        const todosDocumentos = { ...documentos_faltando, ...documentos };
+        
+        for (const [tipo, info] of Object.entries(todosDocumentos)) {
+            const documento = documentos[tipo];
+            const tipoInfo = tipos_documentos[tipo];
+            
+            if (!tipoInfo) continue;
+            
+            const enviado = !!documento;
+            const obrigatorio = tipoInfo.obrigatorio;
+            
+            let statusClass = 'faltando';
+            let statusText = 'Não enviado';
+            let statusIcon = 'fas fa-times';
+            let acoes = '';
+            
+            if (enviado) {
+                statusClass = documento.status;
+                statusIcon = documento.status === 'aprovado' ? 'fas fa-check' : 
+                           documento.status === 'rejeitado' ? 'fas fa-times' : 'fas fa-clock';
+                statusText = documento.status === 'aprovado' ? 'Aprovado' :
+                           documento.status === 'rejeitado' ? 'Rejeitado' : 'Em análise';
+                
+                acoes = `
+                    <button class="btn-download" onclick="downloadDocumento(${documento.id})" title="Download">
+                        <i class="fas fa-download"></i>
+                    </button>
+                    <button class="btn-upload substituir" onclick="iniciarUpload('${tipo}')">
+                        <i class="fas fa-upload me-1"></i> Substituir
+                    </button>
+                `;
+            } else {
+                acoes = `
+                    <button class="btn-upload" onclick="iniciarUpload('${tipo}')">
+                        <i class="fas fa-upload me-1"></i> Enviar ${obrigatorio ? '(Obrigatório)' : '(Opcional)'}
+                    </button>
+                `;
+            }
+            
+            const iconColor = enviado ? 
+                (documento.status === 'aprovado' ? '#28a745' : 
+                 documento.status === 'rejeitado' ? '#dc3545' : '#ffc107') :
+                (obrigatorio ? '#dc3545' : '#17a2b8');
+            
+            html += `
+                <div class="documento-card ${obrigatorio ? 'obrigatorio' : 'opcional'} ${statusClass}">
+                    <div class="documento-header">
+                        <div class="documento-icon" style="background-color: ${iconColor}">
+                            <i class="${tipoInfo.icone}"></i>
+                        </div>
+                        <div class="documento-info">
+                            <div class="documento-nome">${tipoInfo.nome}</div>
+                            <div class="documento-descricao">${tipoInfo.descricao}</div>
+                        </div>
+                    </div>
+                    
+                    <div class="documento-status">
+                        <span class="status-badge status-${statusClass}">
+                            <i class="${statusIcon} me-1"></i>${statusText}
+                        </span>
+                        ${obrigatorio ? '<span class="badge bg-danger">Obrigatório</span>' : '<span class="badge bg-info">Opcional</span>'}
+                    </div>
+                    
+                    ${enviado ? `
+                        <div class="documento-meta">
+                            <span>Enviado: ${new Date(documento.data_upload).toLocaleDateString('pt-BR')}</span>
+                            <span>${documento.tamanho_formatado}</span>
+                        </div>
+                        ${documento.observacoes ? `
+                            <div class="documento-observacoes">
+                                <strong>Observações:</strong> ${documento.observacoes}
+                            </div>
+                        ` : ''}
+                    ` : ''}
+                    
+                    <div class="documento-acoes">
+                        ${acoes}
+                    </div>
+                </div>
+            `;
+        }
+        
+        grid.innerHTML = html;
+        
+        // Atualiza contador
+        const totalEnviados = Object.keys(documentos).length;
+        document.getElementById('documentosCount').textContent = totalEnviados;
+    }
+    
+    /**
+     * Atualiza status dos documentos
+     */
+    function atualizarStatusDocumentos(status) {
+        const statusDiv = document.getElementById('documentosStatus');
+        const progressBar = document.getElementById('progressBar');
+        const progressText = document.getElementById('progressText');
+        const aprovadosText = document.getElementById('aprovadosText');
+        const pendentesText = document.getElementById('pendentesText');
+        const rejeitadosText = document.getElementById('rejeitadosText');
+        
+        if (status.total_tipos > 0) {
+            statusDiv.style.display = 'block';
+            
+            progressBar.style.width = status.percentual_completo + '%';
+            progressText.textContent = `${status.obrigatorios_enviados} de ${status.total_obrigatorios}`;
+            aprovadosText.textContent = `${status.aprovados} aprovados`;
+            pendentesText.textContent = `${status.pendentes} pendentes`;
+            rejeitadosText.textContent = `${status.rejeitados} rejeitados`;
+        }
+    }
+    
+    /**
+     * Inicia processo de upload
+     */
+    function iniciarUpload(tipoDocumento) {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.jpg,.jpeg,.png,.gif,.pdf,.doc,.docx';
+        input.className = 'upload-input';
+        
+        input.onchange = function(e) {
+            const arquivo = e.target.files[0];
+            if (arquivo) {
+                uploadDocumento(tipoDocumento, arquivo);
+            }
+        };
+        
+        input.click();
+    }
+    
+    /**
+     * Faz upload do documento
+     */
+    function uploadDocumento(tipoDocumento, arquivo) {
+        const tipoInfo = documentosData.tipos_documentos[tipoDocumento];
+        
+        // Validações básicas
+        if (arquivo.size > 5 * 1024 * 1024) {
+            showToast('Arquivo muito grande. Máximo: 5MB', 'error');
+            return;
+        }
+        
+        const tiposPermitidos = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+        if (!tiposPermitidos.includes(arquivo.type)) {
+            showToast('Tipo de arquivo não permitido', 'error');
+            return;
+        }
+        
+        // Validação específica para foto
+        if (tipoDocumento === 'foto_3x4' && !arquivo.type.startsWith('image/')) {
+            showToast('Foto deve ser uma imagem (JPG, PNG)', 'error');
+            return;
+        }
+        
+        showToast('Enviando documento...', 'info');
+        
+        const formData = new FormData();
+        formData.append('arquivo', arquivo);
+        formData.append('tipo_documento', tipoDocumento);
+        
+        fetch('/api/upload-documento.php', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showToast(`${tipoInfo.nome} enviado com sucesso!`, 'success');
+                
+                // Atualiza interface
+                if (data.status_documentos) {
+                    atualizarStatusDocumentos(data.status_documentos);
+                }
+                
+                // Recarrega documentos
+                setTimeout(() => {
+                    carregarDocumentos();
+                }, 1000);
+                
+            } else {
+                showToast('Erro: ' + data.message, 'error');
+            }
+        })
+        .catch(error => {
+            console.error('Erro no upload:', error);
+            showToast('Erro de conexão', 'error');
+        });
+    }
+    
+    /**
+     * Download de documento
+     */
+    function downloadDocumento(documentoId) {
+        const link = document.createElement('a');
+        link.href = `/api/download-documento.php?id=${documentoId}`;
+        link.target = '_blank';
+        link.click();
+        
+        showToast('Download iniciado!', 'success');
+    }
+    
+    /**
+     * Atualiza lista de documentos
+     */
+    function atualizarDocumentos() {
+        const btn = document.getElementById('btnSyncDocs');
+        const originalIcon = btn.innerHTML;
+        
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+        btn.disabled = true;
+        
+        carregarDocumentos();
+        
+        setTimeout(() => {
+            btn.innerHTML = originalIcon;
+            btn.disabled = false;
+        }, 2000);
+    }
+    
+    /**
+     * Exibe erro ao carregar documentos
+     */
+    function exibirErroDocumentos(mensagem) {
+        const grid = document.getElementById('documentosGrid');
+        grid.innerHTML = `
+            <div class="text-center py-4">
+                <i class="fas fa-exclamation-triangle fa-2x text-warning mb-3"></i>
+                <h5>Erro ao Carregar Documentos</h5>
+                <p class="text-muted">${mensagem}</p>
+                <button class="btn btn-primary" onclick="carregarDocumentos()">
+                    <i class="fas fa-redo"></i> Tentar Novamente
+                </button>
+            </div>
+        `;
+    }
+    
     </script>
 </body>
 </html>
@@ -2177,4 +2740,6 @@ function renderizarBoletoCard($boleto, $statusClass) {
     <?php
     return ob_get_clean();
 }
+                   
+                   
 ?>

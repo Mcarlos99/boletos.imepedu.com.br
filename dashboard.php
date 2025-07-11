@@ -1,7 +1,7 @@
 <?php
 /**
  * Sistema de Boletos IMEPEDU - Dashboard com Desconto PIX Personalizado
- * Arquivo: dashboard.php
+ * Arquivo: dashboard.php - PARTE 1: HTML Head e Header
  */
 
 session_start();
@@ -50,6 +50,8 @@ $resumoGeral = [
     'boletos_com_desconto' => 0
 ];
 
+// [AQUI VEM O CÓDIGO PHP DE PROCESSAMENTO DOS BOLETOS - será mantido como está]
+
 try {
     $db = (new Database())->getConnection();
     
@@ -93,58 +95,47 @@ try {
             $boleto['dias_vencimento'] = (int)$diasVencimento;
             $boleto['esta_vencido'] = ($boleto['status'] == 'pendente' && $diasVencimento < 0);
             
-// Calcula economia potencial PIX personalizada
-$boleto['economia_pix'] = 0;
-$boleto['pode_usar_desconto'] = false;
-$boleto['valor_final_pix'] = $boleto['valor'];
+            // Calcula economia potencial PIX personalizada
+            $boleto['economia_pix'] = 0;
+            $boleto['pode_usar_desconto'] = false;
+            $boleto['valor_final_pix'] = $boleto['valor'];
 
-// 🔧 CORREÇÃO: Verificação mais precisa do vencimento
-$dataVencimento = new DateTime($boleto['vencimento']);
-$agora = new DateTime();
+            // 🔧 CORREÇÃO: Verificação mais precisa do vencimento
+            $dataVencimento = new DateTime($boleto['vencimento']);
+            $agora = new DateTime();
 
-// Define o final do dia de vencimento (23:59:59)
-$fimDiaVencimento = clone $dataVencimento;
-$fimDiaVencimento->setTime(23, 59, 59);
+            // Define o final do dia de vencimento (23:59:59)
+            $fimDiaVencimento = clone $dataVencimento;
+            $fimDiaVencimento->setTime(23, 59, 59);
 
-// Só considera vencido DEPOIS do final do dia de vencimento
-$venceuCompletamente = ($agora > $fimDiaVencimento);
+            // Só considera vencido DEPOIS do final do dia de vencimento
+            $venceuCompletamente = ($agora > $fimDiaVencimento);
 
-// Log para debug (remover em produção)
-error_log("Debug Desconto PIX - Boleto {$boleto['numero_boleto']}: " . 
-          "Vencimento: {$dataVencimento->format('Y-m-d H:i:s')}, " .
-          "Agora: {$agora->format('Y-m-d H:i:s')}, " .
-          "Fim do dia: {$fimDiaVencimento->format('Y-m-d H:i:s')}, " .
-          "Venceu: " . ($venceuCompletamente ? 'SIM' : 'NÃO'));
-
-if ($boleto['pix_desconto_disponivel'] && 
-    !$boleto['pix_desconto_usado'] && 
-    $boleto['status'] !== 'pago' && 
-    !$venceuCompletamente && // 🔧 NOVA VERIFICAÇÃO CORRIGIDA
-    $boleto['pix_valor_desconto'] > 0) {
-    
-    $valorMinimo = $boleto['pix_valor_minimo'] ?? 0;
-    if ($valorMinimo == 0 || $boleto['valor'] >= $valorMinimo) {
-        $valorDesconto = (float)$boleto['pix_valor_desconto'];
-        
-        $valorFinal = $boleto['valor'] - $valorDesconto;
-        if ($valorFinal < 10.00) {
-            $valorDesconto = $boleto['valor'] - 10.00;
-            $valorFinal = 10.00;
-        }
-        
-        if ($valorDesconto > 0) {
-            $boleto['economia_pix'] = $valorDesconto;
-            $boleto['valor_final_pix'] = $valorFinal;
-            $boleto['pode_usar_desconto'] = true;
-            $resumoGeral['economia_potencial_pix'] += $valorDesconto;
-            $resumoGeral['boletos_com_desconto']++;
-            
-            // Log para debug
-            error_log("Desconto PIX aplicado - Boleto {$boleto['numero_boleto']}: " .
-                      "Economia R$ {$valorDesconto}, Valor final: R$ {$valorFinal}");
-        }
-    }
-}
+            if ($boleto['pix_desconto_disponivel'] && 
+                !$boleto['pix_desconto_usado'] && 
+                $boleto['status'] !== 'pago' && 
+                !$venceuCompletamente && 
+                $boleto['pix_valor_desconto'] > 0) {
+                
+                $valorMinimo = $boleto['pix_valor_minimo'] ?? 0;
+                if ($valorMinimo == 0 || $boleto['valor'] >= $valorMinimo) {
+                    $valorDesconto = (float)$boleto['pix_valor_desconto'];
+                    
+                    $valorFinal = $boleto['valor'] - $valorDesconto;
+                    if ($valorFinal < 10.00) {
+                        $valorDesconto = $boleto['valor'] - 10.00;
+                        $valorFinal = 10.00;
+                    }
+                    
+                    if ($valorDesconto > 0) {
+                        $boleto['economia_pix'] = $valorDesconto;
+                        $boleto['valor_final_pix'] = $valorFinal;
+                        $boleto['pode_usar_desconto'] = true;
+                        $resumoGeral['economia_potencial_pix'] += $valorDesconto;
+                        $resumoGeral['boletos_com_desconto']++;
+                    }
+                }
+            }
             
             if ($boleto['esta_vencido'] && $boleto['status'] == 'pendente') {
                 $boletoService->atualizarStatusVencido($boleto['id']);
@@ -297,6 +288,34 @@ error_log("Dashboard: Resumo final - Polo: {$_SESSION['subdomain']}, Total: " . 
             transform: scale(0.98);
         }
         
+        /* Novo botão para documentos no header */
+        .btn-documentos {
+            background: rgba(255,255,255,0.2);
+            border: 1px solid rgba(255,255,255,0.3);
+            border-radius: 8px;
+            padding: 6px 12px;
+            color: white;
+            font-size: 0.8rem;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+        
+        .btn-documentos:hover, .btn-documentos:active {
+            background: rgba(255,255,255,0.3);
+            color: white;
+            transform: scale(0.98);
+        }
+        
+        .header-quick-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 8px;
+        }
+        
         .summary-cards {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
@@ -400,6 +419,57 @@ error_log("Dashboard: Resumo final - Polo: {$_SESSION['subdomain']}, Total: " . 
             font-size: 0.75rem;
             font-weight: 600;
         }
+
+        /* Estilos para documentos */
+        .documentos-progress {
+            background: white;
+            border-radius: var(--card-radius);
+            padding: 12px 16px;
+            margin-bottom: 16px;
+            box-shadow: var(--shadow-mobile);
+            display: none;
+        }
+        
+        .progress-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        
+        .progress-label {
+            font-weight: 600;
+            color: var(--dark-color);
+            font-size: 0.85rem;
+        }
+        
+        .progress-value {
+            font-weight: 700;
+            color: var(--primary-color);
+            font-size: 0.85rem;
+        }
+        
+        .progress-custom {
+            height: 6px;
+            background-color: #e9ecef;
+            border-radius: 3px;
+            margin-bottom: 8px;
+        }
+        
+        .progress-bar {
+            height: 100%;
+            background-color: var(--success-color);
+            border-radius: 3px;
+            transition: width 0.3s;
+        }
+        
+        .progress-details {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.7rem;
+        }
+        
+        /* Estilos dos boletos */
         .boleto-card {
             background: white;
             border-radius: var(--card-radius);
@@ -418,7 +488,6 @@ error_log("Dashboard: Resumo final - Polo: {$_SESSION['subdomain']}, Total: " . 
         .boleto-card.pago { border-left-color: var(--success-color); }
         
         .boleto-card.com-desconto-pix::after {
-            /* content: 'PIX'; */
             position: absolute;
             top: 8px;
             right: 8px;
@@ -581,14 +650,6 @@ error_log("Dashboard: Resumo final - Polo: {$_SESSION['subdomain']}, Total: " . 
             background: var(--pix-discount-color);
         }
         
-        .btn-pix.com-desconto::after {
-            /* content: '💰'; */
-            position: absolute;
-            top: -4px;
-            right: -4px;
-            font-size: 0.8rem;
-        }
-        
         .btn-pix:hover, .btn-pix:active {
             background: #2a9d91;
             color: white;
@@ -628,6 +689,398 @@ error_log("Dashboard: Resumo final - Polo: {$_SESSION['subdomain']}, Total: " . 
             line-height: 1.4;
         }
         
+        .fab {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 56px;
+            height: 56px;
+            background: var(--primary-color);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            text-decoration: none;
+            box-shadow: 0 4px 12px rgba(0,102,204,0.3);
+            transition: all 0.2s;
+            z-index: 1000;
+            border: none;
+        }
+        
+        .fab:hover, .fab:active {
+            background: var(--secondary-color);
+            color: white;
+            transform: scale(0.95);
+        }
+        
+        @media (min-width: 768px) {
+            .main-container {
+                max-width: 600px;
+                margin: 0 auto;
+                padding: 0 24px 80px 24px;
+            }
+            
+            .summary-cards {
+                grid-template-columns: repeat(4, 1fr);
+                padding: 24px;
+            }
+            
+            .mobile-header { padding: 20px 24px; }
+            
+            .pix-economy-banner { margin: 0 24px 16px 24px; }
+        }
+        
+        @media (min-width: 1024px) {
+            .main-container { max-width: 800px; }
+        }
+    </style>
+</head>
+<body>
+    <header class="mobile-header">
+        <div class="header-content">
+            <div class="user-info">
+                <h1 class="user-name"><?= htmlspecialchars($aluno['nome']) ?></h1>
+                <div class="user-details">
+                    <i class="fas fa-map-marker-alt"></i> 
+                    <?= htmlspecialchars($configPolo['name'] ?? str_replace('.imepedu.com.br', '', $_SESSION['subdomain'])) ?>
+                    <span class="ms-2">
+                        <i class="fas fa-id-card"></i> 
+                        <?= preg_replace('/(\d{3})(\d{3})(\d{3})(\d{2})/', '$1.$2.$3-$4', $aluno['cpf']) ?>
+                    </span>
+                </div>
+            </div>
+            <div class="header-actions">
+                <button class="btn-header" onclick="atualizarDados()" id="btnSync">
+                    <i class="fas fa-sync-alt"></i>
+                </button>
+                <button class="btn-header" onclick="mostrarMenu()" id="btnMenu">
+                    <i class="fas fa-bars"></i>
+                </button>
+            </div>
+        </div>
+        
+        <!-- Nova seção para ações rápidas -->
+        <div class="header-quick-actions">
+            <button class="btn-documentos" onclick="mostrarDocumentos()" id="btnDocumentos">
+                <i class="fas fa-folder-open"></i>
+                <span>Meus Documentos</span>
+                <span class="badge bg-danger ms-1" id="documentosCount" style="display: none;">0</span>
+            </button>
+        </div>
+        
+        <!-- Progress bar para documentos (aparece quando carregado) -->
+        <div class="documentos-progress" id="documentosProgress">
+            <div class="progress-info">
+                <span class="progress-label">Documentos Enviados</span>
+                <span class="progress-value" id="progressText">0 de 0</span>
+            </div>
+            <div class="progress-custom">
+                <div class="progress-bar" id="progressBar" style="width: 0%"></div>
+            </div>
+            <div class="progress-details">
+                <small class="text-success" id="aprovadosText">0 aprovados</small>
+                <small class="text-warning" id="pendentesText">0 pendentes</small>
+                <small class="text-danger" id="rejeitadosText">0 rejeitados</small>
+            </div>
+        </div>
+    </header>
+
+    <!-- PARTE 2 -->
+     <!-- Resumo/Estatísticas dos Boletos -->
+    <div class="summary-cards">
+        <div class="summary-card">
+            <div class="summary-number text-info"><?= $resumoGeral['total_boletos'] ?></div>
+            <div class="summary-label">Total</div>
+            <div class="summary-value">R$ <?= number_format($resumoGeral['valor_total'], 2, ',', '.') ?></div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="summary-number text-success"><?= $resumoGeral['boletos_pagos'] ?></div>
+            <div class="summary-label">Pagos</div>
+            <div class="summary-value">R$ <?= number_format($resumoGeral['valor_pago'], 2, ',', '.') ?></div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="summary-number text-warning"><?= $resumoGeral['boletos_pendentes'] ?></div>
+            <div class="summary-label">Pendentes</div>
+            <div class="summary-value">R$ <?= number_format($resumoGeral['valor_pendente'], 2, ',', '.') ?></div>
+        </div>
+        
+        <div class="summary-card pix-discount">
+            <div class="summary-number text-pix"><?= $resumoGeral['boletos_com_desconto'] ?></div>
+            <div class="summary-label">Com Desconto PIX</div>
+            <div class="summary-value">Economia: R$ <?= number_format($resumoGeral['economia_potencial_pix'], 2, ',', '.') ?></div>
+        </div>
+    </div>
+
+    <!-- Banner de Economia PIX -->
+    <?php if ($resumoGeral['economia_potencial_pix'] > 0): ?>
+    <div class="pix-economy-banner">
+        <h6><i class="fas fa-gift me-2"></i>Economia PIX Personalizada Disponível!</h6>
+        <div class="economy-amount">R$ <?= number_format($resumoGeral['economia_potencial_pix'], 2, ',', '.') ?></div>
+        <small>Pague <?= $resumoGeral['boletos_com_desconto'] ?> boleto(s) via PIX e economize com desconto personalizado!</small>
+    </div>
+    <?php endif; ?>
+
+    <!-- Conteúdo Principal dos Boletos -->
+    <main class="main-container">
+        <?php if (empty($dadosBoletos) || array_sum(array_map('count', $dadosBoletos)) === 0): ?>
+            <!-- Estado Vazio -->
+            <div class="empty-state">
+                <i class="fas fa-receipt"></i>
+                <h4>Nenhum boleto encontrado</h4>
+                <p>Não foram encontrados boletos para este polo.<br>
+                   Entre em contato com a secretaria se isso não estiver correto.</p>
+                <button class="btn btn-primary mt-3" onclick="atualizarDados()">
+                    <i class="fas fa-sync"></i> Atualizar Dados
+                </button>
+            </div>
+        <?php else: ?>
+            
+            <!-- Seção: Boletos Vencidos -->
+            <?php if (!empty($dadosBoletos['vencidos'])): ?>
+            <section class="boletos-section">
+                <div class="section-header">
+                    <h2 class="section-title">
+                        <i class="fas fa-exclamation-triangle text-danger"></i>
+                        Vencidos
+                        <span class="section-count"><?= count($dadosBoletos['vencidos']) ?></span>
+                    </h2>
+                </div>
+                
+                <?php foreach ($dadosBoletos['vencidos'] as $boleto): ?>
+                    <?= renderizarBoletoCard($boleto, 'vencido') ?>
+                <?php endforeach; ?>
+            </section>
+            <?php endif; ?>
+            
+            <!-- Seção: Boletos Este Mês -->
+            <?php if (!empty($dadosBoletos['este_mes'])): ?>
+            <section class="boletos-section">
+                <div class="section-header">
+                    <h2 class="section-title">
+                        <i class="fas fa-calendar-day text-warning"></i>
+                        Este Mês
+                        <span class="section-count"><?= count($dadosBoletos['este_mes']) ?></span>
+                    </h2>
+                </div>
+                
+                <?php foreach ($dadosBoletos['este_mes'] as $boleto): ?>
+                    <?= renderizarBoletoCard($boleto, 'pendente') ?>
+                <?php endforeach; ?>
+            </section>
+            <?php endif; ?>
+            
+            <!-- Seção: Boletos Próximo Mês -->
+            <?php if (!empty($dadosBoletos['proximo_mes'])): ?>
+            <section class="boletos-section">
+                <div class="section-header">
+                    <h2 class="section-title">
+                        <i class="fas fa-calendar-plus text-info"></i>
+                        Próximo Mês
+                        <span class="section-count"><?= count($dadosBoletos['proximo_mes']) ?></span>
+                    </h2>
+                </div>
+                
+                <?php foreach ($dadosBoletos['proximo_mes'] as $boleto): ?>
+                    <?= renderizarBoletoCard($boleto, 'pendente') ?>
+                <?php endforeach; ?>
+            </section>
+            <?php endif; ?>
+            
+            <!-- Seção: Boletos Futuros -->
+            <?php if (!empty($dadosBoletos['futuros'])): ?>
+            <section class="boletos-section">
+                <div class="section-header">
+                    <h2 class="section-title">
+                        <i class="fas fa-clock text-secondary"></i>
+                        Futuros
+                        <span class="section-count"><?= count($dadosBoletos['futuros']) ?></span>
+                    </h2>
+                </div>
+                
+                <?php foreach ($dadosBoletos['futuros'] as $boleto): ?>
+                    <?= renderizarBoletoCard($boleto, 'pendente') ?>
+                <?php endforeach; ?>
+            </section>
+            <?php endif; ?>
+            
+            <!-- Seção: Boletos Pagos Recentemente -->
+            <?php if (!empty($dadosBoletos['pagos_recentes'])): ?>
+            <section class="boletos-section">
+                <div class="section-header">
+                    <h2 class="section-title">
+                        <i class="fas fa-check-circle text-success"></i>
+                        Pagos Recentemente
+                        <span class="section-count"><?= count($dadosBoletos['pagos_recentes']) ?></span>
+                    </h2>
+                </div>
+                
+                <?php foreach ($dadosBoletos['pagos_recentes'] as $boleto): ?>
+                    <?= renderizarBoletoCard($boleto, 'pago') ?>
+                <?php endforeach; ?>
+            </section>
+            <?php endif; ?>
+            
+        <?php endif; ?>
+    </main>
+
+    <!-- Botão Flutuante de Ações -->
+    <button class="fab" onclick="mostrarAcoesRapidas()" title="Ações rápidas">
+        <i class="fas fa-plus"></i>
+    </button>
+    <!-- PARTE 3 -->
+     <!-- Overlay para Modais -->
+    <div class="overlay" id="modalOverlay" onclick="fecharTodosModais()"></div>
+
+    <!-- Modal: Menu Principal -->
+    <div class="modal-bottom" id="menuModal">
+        <div class="modal-header-custom">
+            <div class="modal-handle"></div>
+            <h3 class="mb-0">Menu</h3>
+        </div>
+        <div class="modal-body-custom">
+            <div class="list-group list-group-flush">
+                <button class="list-group-item list-group-item-action" onclick="atualizarDados(); fecharMenu();">
+                    <i class="fas fa-sync text-primary me-3"></i>
+                    Sincronizar Dados
+                </button>
+                <button class="list-group-item list-group-item-action" onclick="mostrarDocumentos(); fecharMenu();">
+                    <i class="fas fa-folder-open text-info me-3"></i>
+                    Meus Documentos
+                    <span class="badge bg-danger ms-auto" id="menuDocumentosCount" style="display: none;">0</span>
+                </button>
+                <button class="list-group-item list-group-item-action" onclick="baixarTodosPendentes(); fecharMenu();">
+                    <i class="fas fa-download text-info me-3"></i>
+                    Baixar Todos Pendentes
+                </button>
+                <a href="mailto:<?= $configPolo['contact_email'] ?? 'suporte@imepedu.com.br' ?>" class="list-group-item list-group-item-action">
+                    <i class="fas fa-envelope text-secondary me-3"></i>
+                    Contatar Suporte
+                </a>
+                <button class="list-group-item list-group-item-action" onclick="mostrarInformacoes(); fecharMenu();">
+                    <i class="fas fa-info-circle text-info me-3"></i>
+                    Informações
+                </button>
+                <button class="list-group-item list-group-item-action text-danger" onclick="logoutLimpo(); fecharMenu();">
+                    <i class="fas fa-sign-out-alt me-3"></i>
+                    Sair
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Ações Rápidas -->
+    <div class="modal-bottom" id="acoesModal">
+        <div class="modal-header-custom">
+            <div class="modal-handle"></div>
+            <h3 class="mb-0">Ações Rápidas</h3>
+        </div>
+        <div class="modal-body-custom">
+            <div class="row g-3">
+                <div class="col-6">
+                    <button class="btn btn-outline-primary w-100" onclick="atualizarDados(); fecharAcoes();">
+                        <i class="fas fa-sync d-block mb-2"></i>
+                        <small>Atualizar</small>
+                    </button>
+                </div>
+                <div class="col-6">
+                    <button class="btn btn-outline-info w-100" onclick="mostrarDocumentos(); fecharAcoes();">
+                        <i class="fas fa-folder-open d-block mb-2"></i>
+                        <small>Documentos</small>
+                    </button>
+                </div>
+                <div class="col-6">
+                    <button class="btn btn-outline-info w-100" onclick="baixarTodosPendentes(); fecharAcoes();">
+                        <i class="fas fa-download d-block mb-2"></i>
+                        <small>Baixar Todos</small>
+                    </button>
+                </div>
+                <div class="col-6">
+                    <a href="mailto:<?= $configPolo['contact_email'] ?? 'suporte@imepedu.com.br' ?>" class="btn btn-outline-secondary w-100">
+                        <i class="fas fa-envelope d-block mb-2"></i>
+                        <small>Suporte</small>
+                    </a>
+                </div>
+                <div class="col-6">
+                    <button class="btn btn-outline-warning w-100" onclick="compartilharApp(); fecharAcoes();">
+                        <i class="fas fa-share d-block mb-2"></i>
+                        <small>Compartilhar</small>
+                    </button>
+                </div>
+                <div class="col-6">
+                    <button class="btn btn-outline-danger w-100" onclick="logoutLimpo(); fecharAcoes();">
+                        <i class="fas fa-sign-out-alt d-block mb-2"></i>
+                        <small>Sair</small>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Detalhes do Boleto -->
+    <div class="modal-bottom" id="boletoModal">
+        <div class="modal-header-custom">
+            <div class="modal-handle"></div>
+            <h3 class="mb-0">Detalhes do Boleto</h3>
+        </div>
+        <div class="modal-body-custom" id="boletoDetalhes">
+            <div class="loading-spinner">
+                <div class="spinner"></div>
+                Carregando...
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Pagamento PIX -->
+    <div class="modal-bottom" id="pixModal">
+        <div class="modal-header-custom">
+            <div class="modal-handle"></div>
+            <h3 class="mb-0">
+                <i class="fas fa-qrcode text-success me-2"></i>
+                Pagamento PIX
+            </h3>
+        </div>
+        <div class="modal-body-custom" id="pixConteudo">
+            <div class="loading-spinner">
+                <div class="spinner"></div>
+                Gerando código PIX com desconto personalizado...
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Meus Documentos -->
+    <div class="modal-bottom" id="documentosModal">
+        <div class="modal-header-custom">
+            <div class="modal-handle"></div>
+            <h3 class="mb-0">
+                <i class="fas fa-folder-open text-info me-2"></i>
+                Meus Documentos
+            </h3>
+            <div class="mt-2">
+                <button class="btn btn-sm btn-outline-primary" onclick="atualizarDocumentos()" id="btnSyncDocsModal">
+                    <i class="fas fa-sync-alt"></i> Atualizar
+                </button>
+            </div>
+        </div>
+        <div class="modal-body-custom" id="documentosConteudo">
+            <div class="loading-spinner">
+                <div class="spinner"></div>
+                Carregando documentos...
+            </div>
+        </div>
+    </div>
+
+    <!-- Container para Toast/Notificações -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- Input File Oculto para Upload de Documentos -->
+    <input type="file" id="uploadDocumentoInput" style="display: none;" accept=".jpg,.jpeg,.png,.gif,.pdf,.doc,.docx">
+
+    <!-- Estilos Adicionais para Modais -->
+    <style>
+        /* Estilos base dos modais */
         .modal-bottom {
             position: fixed;
             bottom: 0;
@@ -652,6 +1105,7 @@ error_log("Dashboard: Resumo final - Polo: {$_SESSION['subdomain']}, Total: " . 
             top: 0;
             background: white;
             z-index: 1;
+            border-radius: 16px 16px 0 0;
         }
         
         .modal-handle {
@@ -662,7 +1116,10 @@ error_log("Dashboard: Resumo final - Polo: {$_SESSION['subdomain']}, Total: " . 
             margin: 0 auto 12px auto;
         }
         
-        .modal-body-custom { padding: 16px; }
+        .modal-body-custom { 
+            padding: 16px; 
+            padding-bottom: 32px;
+        }
         
         .overlay {
             position: fixed;
@@ -682,6 +1139,7 @@ error_log("Dashboard: Resumo final - Polo: {$_SESSION['subdomain']}, Total: " . 
             visibility: visible;
         }
         
+        /* Estilos para conteúdo PIX */
         .pix-container {
             text-align: center;
             padding: 20px 0;
@@ -728,6 +1186,7 @@ error_log("Dashboard: Resumo final - Polo: {$_SESSION['subdomain']}, Total: " . 
             border-radius: 8px;
             padding: 12px;
             margin: 16px 0;
+            text-align: left;
         }
         
         .pix-instructions {
@@ -753,6 +1212,192 @@ error_log("Dashboard: Resumo final - Polo: {$_SESSION['subdomain']}, Total: " . 
             font-size: 0.9rem;
         }
         
+        /* Estilos para documentos no modal */
+        .documentos-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 12px;
+            margin-top: 16px;
+        }
+        
+        @media (min-width: 768px) {
+            .documentos-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+        
+        .documento-card {
+            background: white;
+            border: 1px solid #e9ecef;
+            border-radius: var(--card-radius);
+            padding: 16px;
+            transition: all 0.2s;
+            border-left: 4px solid;
+            position: relative;
+        }
+        
+        .documento-card:active {
+            transform: scale(0.98);
+        }
+        
+        .documento-card.obrigatorio {
+            border-left-color: var(--danger-color);
+        }
+        
+        .documento-card.opcional {
+            border-left-color: var(--info-color);
+        }
+        
+        .documento-card.enviado {
+            border-left-color: var(--warning-color);
+        }
+        
+        .documento-card.aprovado {
+            border-left-color: var(--success-color);
+        }
+        
+        .documento-card.rejeitado {
+            border-left-color: var(--danger-color);
+            background: #fdf2f2;
+        }
+        
+        .documento-header {
+            display: flex;
+            justify-content: flex-start;
+            align-items: flex-start;
+            margin-bottom: 8px;
+        }
+        
+        .documento-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 12px;
+            font-size: 1.2rem;
+            color: white;
+            flex-shrink: 0;
+        }
+        
+        .documento-info {
+            flex: 1;
+            min-width: 0;
+        }
+        
+        .documento-nome {
+            font-weight: 600;
+            color: var(--dark-color);
+            margin-bottom: 2px;
+            font-size: 0.9rem;
+        }
+        
+        .documento-descricao {
+            color: #666;
+            font-size: 0.8rem;
+            line-height: 1.3;
+            margin-bottom: 4px;
+        }
+        
+        .documento-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 8px;
+            flex-wrap: wrap;
+        }
+        
+        .status-badge {
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        
+        .status-faltando {
+            background: rgba(220,53,69,0.1);
+            color: var(--danger-color);
+        }
+        
+        .status-enviado {
+            background: rgba(255,193,7,0.1);
+            color: #856404;
+        }
+        
+        .status-aprovado {
+            background: rgba(40,167,69,0.1);
+            color: var(--success-color);
+        }
+        
+        .status-rejeitado {
+            background: rgba(220,53,69,0.1);
+            color: var(--danger-color);
+        }
+        
+        .documento-acoes {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+        }
+        
+        .btn-upload {
+            flex: 1;
+            background: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .btn-upload:hover {
+            background: var(--secondary-color);
+        }
+        
+        .btn-upload.substituir {
+            background: var(--warning-color);
+            color: #856404;
+        }
+        
+        .btn-download-doc {
+            background: var(--info-color);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .btn-download-doc:hover {
+            background: #138496;
+        }
+        
+        .documento-meta {
+            font-size: 0.75rem;
+            color: #888;
+            margin-top: 8px;
+            display: flex;
+            justify-content: space-between;
+        }
+        
+        .documento-observacoes {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 4px;
+            padding: 8px;
+            margin-top: 8px;
+            font-size: 0.8rem;
+            color: #856404;
+        }
+        
+        /* Spinner de loading */
         .loading-spinner {
             display: flex;
             align-items: center;
@@ -777,6 +1422,7 @@ error_log("Dashboard: Resumo final - Polo: {$_SESSION['subdomain']}, Total: " . 
             100% { transform: rotate(360deg); }
         }
         
+        /* Toast/Notificações */
         .toast-container {
             position: fixed;
             top: 20px;
@@ -809,615 +1455,46 @@ error_log("Dashboard: Resumo final - Polo: {$_SESSION['subdomain']}, Total: " . 
             to { transform: translateY(0); opacity: 1; }
         }
         
-        .fab {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            width: 56px;
-            height: 56px;
-            background: var(--primary-color);
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            text-decoration: none;
-            box-shadow: 0 4px 12px rgba(0,102,204,0.3);
-            transition: all 0.2s;
-            z-index: 1000;
+        .btn-close {
+            background: none;
             border: none;
+            font-size: 1.2rem;
+            cursor: pointer;
+            opacity: 0.6;
         }
         
-        .fab:hover, .fab:active {
-            background: var(--secondary-color);
-            color: white;
-            transform: scale(0.95);
+        .btn-close:hover {
+            opacity: 1;
         }
-        
-        @media (min-width: 768px) {
-            .main-container {
-                max-width: 600px;
-                margin: 0 auto;
-                padding: 0 24px 80px 24px;
-            }
-            
-            .summary-cards {
-                grid-template-columns: repeat(4, 1fr);
-                padding: 24px;
-            }
-            
-            .mobile-header { padding: 20px 24px; }
-            
-            .pix-economy-banner { margin: 0 24px 16px 24px; }
-        }
-        @media (min-width: 1024px) {
-            .main-container { max-width: 800px; }
-        }
-		
-		    .documentos-section {
-        margin-bottom: 24px;
-    }
-    
-    .progress-card {
-        background: white;
-        border-radius: var(--card-radius);
-        padding: 16px;
-        margin-bottom: 16px;
-        box-shadow: var(--shadow-mobile);
-    }
-    
-    .progress-info {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 8px;
-    }
-    
-    .progress-label {
-        font-weight: 600;
-        color: var(--dark-color);
-    }
-    
-    .progress-value {
-        font-weight: 700;
-        color: var(--primary-color);
-    }
-    
-    .progress-custom {
-        height: 8px;
-        background-color: #e9ecef;
-        border-radius: 4px;
-        margin-bottom: 8px;
-    }
-    
-    .progress-details {
-        display: flex;
-        justify-content: space-between;
-        font-size: 0.8rem;
-    }
-    
-    .documentos-grid {
-        display: grid;
-        grid-template-columns: 1fr;
-        gap: 12px;
-    }
-    
-    .documento-card {
-        background: white;
-        border-radius: var(--card-radius);
-        padding: 16px;
-        box-shadow: var(--shadow-mobile);
-        border-left: 4px solid;
-        transition: all 0.2s;
-        position: relative;
-    }
-    
-    .documento-card:active {
-        transform: scale(0.98);
-    }
-    
-    .documento-card.obrigatorio {
-        border-left-color: var(--danger-color);
-    }
-    
-    .documento-card.opcional {
-        border-left-color: var(--info-color);
-    }
-    
-    .documento-card.enviado {
-        border-left-color: var(--warning-color);
-    }
-    
-    .documento-card.aprovado {
-        border-left-color: var(--success-color);
-    }
-    
-    .documento-card.rejeitado {
-        border-left-color: var(--danger-color);
-        background: #fdf2f2;
-    }
-    
-    .documento-header {
-        display: flex;
-        justify-content: between;
-        align-items: flex-start;
-        margin-bottom: 8px;
-    }
-    
-    .documento-icon {
-        width: 40px;
-        height: 40px;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        margin-right: 12px;
-        font-size: 1.2rem;
-        color: white;
-    }
-    
-    .documento-info {
-        flex: 1;
-    }
-    
-    .documento-nome {
-        font-weight: 600;
-        color: var(--dark-color);
-        margin-bottom: 2px;
-        font-size: 0.9rem;
-    }
-    
-    .documento-descricao {
-        color: #666;
-        font-size: 0.8rem;
-        line-height: 1.3;
-        margin-bottom: 4px;
-    }
-    
-    .documento-status {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        margin-top: 8px;
-    }
-    
-    .status-badge {
-        padding: 2px 8px;
-        border-radius: 12px;
-        font-size: 0.7rem;
-        font-weight: 600;
-        text-transform: uppercase;
-    }
-    
-    .status-faltando {
-        background: rgba(220,53,69,0.1);
-        color: var(--danger-color);
-    }
-    
-    .status-enviado {
-        background: rgba(255,193,7,0.1);
-        color: #856404;
-    }
-    
-    .status-aprovado {
-        background: rgba(40,167,69,0.1);
-        color: var(--success-color);
-    }
-    
-    .status-rejeitado {
-        background: rgba(220,53,69,0.1);
-        color: var(--danger-color);
-    }
-    
-    .documento-acoes {
-        display: flex;
-        gap: 8px;
-        margin-top: 12px;
-    }
-    
-    .btn-upload {
-        flex: 1;
-        background: var(--primary-color);
-        color: white;
-        border: none;
-        border-radius: 6px;
-        padding: 8px 12px;
-        font-size: 0.8rem;
-        font-weight: 600;
-        cursor: pointer;
-        transition: all 0.2s;
-    }
-    
-    .btn-upload:hover {
-        background: var(--secondary-color);
-    }
-    
-    .btn-upload.substituir {
-        background: var(--warning-color);
-        color: #856404;
-    }
-    
-    .btn-download {
-        background: var(--info-color);
-        color: white;
-        border: none;
-        border-radius: 6px;
-        padding: 8px 12px;
-        font-size: 0.8rem;
-        cursor: pointer;
-        transition: all 0.2s;
-    }
-    
-    .btn-download:hover {
-        background: #138496;
-    }
-    
-    .documento-meta {
-        font-size: 0.75rem;
-        color: #888;
-        margin-top: 8px;
-        display: flex;
-        justify-content: space-between;
-    }
-    
-    .documento-observacoes {
-        background: #fff3cd;
-        border: 1px solid #ffeaa7;
-        border-radius: 4px;
-        padding: 8px;
-        margin-top: 8px;
-        font-size: 0.8rem;
-        color: #856404;
-    }
-    
-    .upload-input {
-        display: none;
-    }
-    
-    .loading-docs .spinner {
-        width: 20px;
-        height: 20px;
-        border: 2px solid #f3f3f3;
-        border-top: 2px solid var(--primary-color);
-        border-radius: 50%;
-        animation: spin 1s linear infinite;
-        margin: 0 auto;
-    }
-    
-    @media (min-width: 768px) {
-        .documentos-grid {
-            grid-template-columns: repeat(2, 1fr);
-        }
-    }
-    
-    @media (min-width: 1024px) {
-        .documentos-grid {
-            grid-template-columns: repeat(3, 1fr);
-        }
-    }
-	
     </style>
-</head>
-<body>
-    <header class="mobile-header">
-        <div class="header-content">
-            <div class="user-info">
-                <h1 class="user-name"><?= htmlspecialchars($aluno['nome']) ?></h1>
-                <div class="user-details">
-                    <i class="fas fa-map-marker-alt"></i> 
-                    <?= htmlspecialchars($configPolo['name'] ?? str_replace('.imepedu.com.br', '', $_SESSION['subdomain'])) ?>
-                    <span class="ms-2">
-                        <i class="fas fa-id-card"></i> 
-                        <?= preg_replace('/(\d{3})(\d{3})(\d{3})(\d{2})/', '$1.$2.$3-$4', $aluno['cpf']) ?>
-                    </span>
-                </div>
-            </div>
-            <div class="header-actions">
-                <button class="btn-header" onclick="atualizarDados()" id="btnSync">
-                    <i class="fas fa-sync-alt"></i>
-                </button>
-                <button class="btn-header" onclick="mostrarMenu()" id="btnMenu">
-                    <i class="fas fa-bars"></i>
-                </button>
-            </div>
-        </div>
-    </header>
-
-    <div class="summary-cards">
-        <div class="summary-card">
-            <div class="summary-number text-info"><?= $resumoGeral['total_boletos'] ?></div>
-            <div class="summary-label">Total</div>
-            <div class="summary-value">R$ <?= number_format($resumoGeral['valor_total'], 2, ',', '.') ?></div>
-        </div>
-        
-        <div class="summary-card">
-            <div class="summary-number text-success"><?= $resumoGeral['boletos_pagos'] ?></div>
-            <div class="summary-label">Pagos</div>
-            <div class="summary-value">R$ <?= number_format($resumoGeral['valor_pago'], 2, ',', '.') ?></div>
-        </div>
-        
-        <div class="summary-card">
-            <div class="summary-number text-warning"><?= $resumoGeral['boletos_pendentes'] ?></div>
-            <div class="summary-label">Pendentes</div>
-            <div class="summary-value">R$ <?= number_format($resumoGeral['valor_pendente'], 2, ',', '.') ?></div>
-        </div>
-        
-        <div class="summary-card pix-discount">
-            <div class="summary-number text-pix"><?= $resumoGeral['boletos_com_desconto'] ?></div>
-            <div class="summary-label">Com Desconto PIX</div>
-            <div class="summary-value">Economia: R$ <?= number_format($resumoGeral['economia_potencial_pix'], 2, ',', '.') ?></div>
-        </div>
-    </div>
-
-    <?php if ($resumoGeral['economia_potencial_pix'] > 0): ?>
-    <div class="pix-economy-banner">
-        <h6><i class="fas fa-gift me-2"></i>Economia PIX Personalizada Disponível!</h6>
-        <div class="economy-amount">R$ <?= number_format($resumoGeral['economia_potencial_pix'], 2, ',', '.') ?></div>
-        <small>Pague <?= $resumoGeral['boletos_com_desconto'] ?> boleto(s) via PIX e economize com desconto personalizado!</small>
-    </div>
-    <?php endif; ?>
-
-    <main class="main-container">
-        <?php if (empty($dadosBoletos) || array_sum(array_map('count', $dadosBoletos)) === 0): ?>
-            <div class="empty-state">
-                <i class="fas fa-receipt"></i>
-                <h4>Nenhum boleto encontrado</h4>
-                <p>Não foram encontrados boletos para este polo.<br>
-                   Entre em contato com a secretaria se isso não estiver correto.</p>
-                <button class="btn btn-primary mt-3" onclick="atualizarDados()">
-                    <i class="fas fa-sync"></i> Atualizar Dados
-                </button>
-            </div>
-        <?php else: ?>
-            
-            <?php if (!empty($dadosBoletos['vencidos'])): ?>
-            <section class="boletos-section">
-                <div class="section-header">
-                    <h2 class="section-title">
-                        <i class="fas fa-exclamation-triangle text-danger"></i>
-                        Vencidos
-                        <span class="section-count"><?= count($dadosBoletos['vencidos']) ?></span>
-                    </h2>
-                </div>
-                
-                <?php foreach ($dadosBoletos['vencidos'] as $boleto): ?>
-                    <?= renderizarBoletoCard($boleto, 'vencido') ?>
-                <?php endforeach; ?>
-            </section>
-            <?php endif; ?>
-            
-            <?php if (!empty($dadosBoletos['este_mes'])): ?>
-            <section class="boletos-section">
-                <div class="section-header">
-                    <h2 class="section-title">
-                        <i class="fas fa-calendar-day text-warning"></i>
-                        Este Mês
-                        <span class="section-count"><?= count($dadosBoletos['este_mes']) ?></span>
-                    </h2>
-                </div>
-                
-                <?php foreach ($dadosBoletos['este_mes'] as $boleto): ?>
-                    <?= renderizarBoletoCard($boleto, 'pendente') ?>
-                <?php endforeach; ?>
-            </section>
-            <?php endif; ?>
-            
-            <?php if (!empty($dadosBoletos['proximo_mes'])): ?>
-            <section class="boletos-section">
-                <div class="section-header">
-                    <h2 class="section-title">
-                        <i class="fas fa-calendar-plus text-info"></i>
-                        Próximo Mês
-                        <span class="section-count"><?= count($dadosBoletos['proximo_mes']) ?></span>
-                    </h2>
-                </div>
-                
-                <?php foreach ($dadosBoletos['proximo_mes'] as $boleto): ?>
-                    <?= renderizarBoletoCard($boleto, 'pendente') ?>
-                <?php endforeach; ?>
-            </section>
-            <?php endif; ?>
-            
-            <?php if (!empty($dadosBoletos['futuros'])): ?>
-            <section class="boletos-section">
-                <div class="section-header">
-                    <h2 class="section-title">
-                        <i class="fas fa-clock text-secondary"></i>
-                        Futuros
-                        <span class="section-count"><?= count($dadosBoletos['futuros']) ?></span>
-                    </h2>
-                </div>
-                
-                <?php foreach ($dadosBoletos['futuros'] as $boleto): ?>
-                    <?= renderizarBoletoCard($boleto, 'pendente') ?>
-                <?php endforeach; ?>
-            </section>
-            <?php endif; ?>
-            
-            <?php if (!empty($dadosBoletos['pagos_recentes'])): ?>
-            <section class="boletos-section">
-                <div class="section-header">
-                    <h2 class="section-title">
-                        <i class="fas fa-check-circle text-success"></i>
-                        Pagos Recentemente
-                        <span class="section-count"><?= count($dadosBoletos['pagos_recentes']) ?></span>
-                    </h2>
-                </div>
-                
-                <?php foreach ($dadosBoletos['pagos_recentes'] as $boleto): ?>
-                    <?= renderizarBoletoCard($boleto, 'pago') ?>
-                <?php endforeach; ?>
-            </section>
-            <?php endif; ?>
-            
-        <?php endif; ?>
-		
-		<!-- Seção de Documentos -->
-<section class="documentos-section">
-    <div class="section-header">
-        <h2 class="section-title">
-            <i class="fas fa-folder-open text-info"></i>
-            Meus Documentos
-            <span class="section-count" id="documentosCount">0</span>
-        </h2>
-        <button class="btn btn-sm btn-outline-primary" onclick="atualizarDocumentos()" id="btnSyncDocs">
-            <i class="fas fa-sync-alt"></i>
-        </button>
-    </div>
-    
-    <!-- Status dos Documentos -->
-    <div class="documentos-status" id="documentosStatus" style="display: none;">
-        <div class="progress-card">
-            <div class="progress-info">
-                <span class="progress-label">Documentos Enviados</span>
-                <span class="progress-value" id="progressText">0 de 0</span>
-            </div>
-            <div class="progress progress-custom">
-                <div class="progress-bar bg-success" id="progressBar" style="width: 0%"></div>
-            </div>
-            <div class="progress-details">
-                <small class="text-success" id="aprovadosText">0 aprovados</small>
-                <small class="text-warning" id="pendentesText">0 pendentes</small>
-                <small class="text-danger" id="rejeitadosText">0 rejeitados</small>
-            </div>
-        </div>
-    </div>
-    
-    <!-- Lista de Documentos -->
-    <div class="documentos-grid" id="documentosGrid">
-        <div class="loading-docs text-center py-4">
-            <div class="spinner"></div>
-            <p class="mt-2">Carregando documentos...</p>
-        </div>
-    </div>
-</section>
-		
-    </main>
-
-    <button class="fab" onclick="mostrarAcoesRapidas()" title="Ações rápidas">
-        <i class="fas fa-plus"></i>
-    </button>
-
-    <div class="overlay" id="menuOverlay" onclick="fecharMenu()"></div>
-    <div class="modal-bottom" id="menuModal">
-        <div class="modal-header-custom">
-            <div class="modal-handle"></div>
-            <h3 class="mb-0">Menu</h3>
-        </div>
-        <div class="modal-body-custom">
-            <div class="list-group list-group-flush">
-                <button class="list-group-item list-group-item-action" onclick="atualizarDados()">
-                    <i class="fas fa-sync text-primary me-3"></i>
-                    Sincronizar Dados
-                </button>
-                <button class="list-group-item list-group-item-action" onclick="baixarTodosPendentes()">
-                    <i class="fas fa-download text-info me-3"></i>
-                    Baixar Todos Pendentes
-                </button>
-                <a href="mailto:<?= $configPolo['contact_email'] ?? 'suporte@imepedu.com.br' ?>" class="list-group-item list-group-item-action">
-                    <i class="fas fa-envelope text-secondary me-3"></i>
-                    Contatar Suporte
-                </a>
-<!--                 <button class="list-group-item list-group-item-action" onclick="mostrarOutrosPolos()">
-                    <i class="fas fa-building text-warning me-3"></i>
-                    Outros Polos
-                </button> -->
-                <button class="list-group-item list-group-item-action" onclick="mostrarInformacoes()">
-                    <i class="fas fa-info-circle text-info me-3"></i>
-                    Informações
-                </button>
-                <button class="list-group-item list-group-item-action text-danger" onclick="logoutLimpo()">
-                    <i class="fas fa-sign-out-alt me-3"></i>
-                    Sair
-                </button>
-            </div>
-        </div>
-    </div>
-
-    <div class="overlay" id="acoesOverlay" onclick="fecharAcoes()"></div>
-    <div class="modal-bottom" id="acoesModal">
-        <div class="modal-header-custom">
-            <div class="modal-handle"></div>
-            <h3 class="mb-0">Ações Rápidas</h3>
-        </div>
-        <div class="modal-body-custom">
-            <div class="row g-3">
-                <div class="col-6">
-                    <button class="btn btn-outline-primary w-100" onclick="atualizarDados(); fecharAcoes();">
-                        <i class="fas fa-sync d-block mb-2"></i>
-                        <small>Atualizar</small>
-                    </button>
-                </div>
-                <div class="col-6">
-                    <button class="btn btn-outline-info w-100" onclick="baixarTodosPendentes(); fecharAcoes();">
-                        <i class="fas fa-download d-block mb-2"></i>
-                        <small>Baixar Todos</small>
-                    </button>
-                </div>
-                <div class="col-6">
-                    <a href="mailto:<?= $configPolo['contact_email'] ?? 'suporte@imepedu.com.br' ?>" class="btn btn-outline-secondary w-100">
-                        <i class="fas fa-envelope d-block mb-2"></i>
-                        <small>Suporte</small>
-                    </a>
-                </div>
-                <div class="col-6">
-                    <button class="btn btn-outline-warning w-100" onclick="compartilharApp(); fecharAcoes();">
-                        <i class="fas fa-share d-block mb-2"></i>
-                        <small>Compartilhar</small>
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="overlay" id="boletoOverlay" onclick="fecharDetalhes()"></div>
-    <div class="modal-bottom" id="boletoModal">
-        <div class="modal-header-custom">
-            <div class="modal-handle"></div>
-            <h3 class="mb-0">Detalhes do Boleto</h3>
-        </div>
-        <div class="modal-body-custom" id="boletoDetalhes">
-            <div class="loading-spinner">
-                <div class="spinner"></div>
-                Carregando...
-            </div>
-        </div>
-    </div>
-
-    <div class="overlay" id="pixOverlay" onclick="fecharPix()"></div>
-    <div class="modal-bottom" id="pixModal">
-        <div class="modal-header-custom">
-            <div class="modal-handle"></div>
-            <h3 class="mb-0">
-                <i class="fas fa-qrcode text-success me-2"></i>
-                Pagamento PIX
-            </h3>
-        </div>
-        <div class="modal-body-custom" id="pixConteudo">
-            <div class="loading-spinner">
-                <div class="spinner"></div>
-                Gerando código PIX com desconto personalizado...
-            </div>
-        </div>
-    </div>
-
-    <div class="toast-container" id="toastContainer"></div>
-
+    <!-- PARTE 4 -->
+     <!-- Scripts JavaScript -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+        // ===================================
+        // VARIÁVEIS GLOBAIS
+        // ===================================
         let isUpdating = false;
         let swipeStartY = 0;
         let swipeStartTime = 0;
         let currentBoletoId = null;
+        let documentosData = null;
         
+        // ===================================
+        // INICIALIZAÇÃO
+        // ===================================
         document.addEventListener('DOMContentLoaded', function() {
             console.log('Dashboard Mobile com PIX personalizado inicializado');
             registerServiceWorker();
             setupSwipeGestures();
             checkAutoUpdate();
             setupConnectivityListeners();
+            carregarDocumentos(); // Carrega documentos na inicialização
         });
         
+        // ===================================
+        // SERVICE WORKER
+        // ===================================
         function registerServiceWorker() {
             if ('serviceWorker' in navigator) {
                 navigator.serviceWorker.register('/sw.js')
@@ -1435,6 +1512,9 @@ error_log("Dashboard: Resumo final - Polo: {$_SESSION['subdomain']}, Total: " . 
             }
         }
         
+        // ===================================
+        // GESTOS E CONECTIVIDADE
+        // ===================================
         function setupSwipeGestures() {
             document.addEventListener('touchstart', function(e) {
                 swipeStartY = e.touches[0].clientY;
@@ -1453,49 +1533,30 @@ error_log("Dashboard: Resumo final - Polo: {$_SESSION['subdomain']}, Total: " . 
         }
         
         function setupConnectivityListeners() {
-    window.addEventListener('online', function() {
-        showToast('Conexão restaurada!', 'success');
-        // Força limpeza e atualização quando voltar online
-        setTimeout(() => {
-            forcarLimpezaCache().then(() => {
-                atualizarDados(true);
+            window.addEventListener('online', function() {
+                showToast('Conexão restaurada!', 'success');
+                setTimeout(() => {
+                    forcarLimpezaCache().then(() => {
+                        atualizarDados(true);
+                    });
+                }, 1000);
             });
-        }, 1000);
-    });
-    
-    window.addEventListener('offline', function() {
-        showToast('Você está offline', 'warning');
-    });
-}
-
-// 🔧 CORREÇÃO: Adiciona listener para detectar focus na janela
-window.addEventListener('focus', function() {
-    const lastUpdate = localStorage.getItem('lastUpdate');
-    const now = Date.now();
-    
-    // Se passou mais de 2 minutos desde a última atualização, sincroniza
-    if (!lastUpdate || (now - parseInt(lastUpdate)) > 2 * 60 * 1000) {
-        console.log('👁️ Janela focada - verificando atualizações...');
-        setTimeout(() => atualizarDados(true), 500);
-    }
-});
-
-//Função de debug para testar sincronização
-function debugSincronizacao() {
-    console.log('🔧 DEBUG: Testando sincronização...');
-    console.log('📊 Estado atual:', {
-        isUpdating: isUpdating,
-        lastUpdate: localStorage.getItem('lastUpdate'),
-        userAgent: navigator.userAgent,
-        online: navigator.onLine,
-        serviceWorkerController: !!navigator.serviceWorker?.controller
-    });
-    
-    forcarLimpezaCache().then(() => {
-        console.log('🔄 Iniciando teste de sincronização...');
-        atualizarDados(false);
-    });
-}
+            
+            window.addEventListener('offline', function() {
+                showToast('Você está offline', 'warning');
+            });
+        }
+        
+        // Listener para detectar focus na janela
+        window.addEventListener('focus', function() {
+            const lastUpdate = localStorage.getItem('lastUpdate');
+            const now = Date.now();
+            
+            if (!lastUpdate || (now - parseInt(lastUpdate)) > 2 * 60 * 1000) {
+                console.log('👁️ Janela focada - verificando atualizações...');
+                setTimeout(() => atualizarDados(true), 500);
+            }
+        });
         
         function checkAutoUpdate() {
             const lastUpdate = localStorage.getItem('lastUpdate');
@@ -1508,30 +1569,55 @@ function debugSincronizacao() {
             }
         }
         
+        // ===================================
+        // GERENCIAMENTO DE MODAIS
+        // ===================================
         function mostrarMenu() {
-            document.getElementById('menuOverlay').classList.add('show');
+            document.getElementById('modalOverlay').classList.add('show');
             document.getElementById('menuModal').classList.add('show');
             document.body.style.overflow = 'hidden';
         }
         
         function fecharMenu() {
-            document.getElementById('menuOverlay').classList.remove('show');
             document.getElementById('menuModal').classList.remove('show');
-            document.body.style.overflow = '';
+            setTimeout(() => {
+                document.getElementById('modalOverlay').classList.remove('show');
+                document.body.style.overflow = '';
+            }, 100);
         }
         
         function mostrarAcoesRapidas() {
-            document.getElementById('acoesOverlay').classList.add('show');
+            document.getElementById('modalOverlay').classList.add('show');
             document.getElementById('acoesModal').classList.add('show');
             document.body.style.overflow = 'hidden';
         }
         
         function fecharAcoes() {
-            document.getElementById('acoesOverlay').classList.remove('show');
             document.getElementById('acoesModal').classList.remove('show');
-            document.body.style.overflow = '';
+            setTimeout(() => {
+                document.getElementById('modalOverlay').classList.remove('show');
+                document.body.style.overflow = '';
+            }, 100);
         }
         
+        function fecharTodosModais() {
+            // Fecha todos os modais
+            document.querySelectorAll('.modal-bottom').forEach(modal => {
+                modal.classList.remove('show');
+            });
+            
+            setTimeout(() => {
+                document.getElementById('modalOverlay').classList.remove('show');
+                document.body.style.overflow = '';
+            }, 100);
+            
+            // Reset de variáveis
+            currentBoletoId = null;
+        }
+        
+        // ===================================
+        // FUNCIONALIDADES DE BOLETOS
+        // ===================================
         function downloadBoleto(boletoId) {
             console.log('Iniciando download do boleto:', boletoId);
             showToast('Preparando download...', 'info');
@@ -1555,7 +1641,7 @@ function debugSincronizacao() {
             
             currentBoletoId = boletoId;
             
-            document.getElementById('pixOverlay').classList.add('show');
+            document.getElementById('modalOverlay').classList.add('show');
             document.getElementById('pixModal').classList.add('show');
             document.body.style.overflow = 'hidden';
             
@@ -1686,7 +1772,7 @@ function debugSincronizacao() {
                             <i class="fas fa-share me-1"></i>
                             Compartilhar PIX ${desconto.tem_desconto ? 'com Desconto Personalizado' : ''}
                         </button>
-                        <button class="btn btn-outline-secondary" onclick="fecharPix()">
+                        <button class="btn btn-outline-secondary" onclick="fecharTodosModais()">
                             Fechar
                         </button>
                     </div>
@@ -1707,7 +1793,7 @@ function debugSincronizacao() {
                             <i class="fas fa-redo me-1"></i>
                             Tentar Novamente
                         </button>
-                        <button class="btn btn-outline-secondary" onclick="fecharPix()">
+                        <button class="btn btn-outline-secondary" onclick="fecharTodosModais()">
                             Fechar
                         </button>
                     </div>
@@ -1763,15 +1849,8 @@ function debugSincronizacao() {
             }
         }
         
-        function fecharPix() {
-            document.getElementById('pixOverlay').classList.remove('show');
-            document.getElementById('pixModal').classList.remove('show');
-            document.body.style.overflow = '';
-            currentBoletoId = null;
-        }
-        
         function mostrarDetalhes(boletoId) {
-            document.getElementById('boletoOverlay').classList.add('show');
+            document.getElementById('modalOverlay').classList.add('show');
             document.getElementById('boletoModal').classList.add('show');
             document.body.style.overflow = 'hidden';
             
@@ -1815,10 +1894,10 @@ function debugSincronizacao() {
                 </div>
                 <div class="d-grid gap-2">
                     ${boleto.status !== 'pago' ? `
-                        <button class="btn btn-primary" onclick="downloadBoleto(${boleto.id}); fecharDetalhes();">
+                        <button class="btn btn-primary" onclick="downloadBoleto(${boleto.id}); fecharTodosModais();">
                             <i class="fas fa-download"></i> Download PDF
                         </button>
-                        <button class="btn btn-success" onclick="mostrarPix(${boleto.id}); fecharDetalhes();">
+                        <button class="btn btn-success" onclick="mostrarPix(${boleto.id});">
                             <i class="fas fa-qrcode"></i> Código PIX
                         </button>
                     ` : `
@@ -1827,7 +1906,7 @@ function debugSincronizacao() {
                             Este boleto já foi pago!
                         </div>
                     `}
-                    <button class="btn btn-outline-secondary" onclick="fecharDetalhes()">
+                    <button class="btn btn-outline-secondary" onclick="fecharTodosModais()">
                         Fechar
                     </button>
                 </div>
@@ -1841,7 +1920,7 @@ function debugSincronizacao() {
                 <div class="text-center p-4">
                     <i class="fas fa-exclamation-triangle fa-2x text-warning mb-3"></i>
                     <p>${mensagem}</p>
-                    <button class="btn btn-outline-secondary" onclick="fecharDetalhes()">
+                    <button class="btn btn-outline-secondary" onclick="fecharTodosModais()">
                         Fechar
                     </button>
                 </div>
@@ -1850,211 +1929,198 @@ function debugSincronizacao() {
             document.getElementById('boletoDetalhes').innerHTML = html;
         }
         
-        function fecharDetalhes() {
-            document.getElementById('boletoOverlay').classList.remove('show');
-            document.getElementById('boletoModal').classList.remove('show');
-            document.body.style.overflow = '';
-        }
-        
+        // ===================================
+        // SINCRONIZAÇÃO DE DADOS
+        // ===================================
         function atualizarDados(silencioso = false) {
-    if (isUpdating) return;
-    
-    isUpdating = true;
-    const btnSync = document.getElementById('btnSync');
-    const originalIcon = btnSync.innerHTML;
-    
-    btnSync.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-    btnSync.disabled = true;
-    
-    if (!silencioso) {
-        showToast('Sincronizando dados...', 'info');
-    }
-    
-    // 🔧 CORREÇÃO 1: URL com cache-busting mais agressivo
-    const timestamp = Date.now();
-    const random = Math.random().toString(36).substring(7);
-    const forceRefresh = `force_refresh=1&t=${timestamp}&r=${random}&v=2.3.1`;
-    
-    // 🔧 CORREÇÃO 2: Headers para forçar bypass do cache
-    const headers = {
-        'Content-Type': 'application/json',
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'Pragma': 'no-cache',
-        'Expires': '0',
-        'X-Requested-With': 'XMLHttpRequest',
-        'X-Force-Refresh': timestamp,
-        'X-SW-Bypass': 'true'
-    };
-    
-    // 🔧 CORREÇÃO 3: URL absoluta com parâmetros de bypass
-    const apiUrl = `/api/atualizar_dados.php?${forceRefresh}`;
-    
-    console.log('🔄 Iniciando sincronização forçada:', apiUrl);
-    
-    // 🔧 CORREÇÃO 4: Limpa cache antes da requisição
-    if ('caches' in window) {
-        caches.keys().then(cacheNames => {
-            const deletePromises = cacheNames
-                .filter(name => name.includes('atualizar') || name.includes('data'))
-                .map(name => {
-                    console.log('🗑️ Removendo cache:', name);
-                    return caches.delete(name);
-                });
-            return Promise.all(deletePromises);
-        }).catch(err => {
-            console.log('⚠️ Erro ao limpar cache:', err);
-        });
-    }
-    
-    // 🔧 CORREÇÃO 5: Notifica Service Worker para bypass
-    if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-        navigator.serviceWorker.controller.postMessage({
-            type: 'BYPASS_CACHE',
-            url: apiUrl,
-            timestamp: timestamp
-        });
-    }
-    
-    // 🔧 CORREÇÃO 6: Fetch com configurações específicas para bypass
-    fetch(apiUrl, {
-        method: 'POST',
-        headers: headers,
-        credentials: 'same-origin',
-        cache: 'no-store', // Força não usar cache
-        redirect: 'follow'
-    })
-    .then(response => {
-        console.log('📡 Resposta recebida:', response.status, response.headers.get('date'));
-        
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-        
-        // Verifica se é uma resposta nova (não do cache)
-        const responseDate = response.headers.get('date');
-        const xCacheStatus = response.headers.get('x-cache-status') || 'UNKNOWN';
-        const xSWBypass = response.headers.get('x-sw-bypass');
-        
-        console.log('🔍 Headers de resposta:', {
-            date: responseDate,
-            cacheStatus: xCacheStatus,
-            swBypass: xSWBypass,
-            age: response.headers.get('age')
-        });
-        
-        return response.json();
-    })
-    .then(data => {
-        console.log('📊 Dados recebidos:', data);
-        
-        if (data.success) {
-            // 🔧 CORREÇÃO 7: Limpa localStorage relacionado
-            try {
-                const keysToRemove = [];
-                for (let i = 0; i < localStorage.length; i++) {
-                    const key = localStorage.key(i);
-                    if (key && (key.includes('aluno') || key.includes('curso') || key.includes('boleto'))) {
-                        keysToRemove.push(key);
-                    }
-                }
-                keysToRemove.forEach(key => localStorage.removeItem(key));
-                console.log('🧹 LocalStorage limpo:', keysToRemove.length, 'itens removidos');
-            } catch (e) {
-                console.log('⚠️ Erro ao limpar localStorage:', e);
-            }
+            if (isUpdating) return;
             
-            // 🔧 CORREÇÃO 8: Atualiza timestamp de última atualização
-            localStorage.setItem('lastUpdate', timestamp.toString());
-            localStorage.setItem('lastUpdateSuccess', 'true');
+            isUpdating = true;
+            const btnSync = document.getElementById('btnSync');
+            const originalIcon = btnSync.innerHTML;
+            
+            btnSync.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+            btnSync.disabled = true;
             
             if (!silencioso) {
-                showToast('Dados atualizados com sucesso!', 'success');
+                showToast('Sincronizando dados...', 'info');
+            }
+            
+            const timestamp = Date.now();
+            const random = Math.random().toString(36).substring(7);
+            const forceRefresh = `force_refresh=1&t=${timestamp}&r=${random}&v=2.3.1`;
+            
+            const headers = {
+                'Content-Type': 'application/json',
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache',
+                'Expires': '0',
+                'X-Requested-With': 'XMLHttpRequest',
+                'X-Force-Refresh': timestamp,
+                'X-SW-Bypass': 'true'
+            };
+            
+            const apiUrl = `/api/atualizar_dados.php?${forceRefresh}`;
+            
+            console.log('🔄 Iniciando sincronização forçada:', apiUrl);
+            
+            // Limpa cache antes da requisição
+            if ('caches' in window) {
+                caches.keys().then(cacheNames => {
+                    const deletePromises = cacheNames
+                        .filter(name => name.includes('atualizar') || name.includes('data'))
+                        .map(name => {
+                            console.log('🗑️ Removendo cache:', name);
+                            return caches.delete(name);
+                        });
+                    return Promise.all(deletePromises);
+                }).catch(err => {
+                    console.log('⚠️ Erro ao limpar cache:', err);
+                });
+            }
+            
+            // Notifica Service Worker para bypass
+            if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+                navigator.serviceWorker.controller.postMessage({
+                    type: 'BYPASS_CACHE',
+                    url: apiUrl,
+                    timestamp: timestamp
+                });
+            }
+            
+            fetch(apiUrl, {
+                method: 'POST',
+                headers: headers,
+                credentials: 'same-origin',
+                cache: 'no-store',
+                redirect: 'follow'
+            })
+            .then(response => {
+                console.log('📡 Resposta recebida:', response.status, response.headers.get('date'));
                 
-                // 🔧 CORREÇÃO 9: Recarrega página com cache-busting
-                setTimeout(() => {
-                    const reloadUrl = window.location.pathname + `?updated=${timestamp}&reload=1`;
-                    console.log('🔄 Recarregando página:', reloadUrl);
-                    window.location.replace(reloadUrl);
-                }, 1500);
-            } else {
-                console.log('✅ Sincronização silenciosa concluída');
-            }
-        } else {
-            throw new Error(data.message || 'Erro desconhecido na sincronização');
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                return response.json();
+            })
+            .then(data => {
+                console.log('📊 Dados recebidos:', data);
+                
+                if (data.success) {
+                    // Limpa localStorage relacionado
+                    try {
+                        const keysToRemove = [];
+                        for (let i = 0; i < localStorage.length; i++) {
+                            const key = localStorage.key(i);
+                            if (key && (key.includes('aluno') || key.includes('curso') || key.includes('boleto'))) {
+                                keysToRemove.push(key);
+                            }
+                        }
+                        keysToRemove.forEach(key => localStorage.removeItem(key));
+                        console.log('🧹 LocalStorage limpo:', keysToRemove.length, 'itens removidos');
+                    } catch (e) {
+                        console.log('⚠️ Erro ao limpar localStorage:', e);
+                    }
+                    
+                    // Atualiza timestamp de última atualização
+                    localStorage.setItem('lastUpdate', timestamp.toString());
+                    localStorage.setItem('lastUpdateSuccess', 'true');
+                    
+                    if (!silencioso) {
+                        showToast('Dados atualizados com sucesso!', 'success');
+                        
+                        // Recarrega página com cache-busting
+                        setTimeout(() => {
+                            const reloadUrl = window.location.pathname + `?updated=${timestamp}&reload=1`;
+                            console.log('🔄 Recarregando página:', reloadUrl);
+                            window.location.replace(reloadUrl);
+                        }, 1500);
+                    } else {
+                        console.log('✅ Sincronização silenciosa concluída');
+                        // Atualiza documentos após sincronização silenciosa
+                        setTimeout(() => {
+                            carregarDocumentos();
+                        }, 500);
+                    }
+                } else {
+                    throw new Error(data.message || 'Erro desconhecido na sincronização');
+                }
+            })
+            .catch(error => {
+                console.error('❌ Erro na sincronização:', error);
+                
+                let errorMessage = 'Erro de conexão';
+                
+                if (error.message.includes('HTTP 304')) {
+                    errorMessage = 'Dados já estão atualizados';
+                } else if (error.message.includes('HTTP 401')) {
+                    errorMessage = 'Sessão expirada. Faça login novamente';
+                } else if (error.message.includes('HTTP 500')) {
+                    errorMessage = 'Erro interno do servidor';
+                } else if (error.message.includes('Failed to fetch')) {
+                    errorMessage = 'Problema de conexão. Verifique sua internet';
+                } else if (error.message) {
+                    errorMessage = error.message;
+                }
+                
+                showToast('Erro: ' + errorMessage, 'error');
+                
+                // Se for erro de sessão, redireciona para login
+                if (error.message.includes('401') || error.message.includes('não autenticado')) {
+                    setTimeout(() => {
+                        window.location.href = '/login.php';
+                    }, 2000);
+                }
+            })
+            .finally(() => {
+                isUpdating = false;
+                btnSync.innerHTML = originalIcon;
+                btnSync.disabled = false;
+                
+                console.log('🏁 Sincronização finalizada');
+            });
         }
-    })
-    .catch(error => {
-        console.error('❌ Erro na sincronização:', error);
         
-        // 🔧 CORREÇÃO 10: Diagnóstico de erro
-        let errorMessage = 'Erro de conexão';
-        
-        if (error.message.includes('HTTP 304')) {
-            errorMessage = 'Dados já estão atualizados';
-        } else if (error.message.includes('HTTP 401')) {
-            errorMessage = 'Sessão expirada. Faça login novamente';
-        } else if (error.message.includes('HTTP 500')) {
-            errorMessage = 'Erro interno do servidor';
-        } else if (error.message.includes('Failed to fetch')) {
-            errorMessage = 'Problema de conexão. Verifique sua internet';
-        } else if (error.message) {
-            errorMessage = error.message;
+        // Função para forçar limpeza de cache
+        function forcarLimpezaCache() {
+            console.log('🧹 Forçando limpeza completa de cache...');
+            
+            return Promise.all([
+                // Limpa cache do navegador
+                'caches' in window ? caches.keys().then(names => 
+                    Promise.all(names.map(name => caches.delete(name)))
+                ) : Promise.resolve(),
+                
+                // Limpa localStorage
+                new Promise(resolve => {
+                    try {
+                        localStorage.clear();
+                        resolve();
+                    } catch (e) {
+                        resolve();
+                    }
+                }),
+                
+                // Limpa sessionStorage
+                new Promise(resolve => {
+                    try {
+                        sessionStorage.clear();
+                        resolve();
+                    } catch (e) {
+                        resolve();
+                    }
+                })
+            ]).then(() => {
+                console.log('✅ Cache limpo completamente');
+            }).catch(err => {
+                console.log('⚠️ Erro na limpeza:', err);
+            });
         }
         
-        showToast('Erro: ' + errorMessage, 'error');
-        
-        // Se for erro de sessão, redireciona para login
-        if (error.message.includes('401') || error.message.includes('não autenticado')) {
-            setTimeout(() => {
-                window.location.href = '/login.php';
-            }, 2000);
-        }
-    })
-    .finally(() => {
-        isUpdating = false;
-        btnSync.innerHTML = originalIcon;
-        btnSync.disabled = false;
-        
-        console.log('🏁 Sincronização finalizada');
-    });
-}
-
-// 🔧 CORREÇÃO ADICIONAL: Função para forçar limpeza de cache
-function forcarLimpezaCache() {
-    console.log('🧹 Forçando limpeza completa de cache...');
-    
-    return Promise.all([
-        // Limpa cache do navegador
-        'caches' in window ? caches.keys().then(names => 
-            Promise.all(names.map(name => caches.delete(name)))
-        ) : Promise.resolve(),
-        
-        // Limpa localStorage
-        new Promise(resolve => {
-            try {
-                localStorage.clear();
-                resolve();
-            } catch (e) {
-                resolve();
-            }
-        }),
-        
-        // Limpa sessionStorage
-        new Promise(resolve => {
-            try {
-                sessionStorage.clear();
-                resolve();
-            } catch (e) {
-                resolve();
-            }
-        })
-    ]).then(() => {
-        console.log('✅ Cache limpo completamente');
-    }).catch(err => {
-        console.log('⚠️ Erro na limpeza:', err);
-    });
-}
-        
+        // ===================================
+        // UTILIDADES
+        // ===================================
         function baixarTodosPendentes() {
             const pendentes = document.querySelectorAll('.boleto-card.pendente, .boleto-card.vencido').length;
             
@@ -2087,30 +2153,6 @@ function forcarLimpezaCache() {
             }
         }
         
-        function mostrarOutrosPolos() {
-            const polos = [
-                { nome: 'Tucuruí', url: 'https://tucurui.imepedu.com.br' },
-                { nome: 'Breu Branco', url: 'https://breubranco.imepedu.com.br' },
-                { nome: 'AVA', url: 'https://ava.imepedu.com.br' },
-                { nome: 'Igarapé-Miri', url: 'https://igarape.imepedu.com.br' }
-            ];
-            
-            let html = '<div class="list-group">';
-            polos.forEach(polo => {
-                html += `
-                    <a href="${polo.url}" class="list-group-item list-group-item-action" target="_blank">
-                        <i class="fas fa-building me-2"></i>
-                        ${polo.nome}
-                        <small class="d-block text-muted">Acesse boletos deste polo</small>
-                    </a>
-                `;
-            });
-            html += '</div>';
-            
-            fecharMenu();
-            mostrarModal('Outros Polos', html);
-        }
-        
         function mostrarInformacoes() {
             const info = `
                 <div class="mb-3">
@@ -2125,7 +2167,7 @@ function forcarLimpezaCache() {
                         <li><i class="fas fa-check text-success me-2"></i> Download de PDFs</li>
                         <li><i class="fas fa-check text-success me-2"></i> Códigos PIX</li>
                         <li><i class="fas fa-check text-success me-2"></i> Desconto PIX personalizado</li>
-                        <li><i class="fas fa-check text-success me-2"></i> Controle total do administrador</li>
+                        <li><i class="fas fa-check text-success me-2"></i> Gestão de documentos</li>
                         <li><i class="fas fa-check text-success me-2"></i> Sincronização automática</li>
                         <li><i class="fas fa-check text-success me-2"></i> Interface mobile-first</li>
                     </ul>
@@ -2135,7 +2177,6 @@ function forcarLimpezaCache() {
                 </div>
             `;
             
-            fecharMenu();
             mostrarModal('Informações do Sistema', info);
         }
         
@@ -2146,13 +2187,13 @@ function forcarLimpezaCache() {
                 </div>
                 ${conteudo}
                 <div class="text-center mt-3">
-                    <button class="btn btn-outline-secondary" onclick="fecharPix()">
+                    <button class="btn btn-outline-secondary" onclick="fecharTodosModais()">
                         Fechar
                     </button>
                 </div>
             `;
             
-            document.getElementById('pixOverlay').classList.add('show');
+            document.getElementById('modalOverlay').classList.add('show');
             document.getElementById('pixModal').classList.add('show');
             document.body.style.overflow = 'hidden';
         }
@@ -2220,6 +2261,9 @@ function forcarLimpezaCache() {
             setTimeout(executarLogout, 300);
         }
         
+        // ===================================
+        // SISTEMA DE NOTIFICAÇÕES (TOAST)
+        // ===================================
         function showToast(message, type = 'info') {
             const container = document.getElementById('toastContainer');
             
@@ -2236,7 +2280,7 @@ function forcarLimpezaCache() {
             toast.innerHTML = `
                 <i class="fas ${icon}"></i>
                 <span>${message}</span>
-                <button type="button" class="btn-close ms-auto" onclick="this.parentElement.remove()"></button>
+                <button type="button" class="btn-close ms-auto" onclick="this.parentElement.remove()">×</button>
             `;
             
             container.appendChild(toast);
@@ -2253,6 +2297,25 @@ function forcarLimpezaCache() {
             }, 5000);
         }
         
+        // ===================================
+        // DEBUG E LOGS
+        // ===================================
+        function debugSincronizacao() {
+            console.log('🔧 DEBUG: Testando sincronização...');
+            console.log('📊 Estado atual:', {
+                isUpdating: isUpdating,
+                lastUpdate: localStorage.getItem('lastUpdate'),
+                userAgent: navigator.userAgent,
+                online: navigator.onLine,
+                serviceWorkerController: !!navigator.serviceWorker?.controller
+            });
+            
+            forcarLimpezaCache().then(() => {
+                console.log('🔄 Iniciando teste de sincronização...');
+                atualizarDados(false);
+            });
+        }
+        
         console.log('✅ Dashboard com Sistema de Desconto PIX Personalizado carregado!');
         console.log('🆕 Funcionalidades implementadas:');
         console.log('   - Desconto PIX 100% configurável pelo administrador');
@@ -2260,290 +2323,364 @@ function forcarLimpezaCache() {
         console.log('   - Funciona em qualquer polo sem configuração prévia');
         console.log('   - Interface otimizada para móvel');
         console.log('   - Controle total do admin sobre os descontos');
-      
-      
-      
-      
-
-    let documentosData = null;
-    
-    // Carrega documentos quando a página carrega
-    document.addEventListener('DOMContentLoaded', function() {
-        carregarDocumentos();
-    });
-    
-    /**
-     * Carrega documentos do aluno
-     */
-    function carregarDocumentos() {
-        fetch('/api/documentos-aluno.php')
+        console.log('   - Gestão completa de documentos integrada');
+        /* PARTE 5 */
+        // ===================================
+        // GESTÃO DE DOCUMENTOS
+        // ===================================
+        
+        /**
+         * Carrega documentos do aluno
+         */
+        function carregarDocumentos() {
+            fetch('/api/documentos-aluno.php')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        documentosData = data;
+                        atualizarStatusDocumentosHeader(data.status);
+                        atualizarContadorDocumentos(data);
+                    } else {
+                        console.error('Erro ao carregar documentos:', data.message);
+                    }
+                })
+                .catch(error => {
+                    console.error('Erro ao carregar documentos:', error);
+                });
+        }
+        
+        /**
+         * Atualiza status dos documentos no header
+         */
+        function atualizarStatusDocumentosHeader(status) {
+            const progressDiv = document.getElementById('documentosProgress');
+            const progressBar = document.getElementById('progressBar');
+            const progressText = document.getElementById('progressText');
+            const aprovadosText = document.getElementById('aprovadosText');
+            const pendentesText = document.getElementById('pendentesText');
+            const rejeitadosText = document.getElementById('rejeitadosText');
+            
+            if (status && status.total_tipos > 0) {
+                progressDiv.style.display = 'block';
+                
+                progressBar.style.width = status.percentual_completo + '%';
+                progressText.textContent = `${status.obrigatorios_enviados} de ${status.total_obrigatorios}`;
+                aprovadosText.textContent = `${status.aprovados} aprovados`;
+                pendentesText.textContent = `${status.pendentes} pendentes`;
+                rejeitadosText.textContent = `${status.rejeitados} rejeitados`;
+            } else {
+                progressDiv.style.display = 'none';
+            }
+        }
+        
+        /**
+         * Atualiza contadores de documentos
+         */
+        function atualizarContadorDocumentos(data) {
+            const contador = document.getElementById('documentosCount');
+            const contadorMenu = document.getElementById('menuDocumentosCount');
+            
+            if (data.status) {
+                const pendentes = data.status.total_obrigatorios - data.status.obrigatorios_enviados;
+                
+                if (pendentes > 0) {
+                    contador.textContent = pendentes;
+                    contador.style.display = 'inline';
+                    contadorMenu.textContent = pendentes;
+                    contadorMenu.style.display = 'inline';
+                } else {
+                    contador.style.display = 'none';
+                    contadorMenu.style.display = 'none';
+                }
+            }
+        }
+        
+        /**
+         * Mostra modal de documentos
+         */
+        function mostrarDocumentos() {
+            document.getElementById('modalOverlay').classList.add('show');
+            document.getElementById('documentosModal').classList.add('show');
+            document.body.style.overflow = 'hidden';
+            
+            if (documentosData) {
+                exibirDocumentosNoModal(documentosData);
+            } else {
+                document.getElementById('documentosConteudo').innerHTML = `
+                    <div class="loading-spinner">
+                        <div class="spinner"></div>
+                        Carregando documentos...
+                    </div>
+                `;
+                carregarDocumentos();
+            }
+        }
+        
+        /**
+         * Exibe os documentos no modal
+         */
+        function exibirDocumentosNoModal(data) {
+            const container = document.getElementById('documentosConteudo');
+            const { documentos, documentos_faltando, tipos_documentos } = data;
+            
+            // Combina documentos enviados e faltando
+            const todosDocumentos = { ...documentos_faltando, ...documentos };
+            
+            let html = '<div class="documentos-grid">';
+            
+            for (const [tipo, info] of Object.entries(todosDocumentos)) {
+                const documento = documentos[tipo];
+                const tipoInfo = tipos_documentos[tipo];
+                
+                if (!tipoInfo) continue;
+                
+                const enviado = !!documento;
+                const obrigatorio = tipoInfo.obrigatorio;
+                
+                let statusClass = 'faltando';
+                let statusText = 'Não enviado';
+                let statusIcon = 'fas fa-times';
+                let acoes = '';
+                
+                if (enviado) {
+                    statusClass = documento.status;
+                    statusIcon = documento.status === 'aprovado' ? 'fas fa-check' : 
+                               documento.status === 'rejeitado' ? 'fas fa-times' : 'fas fa-clock';
+                    statusText = documento.status === 'aprovado' ? 'Aprovado' :
+                               documento.status === 'rejeitado' ? 'Rejeitado' : 'Em análise';
+                    
+                    acoes = `
+                        <button class="btn-download-doc" onclick="downloadDocumento(${documento.id})" title="Download">
+                            <i class="fas fa-download"></i>
+                        </button>
+                        <button class="btn-upload substituir" onclick="iniciarUpload('${tipo}')">
+                            <i class="fas fa-upload me-1"></i> Substituir
+                        </button>
+                    `;
+                } else {
+                    acoes = `
+                        <button class="btn-upload" onclick="iniciarUpload('${tipo}')">
+                            <i class="fas fa-upload me-1"></i> ${obrigatorio ? 'Enviar (Obrigatório)' : 'Enviar (Opcional)'}
+                        </button>
+                    `;
+                }
+                
+                const iconColor = enviado ? 
+                    (documento.status === 'aprovado' ? '#28a745' : 
+                     documento.status === 'rejeitado' ? '#dc3545' : '#ffc107') :
+                    (obrigatorio ? '#dc3545' : '#17a2b8');
+                
+                html += `
+                    <div class="documento-card ${obrigatorio ? 'obrigatorio' : 'opcional'} ${statusClass}">
+                        <div class="documento-header">
+                            <div class="documento-icon" style="background-color: ${iconColor}">
+                                <i class="${tipoInfo.icone}"></i>
+                            </div>
+                            <div class="documento-info">
+                                <div class="documento-nome">${tipoInfo.nome}</div>
+                                <div class="documento-descricao">${tipoInfo.descricao}</div>
+                            </div>
+                        </div>
+                        
+                        <div class="documento-status">
+                            <span class="status-badge status-${statusClass}">
+                                <i class="${statusIcon} me-1"></i>${statusText}
+                            </span>
+                            ${obrigatorio ? '<span class="badge bg-danger">Obrigatório</span>' : '<span class="badge bg-info">Opcional</span>'}
+                        </div>
+                        
+                        ${enviado ? `
+                            <div class="documento-meta">
+                                <span>Enviado: ${new Date(documento.data_upload).toLocaleDateString('pt-BR')}</span>
+                                <span>${documento.tamanho_formatado}</span>
+                            </div>
+                            ${documento.observacoes ? `
+                                <div class="documento-observacoes">
+                                    <strong>Observações:</strong> ${documento.observacoes}
+                                </div>
+                            ` : ''}
+                        ` : ''}
+                        
+                        <div class="documento-acoes">
+                            ${acoes}
+                        </div>
+                    </div>
+                `;
+            }
+            
+            html += '</div>';
+            
+            if (Object.keys(todosDocumentos).length === 0) {
+                html = `
+                    <div class="text-center py-4">
+                        <i class="fas fa-folder-open fa-3x text-muted mb-3"></i>
+                        <h5>Nenhum documento configurado</h5>
+                        <p class="text-muted">Não há tipos de documentos configurados para este curso.</p>
+                    </div>
+                `;
+            }
+            
+            container.innerHTML = html;
+        }
+        
+        /**
+         * Inicia processo de upload
+         */
+        function iniciarUpload(tipoDocumento) {
+            const input = document.getElementById('uploadDocumentoInput');
+            
+            // Remove listeners anteriores
+            input.onchange = null;
+            
+            // Configura novo listener
+            input.onchange = function(e) {
+                const arquivo = e.target.files[0];
+                if (arquivo) {
+                    uploadDocumento(tipoDocumento, arquivo);
+                }
+                // Reset do input
+                e.target.value = '';
+            };
+            
+            // Abre seletor de arquivo
+            input.click();
+        }
+        
+        /**
+         * Faz upload do documento
+         */
+        function uploadDocumento(tipoDocumento, arquivo) {
+            const tipoInfo = documentosData?.tipos_documentos[tipoDocumento];
+            
+            if (!tipoInfo) {
+                showToast('Tipo de documento não encontrado', 'error');
+                return;
+            }
+            
+            // Validações básicas
+            if (arquivo.size > 5 * 1024 * 1024) {
+                showToast('Arquivo muito grande. Máximo: 5MB', 'error');
+                return;
+            }
+            
+            const tiposPermitidos = [
+                'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 
+                'application/pdf', 'application/msword', 
+                'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+            ];
+            
+            if (!tiposPermitidos.includes(arquivo.type)) {
+                showToast('Tipo de arquivo não permitido', 'error');
+                return;
+            }
+            
+            // Validação específica para foto
+            if (tipoDocumento === 'foto_3x4' && !arquivo.type.startsWith('image/')) {
+                showToast('Foto deve ser uma imagem (JPG, PNG)', 'error');
+                return;
+            }
+            
+            showToast('Enviando documento...', 'info');
+            
+            const formData = new FormData();
+            formData.append('arquivo', arquivo);
+            formData.append('tipo_documento', tipoDocumento);
+            
+            fetch('/api/upload-documento.php', {
+                method: 'POST',
+                body: formData
+            })
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    documentosData = data;
-                    exibirDocumentos(data);
-                    atualizarStatusDocumentos(data.status);
+                    showToast(`${tipoInfo.nome} enviado com sucesso!`, 'success');
+                    
+                    // Recarrega documentos
+                    setTimeout(() => {
+                        carregarDocumentos();
+                        
+                        // Atualiza modal se estiver aberto
+                        if (document.getElementById('documentosModal').classList.contains('show')) {
+                            setTimeout(() => {
+                                if (documentosData) {
+                                    exibirDocumentosNoModal(documentosData);
+                                }
+                            }, 500);
+                        }
+                    }, 1000);
+                    
                 } else {
-                    exibirErroDocumentos(data.message);
+                    showToast('Erro: ' + data.message, 'error');
                 }
             })
             .catch(error => {
-                console.error('Erro ao carregar documentos:', error);
-                exibirErroDocumentos('Erro de conexão');
+                console.error('Erro no upload:', error);
+                showToast('Erro de conexão', 'error');
             });
-    }
-    
-    /**
-     * Exibe os documentos na interface
-     */
-    function exibirDocumentos(data) {
-        const grid = document.getElementById('documentosGrid');
-        const { documentos, documentos_faltando, tipos_documentos } = data;
+        }
         
-        let html = '';
+        /**
+         * Download de documento
+         */
+        function downloadDocumento(documentoId) {
+            showToast('Preparando download...', 'info');
+            
+            const link = document.createElement('a');
+            link.href = `/api/download-documento.php?id=${documentoId}`;
+            link.target = '_blank';
+            link.click();
+            
+            setTimeout(() => {
+                showToast('Download iniciado!', 'success');
+            }, 500);
+        }
         
-        // Combina documentos enviados e faltando
-        const todosDocumentos = { ...documentos_faltando, ...documentos };
-        
-        for (const [tipo, info] of Object.entries(todosDocumentos)) {
-            const documento = documentos[tipo];
-            const tipoInfo = tipos_documentos[tipo];
+        /**
+         * Atualiza lista de documentos
+         */
+        function atualizarDocumentos() {
+            const btn = document.getElementById('btnSyncDocsModal');
+            const originalIcon = btn.innerHTML;
             
-            if (!tipoInfo) continue;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+            btn.disabled = true;
             
-            const enviado = !!documento;
-            const obrigatorio = tipoInfo.obrigatorio;
+            carregarDocumentos();
             
-            let statusClass = 'faltando';
-            let statusText = 'Não enviado';
-            let statusIcon = 'fas fa-times';
-            let acoes = '';
-            
-            if (enviado) {
-                statusClass = documento.status;
-                statusIcon = documento.status === 'aprovado' ? 'fas fa-check' : 
-                           documento.status === 'rejeitado' ? 'fas fa-times' : 'fas fa-clock';
-                statusText = documento.status === 'aprovado' ? 'Aprovado' :
-                           documento.status === 'rejeitado' ? 'Rejeitado' : 'Em análise';
+            setTimeout(() => {
+                btn.innerHTML = originalIcon;
+                btn.disabled = false;
                 
-                acoes = `
-                    <button class="btn-download" onclick="downloadDocumento(${documento.id})" title="Download">
-                        <i class="fas fa-download"></i>
-                    </button>
-                    <button class="btn-upload substituir" onclick="iniciarUpload('${tipo}')">
-                        <i class="fas fa-upload me-1"></i> Substituir
-                    </button>
-                `;
-            } else {
-                acoes = `
-                    <button class="btn-upload" onclick="iniciarUpload('${tipo}')">
-                        <i class="fas fa-upload me-1"></i> Enviar ${obrigatorio ? '(Obrigatório)' : '(Opcional)'}
-                    </button>
-                `;
-            }
-            
-            const iconColor = enviado ? 
-                (documento.status === 'aprovado' ? '#28a745' : 
-                 documento.status === 'rejeitado' ? '#dc3545' : '#ffc107') :
-                (obrigatorio ? '#dc3545' : '#17a2b8');
-            
-            html += `
-                <div class="documento-card ${obrigatorio ? 'obrigatorio' : 'opcional'} ${statusClass}">
-                    <div class="documento-header">
-                        <div class="documento-icon" style="background-color: ${iconColor}">
-                            <i class="${tipoInfo.icone}"></i>
-                        </div>
-                        <div class="documento-info">
-                            <div class="documento-nome">${tipoInfo.nome}</div>
-                            <div class="documento-descricao">${tipoInfo.descricao}</div>
-                        </div>
-                    </div>
-                    
-                    <div class="documento-status">
-                        <span class="status-badge status-${statusClass}">
-                            <i class="${statusIcon} me-1"></i>${statusText}
-                        </span>
-                        ${obrigatorio ? '<span class="badge bg-danger">Obrigatório</span>' : '<span class="badge bg-info">Opcional</span>'}
-                    </div>
-                    
-                    ${enviado ? `
-                        <div class="documento-meta">
-                            <span>Enviado: ${new Date(documento.data_upload).toLocaleDateString('pt-BR')}</span>
-                            <span>${documento.tamanho_formatado}</span>
-                        </div>
-                        ${documento.observacoes ? `
-                            <div class="documento-observacoes">
-                                <strong>Observações:</strong> ${documento.observacoes}
-                            </div>
-                        ` : ''}
-                    ` : ''}
-                    
-                    <div class="documento-acoes">
-                        ${acoes}
-                    </div>
-                </div>
-            `;
-        }
-        
-        grid.innerHTML = html;
-        
-        // Atualiza contador
-        const totalEnviados = Object.keys(documentos).length;
-        document.getElementById('documentosCount').textContent = totalEnviados;
-    }
-    
-    /**
-     * Atualiza status dos documentos
-     */
-    function atualizarStatusDocumentos(status) {
-        const statusDiv = document.getElementById('documentosStatus');
-        const progressBar = document.getElementById('progressBar');
-        const progressText = document.getElementById('progressText');
-        const aprovadosText = document.getElementById('aprovadosText');
-        const pendentesText = document.getElementById('pendentesText');
-        const rejeitadosText = document.getElementById('rejeitadosText');
-        
-        if (status.total_tipos > 0) {
-            statusDiv.style.display = 'block';
-            
-            progressBar.style.width = status.percentual_completo + '%';
-            progressText.textContent = `${status.obrigatorios_enviados} de ${status.total_obrigatorios}`;
-            aprovadosText.textContent = `${status.aprovados} aprovados`;
-            pendentesText.textContent = `${status.pendentes} pendentes`;
-            rejeitadosText.textContent = `${status.rejeitados} rejeitados`;
-        }
-    }
-    
-    /**
-     * Inicia processo de upload
-     */
-    function iniciarUpload(tipoDocumento) {
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.accept = '.jpg,.jpeg,.png,.gif,.pdf,.doc,.docx';
-        input.className = 'upload-input';
-        
-        input.onchange = function(e) {
-            const arquivo = e.target.files[0];
-            if (arquivo) {
-                uploadDocumento(tipoDocumento, arquivo);
-            }
-        };
-        
-        input.click();
-    }
-    
-    /**
-     * Faz upload do documento
-     */
-    function uploadDocumento(tipoDocumento, arquivo) {
-        const tipoInfo = documentosData.tipos_documentos[tipoDocumento];
-        
-        // Validações básicas
-        if (arquivo.size > 5 * 1024 * 1024) {
-            showToast('Arquivo muito grande. Máximo: 5MB', 'error');
-            return;
-        }
-        
-        const tiposPermitidos = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
-        if (!tiposPermitidos.includes(arquivo.type)) {
-            showToast('Tipo de arquivo não permitido', 'error');
-            return;
-        }
-        
-        // Validação específica para foto
-        if (tipoDocumento === 'foto_3x4' && !arquivo.type.startsWith('image/')) {
-            showToast('Foto deve ser uma imagem (JPG, PNG)', 'error');
-            return;
-        }
-        
-        showToast('Enviando documento...', 'info');
-        
-        const formData = new FormData();
-        formData.append('arquivo', arquivo);
-        formData.append('tipo_documento', tipoDocumento);
-        
-        fetch('/api/upload-documento.php', {
-            method: 'POST',
-            body: formData
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                showToast(`${tipoInfo.nome} enviado com sucesso!`, 'success');
-                
-                // Atualiza interface
-                if (data.status_documentos) {
-                    atualizarStatusDocumentos(data.status_documentos);
+                // Atualiza modal se estiver aberto
+                if (document.getElementById('documentosModal').classList.contains('show')) {
+                    if (documentosData) {
+                        exibirDocumentosNoModal(documentosData);
+                    }
                 }
-                
-                // Recarrega documentos
-                setTimeout(() => {
-                    carregarDocumentos();
-                }, 1000);
-                
-            } else {
-                showToast('Erro: ' + data.message, 'error');
-            }
-        })
-        .catch(error => {
-            console.error('Erro no upload:', error);
-            showToast('Erro de conexão', 'error');
+            }, 2000);
+        }
+        
+        // ===================================
+        // INICIALIZAÇÃO FINAL
+        // ===================================
+        
+        // Carrega documentos quando a página carrega
+        document.addEventListener('DOMContentLoaded', function() {
+            setTimeout(() => {
+                carregarDocumentos();
+            }, 1000);
         });
-    }
-    
-    /**
-     * Download de documento
-     */
-    function downloadDocumento(documentoId) {
-        const link = document.createElement('a');
-        link.href = `/api/download-documento.php?id=${documentoId}`;
-        link.target = '_blank';
-        link.click();
-        
-        showToast('Download iniciado!', 'success');
-    }
-    
-    /**
-     * Atualiza lista de documentos
-     */
-    function atualizarDocumentos() {
-        const btn = document.getElementById('btnSyncDocs');
-        const originalIcon = btn.innerHTML;
-        
-        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-        btn.disabled = true;
-        
-        carregarDocumentos();
-        
-        setTimeout(() => {
-            btn.innerHTML = originalIcon;
-            btn.disabled = false;
-        }, 2000);
-    }
-    
-    /**
-     * Exibe erro ao carregar documentos
-     */
-    function exibirErroDocumentos(mensagem) {
-        const grid = document.getElementById('documentosGrid');
-        grid.innerHTML = `
-            <div class="text-center py-4">
-                <i class="fas fa-exclamation-triangle fa-2x text-warning mb-3"></i>
-                <h5>Erro ao Carregar Documentos</h5>
-                <p class="text-muted">${mensagem}</p>
-                <button class="btn btn-primary" onclick="carregarDocumentos()">
-                    <i class="fas fa-redo"></i> Tentar Novamente
-                </button>
-            </div>
-        `;
-    }
-    
     </script>
 </body>
 </html>
 
 <?php
+/**
+ * ===================================
+ * FUNÇÃO PHP PARA RENDERIZAR BOLETOS
+ * ===================================
+ */
+
 /**
  * Função para renderizar card de boleto com informações de desconto PIX personalizado
  */
@@ -2724,9 +2861,6 @@ function renderizarBoletoCard($boleto, $statusClass) {
             <button class="btn-action <?= $botaoPixClass ?>" onclick="mostrarPix(<?= $boleto['id'] ?>)" 
                     title="<?= $temDescontoPix ? 'Gerar PIX com desconto personalizado' : 'Gerar código PIX' ?>">
                 <i class="fas fa-qrcode"></i> PIX
-                <?php if ($temDescontoPix): ?>
-<!--                     <small class="d-block" style="font-size: 0.6rem; line-height: 1;">-<?= number_format($economia ?? 0, 0) ?></small>
- -->                <?php endif; ?>
             </button>
         </div>
         <?php elseif ($temPDF): ?>
@@ -2740,6 +2874,4 @@ function renderizarBoletoCard($boleto, $statusClass) {
     <?php
     return ob_get_clean();
 }
-                   
-                   
 ?>
