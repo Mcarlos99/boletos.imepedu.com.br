@@ -455,6 +455,12 @@ function obterEstatisticasSistema() {
                     Alunos
                 </a>
             </div>
+          <div class="nav-item">
+    			<a href="/admin/documentos.php" class="nav-link">
+        			<i class="fas fa-folder-open"></i>
+        			Documentos
+    			</a>
+		</div>
             <div class="nav-item">
                 <a href="/admin/cursos.php" class="nav-link">
                     <i class="fas fa-book"></i>

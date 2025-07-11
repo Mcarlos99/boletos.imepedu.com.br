@@ -84,216 +84,63 @@
         /**
          * Salva ou atualiza dados do aluno no banco local
          */
-    public function salvarOuAtualizarAluno($dadosMoodle) {
-        try {
-            $db = (new Database())->getConnection();
-            
-            // Verifica se aluno já existe
-            $stmt = $db->prepare("
-                SELECT id FROM alunos 
-                WHERE cpf = ? AND subdomain = ?
-            ");
-            $stmt->execute([$dadosMoodle['cpf'], $dadosMoodle['subdomain']]);
-            $alunoExistente = $stmt->fetch();
-            
-            if ($alunoExistente) {
-                // Atualiza aluno existente
-                $stmt = $db->prepare("
-                    UPDATE alunos SET
-                        nome = ?,
-                        email = ?,
-                        moodle_user_id = ?,
-                        ultimo_acesso = ?,
-                        city = ?,
-                        updated_at = NOW()
-                    WHERE id = ?
+        public function salvarOuAtualizarAluno($dadosAluno) {
+            try {
+                $this->db->beginTransaction();
+                
+                error_log("AlunoService: Iniciando salvamento - CPF: " . $dadosAluno["cpf"] . ", Subdomain: " . $dadosAluno["subdomain"]);
+                
+                // Busca por CPF E subdomain
+                $stmt = $this->db->prepare("
+                    SELECT id, updated_at 
+                    FROM alunos 
+                    WHERE cpf = ? AND subdomain = ?
+                    FOR UPDATE
                 ");
-                $stmt->execute([
-                    $dadosMoodle['nome'],
-                    $dadosMoodle['email'],
-                    $dadosMoodle['moodle_user_id'],
-                    $dadosMoodle['ultimo_acesso'],
-                    $dadosMoodle['city'] ?? null,
-                    $alunoExistente['id']
-                ]);
+                $stmt->execute([$dadosAluno["cpf"], $dadosAluno["subdomain"]]);
+                $alunoExistente = $stmt->fetch();
                 
-                $alunoId = $alunoExistente['id'];
-            } else {
-                // Cria novo aluno
-                $stmt = $db->prepare("
-                    INSERT INTO alunos (
-                        nome, cpf, email, subdomain, moodle_user_id,
-                        ultimo_acesso, city, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
-                ");
-                $stmt->execute([
-                    $dadosMoodle['nome'],
-                    $dadosMoodle['cpf'],
-                    $dadosMoodle['email'],
-                    $dadosMoodle['subdomain'],
-                    $dadosMoodle['moodle_user_id'],
-                    $dadosMoodle['ultimo_acesso'],
-                    $dadosMoodle['city'] ?? null
-                ]);
-                
-                $alunoId = $db->lastInsertId();
-            }
-            
-            // Retorna aluno atualizado
-            $stmt = $db->prepare("SELECT * FROM alunos WHERE id = ?");
-            $stmt->execute([$alunoId]);
-            $aluno = $stmt->fetch(PDO::FETCH_ASSOC);
-            
-            error_log("Aluno salvo/atualizado: ID {$alunoId}, Nome: {$dadosMoodle['nome']}");
-            
-            return $aluno;
-            
-        } catch (Exception $e) {
-            error_log("Erro ao salvar/atualizar aluno: " . $e->getMessage());
-            throw new Exception("Erro ao salvar dados do aluno");
-        }
-    }
-
-      /**
-     * 🆕 MÉTODO: Salva ou atualiza curso vindo do Moodle
-     */
-    public function salvarOuAtualizarCurso($cursoMoodle, $subdomain) {
-        try {
-            $db = (new Database())->getConnection();
-            
-            // Verifica se curso já existe
-            $stmt = $db->prepare("
-                SELECT id FROM cursos 
-                WHERE moodle_course_id = ? AND subdomain = ?
-            ");
-            $stmt->execute([$cursoMoodle['moodle_course_id'], $subdomain]);
-            $cursoExistente = $stmt->fetch();
-            
-            if ($cursoExistente) {
-                // Atualiza curso existente
-                $stmt = $db->prepare("
-                    UPDATE cursos SET
-                        nome = ?,
-                        nome_curto = ?,
-                        data_inicio = ?,
-                        data_fim = ?,
-                        updated_at = NOW()
-                    WHERE id = ?
-                ");
-                $stmt->execute([
-                    $cursoMoodle['nome'],
-                    $cursoMoodle['nome_curto'],
-                    $cursoMoodle['data_inicio'],
-                    $cursoMoodle['data_fim'],
-                    $cursoExistente['id']
-                ]);
-                
-                return $cursoExistente['id'];
-            } else {
-                // Cria novo curso
-                $stmt = $db->prepare("
-                    INSERT INTO cursos (
-                        nome, nome_curto, subdomain, moodle_course_id,
-                        data_inicio, data_fim, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, NOW())
-                ");
-                $stmt->execute([
-                    $cursoMoodle['nome'],
-                    $cursoMoodle['nome_curto'],
-                    $subdomain,
-                    $cursoMoodle['moodle_course_id'],
-                    $cursoMoodle['data_inicio'],
-                    $cursoMoodle['data_fim']
-                ]);
-                
-                $cursoId = $db->lastInsertId();
-                
-                error_log("Curso criado: ID {$cursoId}, Nome: {$cursoMoodle['nome']}");
-                
-                return $cursoId;
-            }
-            
-        } catch (Exception $e) {
-            error_log("Erro ao salvar/atualizar curso: " . $e->getMessage());
-            return false;
-        }
-    }
-        
-        public function sincronizarCursosAluno($alunoId, $subdomain) {
-        try {
-            // Primeiro busca cursos locais
-            $cursosLocais = $this->buscarCursosAlunoPorSubdomain($alunoId, $subdomain);
-            
-            if (!empty($cursosLocais)) {
-                return $cursosLocais;
-            }
-            
-            // Se não tem cursos locais, busca no Moodle
-            $db = (new Database())->getConnection();
-            $stmt = $db->prepare("SELECT moodle_user_id FROM alunos WHERE id = ?");
-            $stmt->execute([$alunoId]);
-            $aluno = $stmt->fetch();
-            
-            if ($aluno && $aluno['moodle_user_id']) {
-                require_once __DIR__ . '/../src/MoodleAPI.php';
-                $moodleAPI = new MoodleAPI($subdomain);
-                $cursosMoodle = $moodleAPI->buscarCursosAluno($aluno['moodle_user_id']);
-                
-                // Salva cursos localmente
-                foreach ($cursosMoodle as $cursoMoodle) {
-                    $cursoId = $this->salvarOuAtualizarCurso($cursoMoodle, $subdomain);
+                if ($alunoExistente) {
+                    $alunoId = $this->atualizarAluno($alunoExistente["id"], $dadosAluno);
+                    error_log("AlunoService: Aluno atualizado - ID: " . $alunoId);
+                } else {
+                    // Verifica duplicata
+                    $stmt = $this->db->prepare("SELECT COUNT(*) as count FROM alunos WHERE cpf = ? AND subdomain = ?");
+                    $stmt->execute([$dadosAluno["cpf"], $dadosAluno["subdomain"]]);
+                    $count = $stmt->fetch()["count"];
                     
-                    if ($cursoId) {
-                        // Cria matrícula se não existir
-                        $stmt = $db->prepare("
-                            INSERT IGNORE INTO matriculas (aluno_id, curso_id, data_matricula, status)
-                            VALUES (?, ?, ?, 'ativa')
-                        ");
-                        $stmt->execute([$alunoId, $cursoId, date('Y-m-d')]);
+                    if ($count > 0) {
+                        $stmt = $this->db->prepare("SELECT id FROM alunos WHERE cpf = ? AND subdomain = ? LIMIT 1");
+                        $stmt->execute([$dadosAluno["cpf"], $dadosAluno["subdomain"]]);
+                        $alunoExistente = $stmt->fetch();
+                        $alunoId = $this->atualizarAluno($alunoExistente["id"], $dadosAluno);
+                    } else {
+                        $alunoId = $this->criarAluno($dadosAluno);
+                        error_log("AlunoService: Novo aluno criado - ID: " . $alunoId);
                     }
                 }
                 
-                // Retorna cursos atualizados
-                return $this->buscarCursosAlunoPorSubdomain($alunoId, $subdomain);
+                // Processa cursos
+                if (!empty($dadosAluno["cursos"])) {
+                    error_log("AlunoService: Processando " . count($dadosAluno["cursos"]) . " cursos");
+                    $this->atualizarCursosAluno($alunoId, $dadosAluno["cursos"], $dadosAluno["subdomain"]);
+                } else {
+                    error_log("AlunoService: AVISO - Nenhum curso fornecido");
+                }
+                
+                $this->db->commit();
+                $this->registrarLog("aluno_sincronizado", $alunoId, "Dados sincronizados: " . $dadosAluno["subdomain"]);
+                
+                error_log("AlunoService: Salvamento concluído - ID: " . $alunoId);
+                return $alunoId;
+                
+            } catch (Exception $e) {
+                $this->db->rollback();
+                error_log("AlunoService: ERRO - " . $e->getMessage());
+                throw new Exception("Erro ao processar dados do aluno: " . $e->getMessage());
             }
-            
-            return [];
-            
-        } catch (Exception $e) {
-            error_log("Erro na sincronização de cursos: " . $e->getMessage());
-            // Retorna cursos locais em caso de erro
-            return $this->buscarCursosAlunoPorSubdomain($alunoId, $subdomain);
         }
-    }
-
-        public function sincronizarAlunoMoodle($cpf, $subdomain) {
-        try {
-            // Primeiro tenta buscar localmente
-            $aluno = $this->buscarAlunoPorCPFESubdomain($cpf, $subdomain);
-            
-            if ($aluno) {
-                return $aluno;
-            }
-            
-            // Se não encontrou, busca no Moodle
-            require_once __DIR__ . '/../src/MoodleAPI.php';
-            $moodleAPI = new MoodleAPI($subdomain);
-            $dadosMoodle = $moodleAPI->buscarAlunoPorCPF($cpf);
-            
-            if ($dadosMoodle) {
-                // Salva na base local e retorna
-                return $this->salvarOuAtualizarAluno($dadosMoodle);
-            }
-            
-            return null;
-            
-        } catch (Exception $e) {
-            error_log("Erro na sincronização com Moodle: " . $e->getMessage());
-            // Retorna dados locais se houver erro no Moodle
-            return $this->buscarAlunoPorCPFESubdomain($cpf, $subdomain);
-        }
-    }
-
+        
         /**
          * Cria um novo aluno
          */
@@ -501,22 +348,14 @@
         /**
          * Atualiza último acesso
          */
-    public function atualizarUltimoAcesso($alunoId) {
-        try {
-            $db = (new Database())->getConnection();
-            $stmt = $db->prepare("
+        public function atualizarUltimoAcesso($alunoId) {
+            $stmt = $this->db->prepare("
                 UPDATE alunos 
                 SET ultimo_acesso = NOW() 
                 WHERE id = ?
             ");
             $stmt->execute([$alunoId]);
-            
-            return true;
-        } catch (Exception $e) {
-            error_log("Erro ao atualizar último acesso: " . $e->getMessage());
-            return false;
         }
-    }
         
         /**
          * Registra log de operação
@@ -538,7 +377,5 @@
                 error_log("Erro ao registrar log: " . $e->getMessage());
             }
         }
-            
     }
-
     ?>

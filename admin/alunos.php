@@ -925,7 +925,10 @@ $estatisticas = obterEstatisticasAlunos();
         
         // Exibe detalhes do aluno
         function exibirDetalhesAluno(data) {
-            const { aluno, matriculas, boletos, estatisticas } = data;
+            console.log('📋 Dados recebidos da API:', data);
+            console.log('📄 Seção documentos:', data.documentos);
+            
+            const { aluno, matriculas, boletos, estatisticas, documentos } = data;
             
             const ultimoAcesso = aluno.ultimo_acesso ? 
                 new Date(aluno.ultimo_acesso).toLocaleDateString('pt-BR') : 'Nunca acessou';
@@ -1073,6 +1076,48 @@ $estatisticas = obterEstatisticasAlunos();
                 </div>
                 ` : ''}
 
+                <!-- 🔧 SEÇÃO DE DOCUMENTOS - SEMPRE INCLUÍDA -->
+                ${(() => {
+                    console.log('🔧 Verificando documentos:', documentos);
+                    
+                    if (documentos && documentos.html) {
+                        console.log('✅ HTML de documentos encontrado');
+                        return documentos.html;
+                    } 
+                    
+                    if (documentos && documentos.ativo === false) {
+                        console.log('⚠️ Sistema de documentos não ativo');
+                        return `
+                        <div class="row mb-4">
+                            <div class="col-12">
+                                <h6 class="text-primary mb-3">
+                                    <i class="fas fa-folder-open"></i> Documentos do Aluno
+                                </h6>
+                                <div class="alert alert-warning">
+                                    <i class="fas fa-exclamation-triangle me-2"></i>
+                                    Sistema de documentos não está configurado. Execute <code>setup-documentos.php</code> para configurar.
+                                </div>
+                            </div>
+                        </div>
+                        `;
+                    }
+                    
+                    console.log('📄 Criando seção padrão de documentos');
+                    return `
+                    <div class="row mb-4">
+                        <div class="col-12">
+                            <h6 class="text-primary mb-3">
+                                <i class="fas fa-folder-open"></i> Documentos do Aluno
+                            </h6>
+                            <div class="alert alert-info">
+                                <i class="fas fa-info-circle me-2"></i>
+                                Carregando informações de documentos...
+                            </div>
+                        </div>
+                    </div>
+                    `;
+                })()}
+
                 <!-- Boletos Recentes -->
                 ${boletos && boletos.length > 0 ? `
                 <div class="row mb-4">
@@ -1134,12 +1179,16 @@ $estatisticas = obterEstatisticasAlunos();
                             <button class="btn btn-success" onclick="criarBoletoParaAluno(${aluno.id})">
                                 <i class="fas fa-plus"></i> Criar Boleto
                             </button>
+                            <button class="btn btn-warning" onclick="window.open('/admin/documentos.php?aluno_id=${aluno.id}', '_blank')">
+                                <i class="fas fa-folder-open"></i> Gerenciar Documentos
+                            </button>
                         </div>
                     </div>
                 </div>
             `;
             
             document.getElementById('detalhesAlunoConteudo').innerHTML = html;
+            console.log('✅ HTML inserido no DOM com seção de documentos');
         }
         
         // Função para mostrar erros

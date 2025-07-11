@@ -780,6 +780,86 @@ public function adicionarFiltroPolo(&$filtros, $adminId) {
         $filtros['polo'] = $admin['polo_restrito'];
     }
 }
-
+    public function salvarOuAtualizarAluno($dadosMoodle) {
+        try {
+            $db = (new Database())->getConnection();
+            
+            // Limpa e valida CPF
+            $cpf = preg_replace('/[^0-9]/', '', $dadosMoodle['cpf']);
+            if (strlen($cpf) !== 11) {
+                throw new Exception('CPF inválido');
+            }
+            
+            // Verifica se aluno já existe
+            $stmt = $db->prepare("
+                SELECT id FROM alunos 
+                WHERE cpf = ? AND subdomain = ?
+            ");
+            $stmt->execute([$cpf, $dadosMoodle['subdomain']]);
+            $alunoExistente = $stmt->fetch();
+            
+            if ($alunoExistente) {
+                // Atualiza aluno existente
+                $stmt = $db->prepare("
+                    UPDATE alunos SET
+                        nome = ?,
+                        email = ?,
+                        moodle_user_id = ?,
+                        ultimo_acesso = NOW(),
+                        city = ?,
+                        updated_at = NOW()
+                    WHERE id = ?
+                ");
+                $stmt->execute([
+                    $dadosMoodle['nome'],
+                    $dadosMoodle['email'],
+                    $dadosMoodle['moodle_user_id'] ?? null,
+                    $dadosMoodle['city'] ?? null,
+                    $alunoExistente['id']
+                ]);
+                
+                $alunoId = $alunoExistente['id'];
+                error_log("✏️ Aluno atualizado: ID {$alunoId}");
+            } else {
+                // Cria novo aluno
+                $stmt = $db->prepare("
+                    INSERT INTO alunos (
+                        nome, cpf, email, subdomain, moodle_user_id,
+                        city, created_at, ultimo_acesso
+                    ) VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())
+                ");
+                $stmt->execute([
+                    $dadosMoodle['nome'],
+                    $cpf,
+                    $dadosMoodle['email'],
+                    $dadosMoodle['subdomain'],
+                    $dadosMoodle['moodle_user_id'] ?? null,
+                    $dadosMoodle['city'] ?? null
+                ]);
+                
+                $alunoId = $db->lastInsertId();
+                error_log("➕ Aluno criado: ID {$alunoId}");
+            }
+            
+            // Retorna aluno completo
+            $stmt = $db->prepare("SELECT * FROM alunos WHERE id = ?");
+            $stmt->execute([$alunoId]);
+            $aluno = $stmt->fetch(PDO::FETCH_ASSOC);
+            
+            if (!$aluno) {
+                throw new Exception('Erro ao recuperar dados do aluno salvo');
+            }
+            
+            error_log("✅ Aluno salvo/atualizado com sucesso: ID {$alunoId}, Nome: {$dadosMoodle['nome']}");
+            
+            return $aluno;
+            
+        } catch (Exception $e) {
+            error_log("❌ Erro ao salvar/atualizar aluno: " . $e->getMessage());
+            error_log("🔍 Dados recebidos: " . json_encode($dadosMoodle));
+            throw new Exception("Erro ao salvar dados do aluno: " . $e->getMessage());
+        }
+    }
+  
 }
 ?>

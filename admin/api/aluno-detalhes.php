@@ -4,7 +4,7 @@
  * Arquivo: admin/api/aluno-detalhes.php
  * 
  * API específica para administradores visualizarem detalhes completos dos alunos
- * VERSÃO COMPLETA COM INTEGRAÇÃO DE DOCUMENTOS
+ * VERSÃO COMPLETA COM INTEGRAÇÃO DE DOCUMENTOS - CORRIGIDA
  */
 
 session_start();
@@ -38,7 +38,22 @@ if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
 try {
     require_once '../../config/database.php';
     require_once '../../config/moodle.php';
-    require_once '../../src/DocumentosService.php'; // ✅ NOVO: Adicionado para documentos
+    
+    // 🔧 CORREÇÃO 1: Verifica se DocumentosService existe antes de usar
+    $documentosServiceExiste = false;
+    $documentosServicePath = __DIR__ . '/../../src/DocumentosService.php';
+    
+    if (file_exists($documentosServicePath)) {
+        require_once $documentosServicePath;
+        if (class_exists('DocumentosService')) {
+            $documentosServiceExiste = true;
+            error_log("Admin API: DocumentosService carregado com sucesso");
+        }
+    }
+    
+    if (!$documentosServiceExiste) {
+        error_log("Admin API: DocumentosService não encontrado em: $documentosServicePath");
+    }
     
     // Obtém ID do aluno
     $alunoId = filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT);
@@ -139,11 +154,31 @@ try {
     $stmtLogs->execute([$alunoId, $alunoId]);
     $atividades = $stmtLogs->fetchAll(PDO::FETCH_ASSOC);
     
-    // ✅ NOVO: Busca documentos do aluno
-    $documentosService = new DocumentosService();
-    $documentosAluno = $documentosService->listarDocumentosAluno($alunoId);
-    $statusDocumentos = $documentosService->getStatusDocumentosAluno($alunoId);
-    $tiposDocumentos = DocumentosService::getTiposDocumentos();
+    // 🔧 CORREÇÃO 2: Busca documentos com tratamento de erro
+    $documentosAluno = [];
+    $statusDocumentos = [];
+    $tiposDocumentos = [];
+    $documentosHtml = '';
+    
+    if ($documentosServiceExiste) {
+        try {
+            $documentosService = new DocumentosService();
+            $documentosAluno = $documentosService->listarDocumentosAluno($alunoId);
+            $statusDocumentos = $documentosService->getStatusDocumentosAluno($alunoId);
+            $tiposDocumentos = DocumentosService::getTiposDocumentos();
+            
+            error_log("Admin API: Documentos carregados - " . count($documentosAluno) . " documentos, " . count($tiposDocumentos) . " tipos");
+            
+            // Gera HTML dos documentos
+            $documentosHtml = gerarHtmlDocumentosAdmin($documentosAluno, $statusDocumentos, $tiposDocumentos, $alunoId);
+            
+        } catch (Exception $e) {
+            error_log("Admin API: Erro ao buscar documentos: " . $e->getMessage());
+            $documentosHtml = '<div class="alert alert-warning"><i class="fas fa-exclamation-triangle"></i> Erro ao carregar documentos: ' . $e->getMessage() . '</div>';
+        }
+    } else {
+        $documentosHtml = '<div class="alert alert-info"><i class="fas fa-info-circle"></i> Sistema de documentos não configurado. Execute setup-documentos.php para configurar.</div>';
+    }
     
     // Busca informações do polo
     $poloConfig = MoodleConfig::getConfig($aluno['subdomain']);
@@ -239,10 +274,7 @@ try {
         ];
     }
     
-    // ✅ NOVO: Gera HTML dos documentos para exibição
-    $documentosHtml = gerarHtmlDocumentosAdmin($documentosAluno, $statusDocumentos, $tiposDocumentos, $alunoId);
-    
-    // Monta resposta completa
+    // 🔧 CORREÇÃO 3: Monta resposta completa com documentos
     $response = [
         'success' => true,
         'aluno' => [
@@ -262,7 +294,6 @@ try {
             'dias_inativo' => $diasInativo,
             'ativo' => $ativo,
             'observacoes' => $aluno['observacoes'] ?? null,
-            // ✅ NOVO: Status dos documentos
             'documentos_completos' => $aluno['documentos_completos'] ?? false,
             'documentos_data_atualizacao' => $aluno['documentos_data_atualizacao'] ?? null
         ],
@@ -298,21 +329,23 @@ try {
         ],
         
         'boletos' => $boletosFormatados,
-        
         'atividades' => $atividadesFormatadas,
         
-        // ✅ NOVO: Seção completa de documentos
+        // 🔧 CORREÇÃO 4: Seção de documentos SEMPRE presente
         'documentos' => [
+            'ativo' => $documentosServiceExiste,
             'enviados' => $documentosAluno,
             'status' => $statusDocumentos,
             'tipos' => $tiposDocumentos,
-            'html' => $documentosHtml
+            'html' => $documentosHtml,
+            'total_enviados' => count($documentosAluno),
+            'total_tipos' => count($tiposDocumentos)
         ],
         
         'resumo' => [
             'situacao_geral' => getSituacaoGeral($aluno, $estatisticas, $ativo),
             'proximas_acoes' => getProximasAcoes($aluno, $estatisticas, $ativo),
-            'alertas' => getAlertas($aluno, $estatisticas, $ativo, $temBoletosVencidos)
+            'alertas' => getAlertas($aluno, $estatisticas, $ativo, $temBoletosVencidos, $statusDocumentos)
         ],
         
         'acoes_disponiveis' => getAcoesDisponiveisAdmin($aluno, $estatisticas),
@@ -320,17 +353,21 @@ try {
         'meta' => [
             'gerado_em' => date('Y-m-d H:i:s'),
             'admin_id' => $_SESSION['admin_id'],
-            'versao_api' => '2.0' // ✅ NOVO: Incrementada para incluir documentos
+            'versao_api' => '2.1',
+            'documentos_service_ativo' => $documentosServiceExiste
         ]
     ];
     
     // Registra acesso aos detalhes
     registrarLogAcessoDetalhes($alunoId);
     
+    error_log("Admin API: Resposta montada com sucesso - " . strlen(json_encode($response)) . " bytes");
+    
     echo json_encode($response, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
     
 } catch (Exception $e) {
     error_log("API Detalhes Aluno: ERRO - " . $e->getMessage());
+    error_log("Stack trace: " . $e->getTraceAsString());
     
     $httpCode = 400;
     
@@ -346,18 +383,25 @@ try {
         'success' => false,
         'message' => $e->getMessage(),
         'error_code' => $httpCode,
-        'timestamp' => date('Y-m-d H:i:s')
+        'timestamp' => date('Y-m-d H:i:s'),
+        'debug' => [
+            'file' => basename($e->getFile()),
+            'line' => $e->getLine(),
+            'admin_id' => $_SESSION['admin_id'] ?? 'null'
+        ]
     ], JSON_UNESCAPED_UNICODE);
 }
 
 // =====================================
-// ✅ NOVA FUNÇÃO: GERAR HTML DOS DOCUMENTOS
+// 🔧 CORREÇÃO 5: FUNÇÃO PARA GERAR HTML DOS DOCUMENTOS
 // =====================================
 
 /**
  * Gera HTML para exibir documentos no painel admin
  */
 function gerarHtmlDocumentosAdmin($documentos, $status, $tiposDocumentos, $alunoId) {
+    error_log("Gerando HTML documentos para aluno $alunoId - " . count($documentos) . " documentos");
+    
     $html = '';
     
     // Cabeçalho da seção
@@ -366,40 +410,58 @@ function gerarHtmlDocumentosAdmin($documentos, $status, $tiposDocumentos, $aluno
     <div class="row mb-4">
         <div class="col-12">
             <h6 class="text-primary mb-3">
-                <i class="fas fa-folder-open"></i> Documentos Enviados
-                <small class="text-muted">(' . $status['enviados'] . ' de ' . $status['total_tipos'] . ')</small>
-            </h6>
-            
-            <!-- Status Geral dos Documentos -->
+                <i class="fas fa-folder-open"></i> Documentos do Aluno
+                <small class="text-muted">(' . count($documentos) . ' enviados)</small>
+            </h6>';
+    
+    // Status geral (se houver tipos de documentos configurados)
+    if (!empty($tiposDocumentos)) {
+        $enviados = count($documentos);
+        $totalTipos = count($tiposDocumentos);
+        $aprovados = 0;
+        $pendentes = 0;
+        $rejeitados = 0;
+        
+        foreach ($documentos as $doc) {
+            switch ($doc['status']) {
+                case 'aprovado': $aprovados++; break;
+                case 'rejeitado': $rejeitados++; break;
+                default: $pendentes++; break;
+            }
+        }
+        
+        $percentual = $totalTipos > 0 ? round(($enviados / $totalTipos) * 100) : 0;
+        
+        $html .= '
             <div class="card bg-light mb-3">
                 <div class="card-body">
                     <div class="row text-center">
                         <div class="col-3">
-                            <h6 class="mb-1 text-primary">' . $status['enviados'] . '</h6>
+                            <h6 class="mb-1 text-primary">' . $enviados . '</h6>
                             <small class="text-muted">Enviados</small>
                         </div>
                         <div class="col-3">
-                            <h6 class="mb-1 text-success">' . $status['aprovados'] . '</h6>
+                            <h6 class="mb-1 text-success">' . $aprovados . '</h6>
                             <small class="text-muted">Aprovados</small>
                         </div>
                         <div class="col-3">
-                            <h6 class="mb-1 text-warning">' . $status['pendentes'] . '</h6>
+                            <h6 class="mb-1 text-warning">' . $pendentes . '</h6>
                             <small class="text-muted">Pendentes</small>
                         </div>
                         <div class="col-3">
-                            <h6 class="mb-1 text-danger">' . $status['rejeitados'] . '</h6>
+                            <h6 class="mb-1 text-danger">' . $rejeitados . '</h6>
                             <small class="text-muted">Rejeitados</small>
                         </div>
                     </div>
-                    
                     <div class="progress mt-2" style="height: 6px;">
-                        <div class="progress-bar bg-success" style="width: ' . $status['percentual_completo'] . '%"></div>
+                        <div class="progress-bar bg-success" style="width: ' . $percentual . '%"></div>
                     </div>
                     <small class="text-muted d-block text-center mt-1">
-                        ' . $status['percentual_completo'] . '% dos documentos obrigatórios enviados
+                        ' . $percentual . '% dos tipos de documentos enviados
                     </small>
                 </div>
             </div>';
+    }
     
     // Lista de documentos
     if (!empty($documentos)) {
@@ -420,6 +482,10 @@ function gerarHtmlDocumentosAdmin($documentos, $status, $tiposDocumentos, $aluno
                 'rejeitado' => 'fas fa-times'
             ][$documento['status']] ?? 'fas fa-question';
             
+            $tamanhoFormatado = isset($documento['tamanho_formatado']) ? 
+                $documento['tamanho_formatado'] : 
+                formatarTamanhoArquivo($documento['tamanho_arquivo'] ?? 0);
+            
             $html .= '
             <div class="col-md-6 mb-3">
                 <div class="card h-100">
@@ -438,14 +504,14 @@ function gerarHtmlDocumentosAdmin($documentos, $status, $tiposDocumentos, $aluno
                                     <span class="badge bg-' . $statusColor . '">
                                         <i class="' . $statusIcon . ' me-1"></i>' . ucfirst($documento['status']) . '
                                     </span>
-                                    <small class="text-muted">' . $documento['tamanho_formatado'] . '</small>
+                                    <small class="text-muted">' . $tamanhoFormatado . '</small>
                                 </div>
                                 
                                 <small class="text-muted d-block">
                                     Enviado: ' . date('d/m/Y H:i', strtotime($documento['data_upload'])) . '
                                 </small>
                                 
-                                ' . ($documento['observacoes'] ? '
+                                ' . (!empty($documento['observacoes']) ? '
                                 <div class="alert alert-info p-2 mt-2">
                                     <small><strong>Obs:</strong> ' . htmlspecialchars($documento['observacoes']) . '</small>
                                 </div>
@@ -477,31 +543,40 @@ function gerarHtmlDocumentosAdmin($documentos, $status, $tiposDocumentos, $aluno
         }
         
         $html .= '</div>';
-    }
-    
-    // Documentos faltando
-    $documentosFaltando = [];
-    foreach ($tiposDocumentos as $tipo => $info) {
-        if (!isset($documentos[$tipo]) && $info['obrigatorio']) {
-            $documentosFaltando[] = $info['nome'];
-        }
-    }
-    
-    if (!empty($documentosFaltando)) {
+    } else {
+        // Nenhum documento enviado
         $html .= '
-        <div class="alert alert-warning">
-            <h6><i class="fas fa-exclamation-triangle"></i> Documentos Obrigatórios Pendentes:</h6>
-            <ul class="mb-0">
-                ' . implode('', array_map(function($doc) { return '<li>' . $doc . '</li>'; }, $documentosFaltando)) . '
-            </ul>
+        <div class="alert alert-info">
+            <h6><i class="fas fa-info-circle"></i> Nenhum documento enviado</h6>
+            <p class="mb-0">Este aluno ainda não enviou nenhum documento.</p>
         </div>';
     }
     
-    // ✅ NOVO: Ações específicas para documentos
+    // Documentos faltando (se houver tipos configurados)
+    if (!empty($tiposDocumentos)) {
+        $documentosFaltando = [];
+        foreach ($tiposDocumentos as $tipo => $info) {
+            if (!isset($documentos[$tipo]) && ($info['obrigatorio'] ?? false)) {
+                $documentosFaltando[] = $info['nome'];
+            }
+        }
+        
+        if (!empty($documentosFaltando)) {
+            $html .= '
+            <div class="alert alert-warning">
+                <h6><i class="fas fa-exclamation-triangle"></i> Documentos Obrigatórios Pendentes:</h6>
+                <ul class="mb-0">
+                    ' . implode('', array_map(function($doc) { return '<li>' . htmlspecialchars($doc) . '</li>'; }, $documentosFaltando)) . '
+                </ul>
+            </div>';
+        }
+    }
+    
+    // Ações para documentos
     $html .= '
         <div class="d-grid gap-2 d-md-flex justify-content-md-end mt-3">
             <button class="btn btn-outline-primary btn-sm" onclick="window.open(\'/admin/documentos.php?aluno_id=' . $alunoId . '\', \'_blank\')">
-                <i class="fas fa-external-link-alt"></i> Ver Todos os Documentos
+                <i class="fas fa-external-link-alt"></i> Gerenciar Documentos
             </button>
             <button class="btn btn-outline-info btn-sm" onclick="notificarAluno(' . $alunoId . ', \'documentos\')">
                 <i class="fas fa-bell"></i> Notificar Aluno
@@ -512,11 +587,27 @@ function gerarHtmlDocumentosAdmin($documentos, $status, $tiposDocumentos, $aluno
         </div>
     </div>';
     
+    error_log("HTML gerado: " . strlen($html) . " caracteres");
     return $html;
 }
 
+/**
+ * Formatar tamanho do arquivo
+ */
+function formatarTamanhoArquivo($bytes) {
+    $units = ['B', 'KB', 'MB', 'GB'];
+    $i = 0;
+    
+    while ($bytes >= 1024 && $i < count($units) - 1) {
+        $bytes /= 1024;
+        $i++;
+    }
+    
+    return round($bytes, 2) . ' ' . $units[$i];
+}
+
 // =====================================
-// FUNÇÕES EXISTENTES (MANTIDAS)
+// FUNÇÕES AUXILIARES (MANTIDAS DO ORIGINAL)
 // =====================================
 
 /**
@@ -588,7 +679,6 @@ function getTipoAtividadeLabel($tipo) {
         'aluno_sincronizado' => 'Dados Sincronizados',
         'aluno_editado' => 'Dados Editados',
         'detalhes_visualizado' => 'Detalhes Visualizados',
-        // ✅ NOVO: Labels para documentos
         'documento_upload' => 'Documento Enviado',
         'documento_aprovado' => 'Documento Aprovado',
         'documento_rejeitado' => 'Documento Rejeitado',
@@ -687,7 +777,6 @@ function getProximasAcoes($aluno, $estatisticas, $ativo) {
         ];
     }
     
-    // Se não tem boletos, pode precisar de novos
     $totalBoletos = intval($estatisticas['total_boletos']);
     if ($totalBoletos == 0) {
         $acoes[] = [
@@ -698,7 +787,6 @@ function getProximasAcoes($aluno, $estatisticas, $ativo) {
         ];
     }
     
-    // Verificar se dados estão atualizados (mais de 60 dias)
     $ultimaAtualizacao = strtotime($aluno['updated_at'] ?? $aluno['created_at']);
     if ((time() - $ultimaAtualizacao) > (60 * 24 * 60 * 60)) {
         $acoes[] = [
@@ -713,9 +801,9 @@ function getProximasAcoes($aluno, $estatisticas, $ativo) {
 }
 
 /**
- * Obtém alertas importantes
+ * Obtém alertas importantes (CORRIGIDA para incluir documentos)
  */
-function getAlertas($aluno, $estatisticas, $ativo, $temBoletosVencidos) {
+function getAlertas($aluno, $estatisticas, $ativo, $temBoletosVencidos, $statusDocumentos = []) {
     $alertas = [];
     
     if (!$ativo) {
@@ -742,7 +830,6 @@ function getAlertas($aluno, $estatisticas, $ativo, $temBoletosVencidos) {
         ];
     }
     
-    // Verifica se email está preenchido
     if (empty($aluno['email']) || !filter_var($aluno['email'], FILTER_VALIDATE_EMAIL)) {
         $alertas[] = [
             'tipo' => 'dados_incompletos',
@@ -752,7 +839,6 @@ function getAlertas($aluno, $estatisticas, $ativo, $temBoletosVencidos) {
         ];
     }
     
-    // Verifica se CPF está válido
     if (!validarCPF($aluno['cpf'])) {
         $alertas[] = [
             'tipo' => 'dados_invalidos',
@@ -762,21 +848,19 @@ function getAlertas($aluno, $estatisticas, $ativo, $temBoletosVencidos) {
         ];
     }
     
-    // ✅ NOVO: Alerta para documentos incompletos
-    try {
-        $documentosService = new DocumentosService();
-        $statusDocumentos = $documentosService->getStatusDocumentosAluno($aluno['id']);
-        
-        if ($statusDocumentos['percentual_completo'] < 100) {
+    // Alertas para documentos
+    if (!empty($statusDocumentos)) {
+        if (($statusDocumentos['percentual_completo'] ?? 0) < 100) {
+            $faltando = count($statusDocumentos['faltando'] ?? []);
             $alertas[] = [
                 'tipo' => 'documentos_incompletos',
                 'titulo' => 'Documentos Incompletos',
-                'mensagem' => "Faltam " . count($statusDocumentos['faltando']) . " documento(s) obrigatório(s)",
+                'mensagem' => "Faltam {$faltando} documento(s) obrigatório(s)",
                 'severidade' => 'warning'
             ];
         }
         
-        if ($statusDocumentos['rejeitados'] > 0) {
+        if (($statusDocumentos['rejeitados'] ?? 0) > 0) {
             $alertas[] = [
                 'tipo' => 'documentos_rejeitados',
                 'titulo' => 'Documentos Rejeitados',
@@ -784,9 +868,6 @@ function getAlertas($aluno, $estatisticas, $ativo, $temBoletosVencidos) {
                 'severidade' => 'danger'
             ];
         }
-        
-    } catch (Exception $e) {
-        // Se falhar, não adiciona alerta de documentos
     }
     
     return $alertas;
@@ -798,7 +879,6 @@ function getAlertas($aluno, $estatisticas, $ativo, $temBoletosVencidos) {
 function getAcoesDisponiveisAdmin($aluno, $estatisticas) {
     $acoes = [];
     
-    // Sincronizar sempre disponível
     $acoes[] = [
         'tipo' => 'sincronizar',
         'label' => 'Sincronizar com Moodle',
@@ -806,7 +886,6 @@ function getAcoesDisponiveisAdmin($aluno, $estatisticas) {
         'classe' => 'btn-info'
     ];
     
-    // Editar sempre disponível
     $acoes[] = [
         'tipo' => 'editar',
         'label' => 'Editar Dados',
@@ -814,7 +893,6 @@ function getAcoesDisponiveisAdmin($aluno, $estatisticas) {
         'classe' => 'btn-secondary'
     ];
     
-    // Ver boletos sempre disponível
     $acoes[] = [
         'tipo' => 'ver_boletos',
         'label' => 'Ver Todos os Boletos',
@@ -822,7 +900,6 @@ function getAcoesDisponiveisAdmin($aluno, $estatisticas) {
         'classe' => 'btn-primary'
     ];
     
-    // Criar boleto sempre disponível
     $acoes[] = [
         'tipo' => 'criar_boleto',
         'label' => 'Criar Novo Boleto',
@@ -830,7 +907,6 @@ function getAcoesDisponiveisAdmin($aluno, $estatisticas) {
         'classe' => 'btn-success'
     ];
     
-    // ✅ NOVO: Ações para documentos
     $acoes[] = [
         'tipo' => 'ver_documentos',
         'label' => 'Gerenciar Documentos',
@@ -838,7 +914,6 @@ function getAcoesDisponiveisAdmin($aluno, $estatisticas) {
         'classe' => 'btn-warning'
     ];
     
-    // Exportar dados sempre disponível
     $acoes[] = [
         'tipo' => 'exportar',
         'label' => 'Exportar Dados',
@@ -846,7 +921,6 @@ function getAcoesDisponiveisAdmin($aluno, $estatisticas) {
         'classe' => 'btn-outline-secondary'
     ];
     
-    // Ações específicas baseadas no status
     $boletosVencidos = intval($estatisticas['boletos_vencidos']);
     if ($boletosVencidos > 0) {
         $acoes[] = [
@@ -901,7 +975,7 @@ function registrarLogAcessoDetalhes($alunoId) {
         $stmt->execute([
             'admin_detalhes_aluno',
             $_SESSION['admin_id'],
-            null, // Não é específico de um boleto
+            null,
             $descricao,
             $_SERVER['REMOTE_ADDR'] ?? 'unknown',
             substr($_SERVER['HTTP_USER_AGENT'] ?? 'unknown', 0, 255)
@@ -910,362 +984,6 @@ function registrarLogAcessoDetalhes($alunoId) {
     } catch (Exception $e) {
         error_log("Erro ao registrar log de acesso aos detalhes: " . $e->getMessage());
     }
-}
-
-/**
- * Obtém informações complementares do Moodle (se necessário)
- */
-function obterInformacoesMoodle($aluno) {
-    try {
-        require_once '../../src/MoodleAPI.php';
-        
-        $moodleAPI = new MoodleAPI($aluno['subdomain']);
-        
-        // Busca perfil atualizado no Moodle
-        $perfilMoodle = $moodleAPI->buscarPerfilUsuario($aluno['moodle_user_id']);
-        
-        if ($perfilMoodle) {
-            return [
-                'conectado' => true,
-                'ultimo_acesso_moodle' => $perfilMoodle['ultimo_acesso'],
-                'foto_perfil' => $perfilMoodle['foto_perfil'],
-                'descricao' => $perfilMoodle['descricao'],
-                'telefone1' => $perfilMoodle['telefone1'],
-                'telefone2' => $perfilMoodle['telefone2'],
-                'endereco' => $perfilMoodle['endereco']
-            ];
-        }
-        
-        return ['conectado' => false, 'erro' => 'Perfil não encontrado'];
-        
-    } catch (Exception $e) {
-        error_log("Erro ao buscar informações do Moodle: " . $e->getMessage());
-        return ['conectado' => false, 'erro' => $e->getMessage()];
-    }
-}
-
-/**
- * Calcula métricas avançadas do aluno
- */
-function calcularMetricasAvancadas($aluno, $estatisticas, $boletos) {
-    $metricas = [];
-    
-    // Frequência de pagamentos
-    $boletosPagos = array_filter($boletos, function($b) {
-        return $b['status'] === 'pago';
-    });
-    
-    if (count($boletosPagos) > 1) {
-        $datasPagamento = array_map(function($b) {
-            return strtotime($b['data_pagamento']);
-        }, $boletosPagos);
-        
-        sort($datasPagamento);
-        $intervalos = [];
-        
-        for ($i = 1; $i < count($datasPagamento); $i++) {
-            $intervalos[] = ($datasPagamento[$i] - $datasPagamento[$i-1]) / (60*60*24);
-        }
-        
-        $metricas['intervalo_medio_pagamentos'] = round(array_sum($intervalos) / count($intervalos));
-    }
-    
-    // Pontualidade nos pagamentos
-    $pagamentosEmDia = 0;
-    $pagamentosAtrasados = 0;
-    
-    foreach ($boletosPagos as $boleto) {
-        if ($boleto['data_pagamento'] && $boleto['vencimento']) {
-            if (strtotime($boleto['data_pagamento']) <= strtotime($boleto['vencimento'])) {
-                $pagamentosEmDia++;
-            } else {
-                $pagamentosAtrasados++;
-            }
-        }
-    }
-    
-    $totalPagamentos = $pagamentosEmDia + $pagamentosAtrasados;
-    if ($totalPagamentos > 0) {
-        $metricas['percentual_pontualidade'] = round(($pagamentosEmDia / $totalPagamentos) * 100, 2);
-    }
-    
-    // Valor médio dos boletos
-    $valores = array_map(function($b) { return floatval($b['valor']); }, $boletos);
-    if (!empty($valores)) {
-        $metricas['valor_medio_boletos'] = array_sum($valores) / count($valores);
-        $metricas['valor_maior_boleto'] = max($valores);
-        $metricas['valor_menor_boleto'] = min($valores);
-    }
-    
-    // Tempo médio para pagamento
-    $temposPagamento = [];
-    foreach ($boletosPagos as $boleto) {
-        if ($boleto['data_pagamento'] && $boleto['created_at']) {
-            $diasPagamento = (strtotime($boleto['data_pagamento']) - strtotime($boleto['created_at'])) / (60*60*24);
-            $temposPagamento[] = $diasPagamento;
-        }
-    }
-    
-    if (!empty($temposPagamento)) {
-        $metricas['tempo_medio_pagamento'] = round(array_sum($temposPagamento) / count($temposPagamento), 1);
-    }
-    
-    return $metricas;
-}
-
-/**
- * Gera recomendações personalizadas para o aluno
- */
-function gerarRecomendacoes($aluno, $estatisticas, $ativo, $metricas = []) {
-    $recomendacoes = [];
-    
-    // Recomendações baseadas no status de atividade
-    if (!$ativo) {
-        $recomendacoes[] = [
-            'categoria' => 'engajamento',
-            'titulo' => 'Reativar Aluno',
-            'descricao' => 'Entrar em contato para verificar dificuldades e oferecer suporte',
-            'prioridade' => 'alta',
-            'acoes' => ['Ligar para o aluno', 'Enviar email de suporte', 'Verificar problemas técnicos']
-        ];
-    }
-    
-    // Recomendações financeiras
-    $boletosVencidos = intval($estatisticas['boletos_vencidos']);
-    if ($boletosVencidos > 0) {
-        $recomendacoes[] = [
-            'categoria' => 'financeiro',
-            'titulo' => 'Regularizar Inadimplência',
-            'descricao' => "Negociar pagamento de {$boletosVencidos} boleto(s) vencido(s)",
-            'prioridade' => 'alta',
-            'acoes' => ['Oferecer desconto', 'Parcelamento', 'Renegociar valores']
-        ];
-    }
-    
-    // Recomendações de pontualidade
-    if (isset($metricas['percentual_pontualidade']) && $metricas['percentual_pontualidade'] < 70) {
-        $recomendacoes[] = [
-            'categoria' => 'pontualidade',
-            'titulo' => 'Melhorar Pontualidade',
-            'descricao' => 'Implementar lembretes automáticos de vencimento',
-            'prioridade' => 'media',
-            'acoes' => ['Configurar alertas por email', 'SMS de lembrete', 'Desconto por pontualidade']
-        ];
-    }
-    
-    // Recomendações de dados
-    if (empty($aluno['city']) || !filter_var($aluno['email'], FILTER_VALIDATE_EMAIL)) {
-        $recomendacoes[] = [
-            'categoria' => 'dados',
-            'titulo' => 'Atualizar Informações',
-            'descricao' => 'Solicitar atualização de dados pessoais incompletos',
-            'prioridade' => 'baixa',
-            'acoes' => ['Enviar formulário de atualização', 'Ligar para confirmar dados']
-        ];
-    }
-    
-    // ✅ NOVO: Recomendações para documentos
-    try {
-        $documentosService = new DocumentosService();
-        $statusDocumentos = $documentosService->getStatusDocumentosAluno($aluno['id']);
-        
-        if ($statusDocumentos['percentual_completo'] < 100) {
-            $recomendacoes[] = [
-                'categoria' => 'documentos',
-                'titulo' => 'Completar Documentação',
-                'descricao' => 'Solicitar envio dos documentos obrigatórios faltantes',
-                'prioridade' => 'alta',
-                'acoes' => ['Enviar lista de documentos faltantes', 'Ligar para orientar', 'Notificar por email']
-            ];
-        }
-        
-        if ($statusDocumentos['rejeitados'] > 0) {
-            $recomendacoes[] = [
-                'categoria' => 'documentos',
-                'titulo' => 'Reenviar Documentos Rejeitados',
-                'descricao' => 'Orientar sobre correções necessárias nos documentos rejeitados',
-                'prioridade' => 'alta',
-                'acoes' => ['Explicar motivos da rejeição', 'Orientar sobre correções', 'Acompanhar reenvio']
-            ];
-        }
-        
-    } catch (Exception $e) {
-        // Se falhar, não adiciona recomendações de documentos
-    }
-    
-    return $recomendacoes;
-}
-
-/**
- * Busca estatísticas comparativas (aluno vs média da turma/polo)
- */
-function obterEstatisticasComparativas($aluno, $estatisticas) {
-    try {
-        $db = (new Database())->getConnection();
-        
-        // Média do polo
-        $stmtPolo = $db->prepare("
-            SELECT 
-                AVG(sub.total_boletos) as media_boletos_polo,
-                AVG(sub.percentual_pagos) as media_pagamentos_polo,
-                AVG(sub.valor_total) as media_valor_polo
-            FROM (
-                SELECT 
-                    a.id,
-                    COUNT(b.id) as total_boletos,
-                    CASE 
-                        WHEN COUNT(b.id) > 0 
-                        THEN (COUNT(CASE WHEN b.status = 'pago' THEN 1 END) * 100.0 / COUNT(b.id))
-                        ELSE 0 
-                    END as percentual_pagos,
-                    COALESCE(SUM(b.valor), 0) as valor_total
-                FROM alunos a
-                LEFT JOIN boletos b ON a.id = b.aluno_id
-                WHERE a.subdomain = ?
-                GROUP BY a.id
-            ) sub
-        ");
-        $stmtPolo->execute([$aluno['subdomain']]);
-        $mediaPolo = $stmtPolo->fetch(PDO::FETCH_ASSOC);
-        
-        // Posição do aluno no ranking do polo
-        $stmtRanking = $db->prepare("
-            SELECT COUNT(*) + 1 as posicao_polo
-            FROM (
-                SELECT 
-                    a.id,
-                    COUNT(CASE WHEN b.status = 'pago' THEN 1 END) as boletos_pagos
-                FROM alunos a
-                LEFT JOIN boletos b ON a.id = b.aluno_id
-                WHERE a.subdomain = ?
-                GROUP BY a.id
-                HAVING boletos_pagos > ?
-            ) ranking
-        ");
-        $stmtRanking->execute([$aluno['subdomain'], intval($estatisticas['boletos_pagos'])]);
-        $ranking = $stmtRanking->fetch(PDO::FETCH_ASSOC);
-        
-        return [
-            'media_boletos_polo' => round(floatval($mediaPolo['media_boletos_polo'] ?? 0), 1),
-            'media_pagamentos_polo' => round(floatval($mediaPolo['media_pagamentos_polo'] ?? 0), 1),
-            'media_valor_polo' => round(floatval($mediaPolo['media_valor_polo'] ?? 0), 2),
-            'posicao_ranking_polo' => intval($ranking['posicao_polo'] ?? 0)
-        ];
-        
-    } catch (Exception $e) {
-        error_log("Erro ao calcular estatísticas comparativas: " . $e->getMessage());
-        return [];
-    }
-}
-
-/**
- * Função principal para enriquecer dados (se solicitado via parâmetro)
- */
-function enriquecerDados($aluno, $estatisticas, $boletos) {
-    $dadosEnriquecidos = [];
-    
-    // Verifica se deve buscar dados do Moodle
-    if (isset($_GET['incluir_moodle']) && $_GET['incluir_moodle'] === 'true') {
-        $dadosEnriquecidos['moodle'] = obterInformacoesMoodle($aluno);
-    }
-    
-    // Verifica se deve calcular métricas avançadas
-    if (isset($_GET['incluir_metricas']) && $_GET['incluir_metricas'] === 'true') {
-        $dadosEnriquecidos['metricas_avancadas'] = calcularMetricasAvancadas($aluno, $estatisticas, $boletos);
-    }
-    
-    // Verifica se deve gerar recomendações
-    if (isset($_GET['incluir_recomendacoes']) && $_GET['incluir_recomendacoes'] === 'true') {
-        $ativo = $aluno['ultimo_acesso'] && 
-                 (time() - strtotime($aluno['ultimo_acesso'])) < (30 * 24 * 60 * 60);
-        
-        $metricas = $dadosEnriquecidos['metricas_avancadas'] ?? [];
-        $dadosEnriquecidos['recomendacoes'] = gerarRecomendacoes($aluno, $estatisticas, $ativo, $metricas);
-    }
-    
-    // Verifica se deve incluir comparações
-    if (isset($_GET['incluir_comparacoes']) && $_GET['incluir_comparacoes'] === 'true') {
-        $dadosEnriquecidos['comparacoes'] = obterEstatisticasComparativas($aluno, $estatisticas);
-    }
-    
-    return $dadosEnriquecidos;
-}
-
-/**
- * Função para validar permissões específicas do administrador
- */
-function validarPermissoesAdmin($adminId, $alunoId) {
-    try {
-        $db = (new Database())->getConnection();
-        
-        // Busca nível do administrador
-        $stmt = $db->prepare("SELECT nivel FROM administradores WHERE id = ?");
-        $stmt->execute([$adminId]);
-        $admin = $stmt->fetch();
-        
-        if (!$admin) {
-            return false;
-        }
-        
-        // Super admins podem ver qualquer aluno
-        if (in_array($admin['nivel'], ['super_admin', 'master'])) {
-            return true;
-        }
-        
-        // Admins normais podem ver alunos (implementar restrições específicas se necessário)
-        return true;
-        
-    } catch (Exception $e) {
-        error_log("Erro ao validar permissões: " . $e->getMessage());
-        return false;
-    }
-}
-
-/**
- * Função para logging detalhado de ações administrativas
- */
-function logAcaoAdministrativa($acao, $alunoId, $detalhes = []) {
-    try {
-        $db = (new Database())->getConnection();
-        
-        $stmt = $db->prepare("
-            INSERT INTO logs_administrativos (
-                admin_id, acao, aluno_id, detalhes, 
-                ip_address, user_agent, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, NOW())
-        ");
-        
-        $stmt->execute([
-            $_SESSION['admin_id'],
-            $acao,
-            $alunoId,
-            json_encode($detalhes),
-            $_SERVER['REMOTE_ADDR'] ?? 'unknown',
-            $_SERVER['HTTP_USER_AGENT'] ?? 'unknown'
-        ]);
-        
-    } catch (Exception $e) {
-        // Tabela pode não existir, continua normalmente
-        error_log("Log administrativo não pôde ser salvo: " . $e->getMessage());
-    }
-}
-
-/**
- * Função de cache para otimizar consultas frequentes
- */
-function obterDadosCache($chave) {
-    $cacheFile = sys_get_temp_dir() . '/imed_cache_' . md5($chave) . '.json';
-    
-    if (file_exists($cacheFile) && (time() - filemtime($cacheFile)) < 300) { // 5 minutos
-        return json_decode(file_get_contents($cacheFile), true);
-    }
-    
-    return null;
-}
-
-function salvarDadosCache($chave, $dados) {
-    $cacheFile = sys_get_temp_dir() . '/imed_cache_' . md5($chave) . '.json';
-    file_put_contents($cacheFile, json_encode($dados));
 }
 
 // Log da execução para debug

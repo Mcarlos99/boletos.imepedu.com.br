@@ -1,7 +1,7 @@
 <?php
 /**
  * Sistema de Boletos IMEPEDU - Serviço de Documentos dos Alunos
- * Arquivo: src/DocumentosService.php
+ * Arquivo: src/DocumentosService.php - VERSÃO LIMPA SEM DUPLICAÇÕES
  */
 
 require_once __DIR__ . '/../config/database.php';
@@ -326,19 +326,102 @@ class DocumentosService {
     }
     
     /**
-     * Atualiza status dos documentos do aluno
+     * 🆕 MÉTODO PÚBLICO: Atualiza status dos documentos do aluno
      */
-    private function atualizarStatusDocumentosAluno($alunoId) {
-        $status = $this->getStatusDocumentosAluno($alunoId);
-        
-        $completo = ($status['obrigatorios_enviados'] >= $status['total_obrigatorios']);
-        
-        $stmt = $this->db->prepare("
-            UPDATE alunos 
-            SET documentos_completos = ?, documentos_data_atualizacao = NOW()
-            WHERE id = ?
-        ");
-        $stmt->execute([$completo ? 1 : 0, $alunoId]);
+    public function atualizarStatusDocumentosAluno($alunoId) {
+        try {
+            $status = $this->getStatusDocumentosAluno($alunoId);
+            
+            $completo = ($status['obrigatorios_enviados'] >= $status['total_obrigatorios']);
+            
+            $stmt = $this->db->prepare("
+                UPDATE alunos 
+                SET documentos_completos = ?, 
+                    documentos_data_atualizacao = NOW()
+                WHERE id = ?
+            ");
+            
+            $stmt->execute([
+                $completo ? 1 : 0, 
+                $alunoId
+            ]);
+
+            error_log("📋 Status documentos atualizado para aluno {$alunoId}: " .
+                      "Completo: " . ($completo ? 'SIM' : 'NÃO') . ", " .
+                      "Enviados: {$status['enviados']}, " .
+                      "Aprovados: {$status['aprovados']}");
+
+            return true;
+
+        } catch (Exception $e) {
+            error_log("❌ Erro ao atualizar status documentos aluno {$alunoId}: " . $e->getMessage());
+            return false;
+        }
+    }
+    
+    /**
+     * 🆕 MÉTODO: Força recarregamento dos documentos do aluno
+     */
+    public function recarregarDocumentosAluno($alunoId) {
+        try {
+            // Recarrega status
+            $status = $this->getStatusDocumentosAluno($alunoId);
+            
+            // Atualiza na base
+            $this->atualizarStatusDocumentosAluno($alunoId);
+
+            // Retorna documentos atualizados
+            $documentos = $this->listarDocumentosAluno($alunoId);
+
+            return [
+                'success' => true,
+                'documentos' => $documentos,
+                'status' => $status,
+                'recarregado_em' => date('Y-m-d H:i:s')
+            ];
+
+        } catch (Exception $e) {
+            error_log("❌ Erro ao recarregar documentos aluno {$alunoId}: " . $e->getMessage());
+            return [
+                'success' => false,
+                'message' => $e->getMessage()
+            ];
+        }
+    }
+    
+    /**
+     * 🆕 MÉTODO: Verifica se aluno tem documentos válidos em sessão
+     */
+    public function verificarConsistenciaDocumentos($alunoId) {
+        try {
+            // 1. Busca na base de dados
+            $stmt = $this->db->prepare("
+                SELECT COUNT(*) as total_db,
+                       COUNT(CASE WHEN status = 'aprovado' THEN 1 END) as aprovados_db,
+                       MAX(data_upload) as ultimo_upload
+                FROM alunos_documentos 
+                WHERE aluno_id = ?
+            ");
+            $stmt->execute([$alunoId]);
+            $dadosDB = $stmt->fetch();
+
+            // 2. Busca status calculado
+            $status = $this->getStatusDocumentosAluno($alunoId);
+
+            // 3. Verifica consistência
+            $consistente = ($dadosDB['total_db'] == $status['enviados']);
+
+            return [
+                'consistente' => $consistente,
+                'dados_db' => $dadosDB,
+                'status_calculado' => $status,
+                'verificado_em' => date('Y-m-d H:i:s')
+            ];
+
+        } catch (Exception $e) {
+            error_log("❌ Erro verificação consistência documentos: " . $e->getMessage());
+            return ['consistente' => false, 'erro' => $e->getMessage()];
+        }
     }
     
     /**
@@ -548,3 +631,4 @@ class DocumentosService {
         ];
     }
 }
+?>
