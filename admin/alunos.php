@@ -401,6 +401,12 @@ $estatisticas = obterEstatisticasAlunos();
                     Alunos
                 </a>
             </div>
+          <div class="nav-item">
+    			<a href="/admin/documentos.php" class="nav-link">
+        			<i class="fas fa-folder-open"></i>
+        			Documentos
+    			</a>
+		</div>
             <div class="nav-item">
                 <a href="/admin/cursos.php" class="nav-link">
                     <i class="fas fa-book"></i>
@@ -1880,6 +1886,441 @@ window.verDetalhes = function(alunoId) {
         originalVerDetalhes(alunoId);
     }
 };
+      
+      /**
+ * Download de documento pelo admin
+ */
+function downloadDocumentoAdmin(documentoId) {
+    console.log('Iniciando download do documento:', documentoId);
+    showToast('Preparando download...', 'info');
+    
+    const link = document.createElement('a');
+    link.href = `/api/download-documento.php?id=${documentoId}`;
+    link.target = '_blank';
+    
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    setTimeout(() => {
+        showToast('Download iniciado!', 'success');
+    }, 500);
+}
+
+/**
+ * ADICIONAR ESSAS FUNÇÕES NO JAVASCRIPT DO admin/alunos.php
+ * INSERIR DENTRO DO <script> EXISTENTE, ANTES DO console.log final
+ */
+
+// =====================================
+// 🆕 FUNÇÕES PARA GESTÃO DE DOCUMENTOS
+// =====================================
+
+/**
+ * Download de documento pelo admin
+ */
+function downloadDocumentoAdmin(documentoId) {
+    console.log('Iniciando download do documento:', documentoId);
+    showToast('Preparando download...', 'info');
+    
+    const link = document.createElement('a');
+    link.href = `/api/download-documento.php?id=${documentoId}`;
+    link.target = '_blank';
+    
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    setTimeout(() => {
+        showToast('Download iniciado!', 'success');
+    }, 500);
+}
+
+/**
+ * Aprova documento
+ */
+function aprovarDocumento(documentoId) {
+    const observacoes = prompt('Observações sobre a aprovação (opcional):');
+    
+    if (observacoes !== null) { // null = cancelou
+        atualizarStatusDocumento(documentoId, 'aprovado', observacoes || '');
+    }
+}
+
+/**
+ * Rejeita documento
+ */
+function rejeitarDocumento(documentoId) {
+    const observacoes = prompt('Motivo da rejeição (obrigatório):');
+    
+    if (observacoes && observacoes.trim() !== '') {
+        atualizarStatusDocumento(documentoId, 'rejeitado', observacoes.trim());
+    } else if (observacoes !== null) {
+        showToast('Motivo da rejeição é obrigatório', 'error');
+    }
+}
+
+/**
+ * Atualiza status do documento (aprovar/rejeitar)
+ */
+function atualizarStatusDocumento(documentoId, status, observacoes) {
+    showToast('Atualizando documento...', 'info');
+    
+    fetch('/admin/api/atualizar-documento.php', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            documento_id: documentoId,
+            status: status,
+            observacoes: observacoes
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showToast(`Documento ${status}!`, 'success');
+            
+            // Recarrega detalhes do aluno para atualizar interface
+            if (currentAlunoId) {
+                setTimeout(() => {
+                    verDetalhesAluno(currentAlunoId);
+                }, 1000);
+            }
+        } else {
+            showToast('Erro: ' + data.message, 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Erro ao atualizar documento:', error);
+        showToast('Erro de conexão', 'error');
+    });
+}
+
+/**
+ * Remove documento
+ */
+function removerDocumento(documentoId) {
+    if (confirm('Tem certeza que deseja remover este documento? Esta ação não pode ser desfeita.')) {
+        showToast('Removendo documento...', 'info');
+        
+        fetch('/admin/api/remover-documento.php', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                documento_id: documentoId
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showToast('Documento removido!', 'success');
+                
+                // Recarrega detalhes do aluno
+                if (currentAlunoId) {
+                    setTimeout(() => {
+                        verDetalhesAluno(currentAlunoId);
+                    }, 1000);
+                }
+            } else {
+                showToast('Erro: ' + data.message, 'error');
+            }
+        })
+        .catch(error => {
+            console.error('Erro ao remover documento:', error);
+            showToast('Erro de conexão', 'error');
+        });
+    }
+}
+
+/**
+ * Notifica aluno sobre documentos pendentes
+ */
+function notificarAluno(alunoId, tipo = 'documentos') {
+    if (confirm('Deseja enviar notificação para o aluno sobre documentos pendentes?')) {
+        showToast('Enviando notificação...', 'info');
+        
+        fetch('/admin/api/notificar-aluno.php', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                aluno_id: alunoId,
+                tipo: tipo,
+                assunto: 'Documentos pendentes - IMEPEDU'
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showToast('Notificação enviada!', 'success');
+            } else {
+                showToast('Erro: ' + data.message, 'error');
+            }
+        })
+        .catch(error => {
+            console.error('Erro ao notificar aluno:', error);
+            showToast('Erro de conexão', 'error');
+        });
+    }
+}
+
+/**
+ * Abre página de gestão de documentos para o aluno específico
+ */
+function gerenciarDocumentosAluno(alunoId) {
+    const url = `/admin/documentos.php?aluno_id=${alunoId}&filtro=all`;
+    window.open(url, '_blank');
+}
+
+/**
+ * Exporta relatório de documentos do aluno
+ */
+function exportarDocumentosAluno(alunoId) {
+    showToast('Preparando exportação...', 'info');
+    
+    const link = document.createElement('a');
+    link.href = `/admin/api/exportar-documentos.php?aluno_id=${alunoId}&export=csv`;
+    link.download = `documentos_aluno_${alunoId}_${new Date().toISOString().split('T')[0]}.csv`;
+    link.click();
+    
+    setTimeout(() => {
+        showToast('Exportação iniciada!', 'success');
+    }, 1000);
+}
+
+/**
+ * Aprovar todos os documentos pendentes do aluno
+ */
+function aprovarTodosDocumentos(alunoId) {
+    const observacoes = prompt('Observações para aprovação em lote (opcional):');
+    
+    if (observacoes !== null) {
+        if (confirm('Confirma a aprovação de TODOS os documentos pendentes deste aluno?')) {
+            showToast('Processando aprovação em lote...', 'info');
+            
+            fetch('/admin/api/aprovar-lote-documentos.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    aluno_id: alunoId,
+                    observacoes: observacoes || 'Aprovação em lote'
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showToast(`${data.documentos_aprovados} documento(s) aprovado(s)!`, 'success');
+                    
+                    // Recarrega detalhes
+                    if (currentAlunoId) {
+                        setTimeout(() => {
+                            verDetalhesAluno(currentAlunoId);
+                        }, 1500);
+                    }
+                } else {
+                    showToast('Erro: ' + data.message, 'error');
+                }
+            })
+            .catch(error => {
+                console.error('Erro na aprovação em lote:', error);
+                showToast('Erro de conexão', 'error');
+            });
+        }
+    }
+}
+
+// =====================================
+// 🔧 MODIFICAÇÃO NA FUNÇÃO exibirDetalhesAluno
+// =====================================
+
+/**
+ * MODIFICAR A FUNÇÃO exibirDetalhesAluno EXISTENTE
+ * ADICIONAR APÓS A SEÇÃO DE ATIVIDADES e ANTES DAS AÇÕES DISPONÍVEIS:
+ * 
+ * Procurar por esta linha no HTML:
+ * <!-- Ações Disponíveis -->
+ * 
+ * E ADICIONAR ANTES DELA:
+ * ${data.documentos ? data.documentos.html : ''}
+ */
+
+// Exemplo de como deve ficar a modificação:
+/*
+                    ` : ''}
+                ${data.documentos ? data.documentos.html : ''}
+                
+                <!-- Ações Disponíveis -->
+                <div class="row">
+*/
+
+// =====================================
+// 🎯 FUNÇÃO PARA VERIFICAR DOCUMENTOS NO RESUMO
+// =====================================
+
+/**
+ * Adiciona informações de documentos no resumo do aluno
+ */
+function adicionarInfoDocumentosResumo(alunoId) {
+    // Esta função é chamada automaticamente quando os detalhes são carregados
+    // Os dados dos documentos já vêm na resposta da API
+    console.log('ℹ️ Informações de documentos incluídas no resumo do aluno');
+}
+
+// =====================================
+// 🔄 MODIFICAÇÃO NA FUNÇÃO DE AÇÕES RÁPIDAS
+// =====================================
+
+/**
+ * ADICIONAR ESTAS AÇÕES NO MENU DE AÇÕES RÁPIDAS
+ * Modificar a função onde são definidas as ações disponíveis
+ */
+
+// Exemplo de como adicionar no switch/case das ações:
+/*
+case 'ver_documentos':
+    gerenciarDocumentosAluno(currentAlunoId);
+    break;
+*/
+
+// =====================================
+// 🎨 MELHORIAS VISUAIS PARA DOCUMENTOS
+// =====================================
+
+/**
+ * Adiciona indicadores visuais para status de documentos
+ */
+function atualizarIndicadoresDocumentos(statusDocumentos) {
+    // Esta função pode ser expandida para adicionar badges/indicadores
+    // na linha da tabela principal de alunos
+    
+    if (statusDocumentos.percentual_completo === 100) {
+        return '<i class="fas fa-check-circle text-success" title="Documentos completos"></i>';
+    } else if (statusDocumentos.enviados > 0) {
+        return '<i class="fas fa-clock text-warning" title="Documentos pendentes"></i>';
+    } else {
+        return '<i class="fas fa-exclamation-triangle text-danger" title="Sem documentos"></i>';
+    }
+}
+
+/**
+ * Formata contador de documentos para exibição
+ */
+function formatarContadorDocumentos(status) {
+    const total = status.total_tipos;
+    const enviados = status.enviados;
+    const aprovados = status.aprovados;
+    
+    if (aprovados === total) {
+        return `<span class="badge bg-success">${aprovados}/${total} ✓</span>`;
+    } else if (enviados > 0) {
+        return `<span class="badge bg-warning">${enviados}/${total} ⏳</span>`;
+    } else {
+        return `<span class="badge bg-danger">0/${total} ❌</span>`;
+    }
+}
+
+// =====================================
+// 📊 ESTATÍSTICAS DE DOCUMENTOS NO DASHBOARD
+// =====================================
+
+/**
+ * Atualiza estatísticas gerais de documentos no dashboard admin
+ */
+function atualizarEstatisticasDocumentos() {
+    fetch('/admin/api/estatisticas-documentos.php')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const stats = data.estatisticas.geral;
+                
+                // Atualiza elementos do dashboard se existirem
+                const pendentesEl = document.getElementById('documentosPendentesGeral');
+                if (pendentesEl) {
+                    pendentesEl.textContent = stats.pendentes || 0;
+                }
+                
+                const aprovadosEl = document.getElementById('documentosAprovadosGeral');
+                if (aprovadosEl) {
+                    aprovadosEl.textContent = stats.aprovados || 0;
+                }
+                
+                console.log('📊 Estatísticas de documentos atualizadas');
+            }
+        })
+        .catch(error => {
+            console.error('Erro ao atualizar estatísticas de documentos:', error);
+        });
+}
+
+// =====================================
+// 🔍 BUSCA DE ALUNOS POR STATUS DE DOCUMENTOS
+// =====================================
+
+/**
+ * Filtra alunos por status de documentos
+ */
+function filtrarPorDocumentos(filtro) {
+    // Esta função pode ser integrada ao sistema de filtros existente
+    const filtrosForm = document.getElementById('filtrosForm');
+    if (filtrosForm) {
+        // Adiciona campo hidden para filtro de documentos
+        let campoDocumentos = document.getElementById('filtro_documentos');
+        if (!campoDocumentos) {
+            campoDocumentos = document.createElement('input');
+            campoDocumentos.type = 'hidden';
+            campoDocumentos.id = 'filtro_documentos';
+            campoDocumentos.name = 'documentos_status';
+            filtrosForm.appendChild(campoDocumentos);
+        }
+        campoDocumentos.value = filtro;
+        
+        // Submete o formulário
+        filtrosForm.submit();
+    }
+}
+
+// =====================================
+// 🚀 INICIALIZAÇÃO E LOGS
+// =====================================
+
+// Adicionar no final das funções existentes:
+console.log('✅ Funções de gestão de documentos carregadas!');
+console.log('📋 Funcionalidades disponíveis:');
+console.log('   - Download de documentos');
+console.log('   - Aprovação/rejeição');
+console.log('   - Remoção de documentos');
+console.log('   - Notificações para alunos');
+console.log('   - Exportação de relatórios');
+console.log('   - Aprovação em lote');
+
+/**
+ * =====================================
+ * 📝 INSTRUÇÕES DE IMPLEMENTAÇÃO
+ * =====================================
+ * 
+ * 1. COPIE TODAS essas funções para dentro do <script> do admin/alunos.php
+ * 
+ * 2. MODIFIQUE a função exibirDetalhesAluno() para incluir:
+ *    ${data.documentos ? data.documentos.html : ''}
+ *    
+ * 3. ADICIONE no switch/case das ações:
+ *    case 'ver_documentos': gerenciarDocumentosAluno(currentAlunoId); break;
+ *    
+ * 4. TESTE as funcionalidades:
+ *    - Abrir detalhes de um aluno
+ *    - Ver seção de documentos
+ *    - Aprovar/rejeitar documentos
+ *    - Download de documentos
+ *    
+ * 5. OPCIONAL: Adicione estatísticas no dashboard principal
+ */
 
 
     </script>

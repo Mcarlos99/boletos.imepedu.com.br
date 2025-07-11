@@ -1024,7 +1024,7 @@ $alunosRecentes = $adminService->buscarAlunosRecentes(20);
                                         </label>
                                         <select class="form-select" id="quantidade_parcelas" name="quantidade_parcelas" required>
                                             <option value="">Selecione</option>
-                                            <?php for($i = 2; $i <= 32; $i++): ?>
+                                            <?php for($i = 1; $i <= 32; $i++): ?>
                                                 <option value="<?= $i ?>"><?= $i ?>x</option>
                                             <?php endfor; ?>
                                         </select>
@@ -2029,8 +2029,8 @@ function gerarListaParcelas() {
         return;
     }
     
-    if (quantidade < 2 || quantidade > 32) {
-        showToast('Quantidade deve ser entre 2 e 32 parcelas', 'error');
+    if (quantidade < 1 || quantidade > 32) {
+        showToast('Quantidade deve ser entre 1 e 32 parcelas', 'error');
         return;
     }
     
@@ -3141,9 +3141,9 @@ document.addEventListener('DOMContentLoaded', function() {
                     return;
                 }
                 
-                if (!quantidade || quantidade < 2 || quantidade > 32) {
+                if (!quantidade || quantidade < 1 || quantidade > 32) {
                     e.preventDefault();
-                    alert('Quantidade de parcelas deve ser entre 2 e 32');
+                    alert('Quantidade de parcelas deve ser entre 1 e 32');
                     return;
                 }
                 
