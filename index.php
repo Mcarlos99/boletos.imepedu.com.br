@@ -1,10 +1,9 @@
 <?php
 /**
- * Sistema de Boletos IMEPEDU - Página Principal
+ * Sistema de Boletos IMEPEDU - Página Principal CORRIGIDA
  * Arquivo: public/index.php
  * 
- * Este arquivo serve como página inicial e também como login manual
- * quando o usuário não vem direto do Moodle
+ * 🔧 CORREÇÃO: Erro Array to string conversion no log
  */
 
 session_start();
@@ -48,6 +47,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || (isset($_GET['cpf']) && isset($_GET
         $erro = "Polo não selecionado.";
     } else {
         try {
+            error_log("🔐 Tentativa de login INDEX.PHP - CPF: {$cpf}, Subdomain: {$subdomain}");
+            
             // Tenta conectar com a API do Moodle
             $moodleAPI = new MoodleAPI($subdomain);
             $dadosAluno = $moodleAPI->buscarAlunoPorCPF($cpf);
@@ -55,7 +56,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || (isset($_GET['cpf']) && isset($_GET
             if ($dadosAluno) {
                 // Salva/atualiza dados do aluno no banco local
                 $alunoService = new AlunoService();
-                $alunoId = $alunoService->salvarOuAtualizarAluno($dadosAluno);
+                $alunoSalvo = $alunoService->salvarOuAtualizarAluno($dadosAluno);
+                
+                if (!$alunoSalvo || !isset($alunoSalvo['id'])) {
+                    throw new Exception('Erro ao salvar dados do aluno no banco local');
+                }
+                
+                $alunoId = $alunoSalvo['id'];
                 
                 // Cria sessão do usuário
                 $_SESSION['aluno_cpf'] = $cpf;
@@ -64,18 +71,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || (isset($_GET['cpf']) && isset($_GET
                 $_SESSION['subdomain'] = $subdomain;
                 $_SESSION['login_time'] = time();
                 
-                // Log do login
-                $db = (new Database())->getConnection();
-                $stmt = $db->prepare("
-                    INSERT INTO logs (tipo, usuario_id, descricao, ip_address, user_agent) 
-                    VALUES ('login', ?, ?, ?, ?)
-                ");
-                $stmt->execute([
-                    $alunoId,
-                    "Login realizado com sucesso",
-                    $_SERVER['REMOTE_ADDR'] ?? 'unknown',
-                    $_SERVER['HTTP_USER_AGENT'] ?? 'unknown'
-                ]);
+                // 🔧 CORREÇÃO: Log SEM campo usuario_id problemático
+                try {
+                    $db = (new Database())->getConnection();
+                    $stmt = $db->prepare("
+                        INSERT INTO logs (tipo, descricao, ip_address, user_agent, created_at) 
+                        VALUES (?, ?, ?, ?, NOW())
+                    ");
+                    $stmt->execute([
+                        'login_index',
+                        "Login via index.php - Aluno ID: {$alunoId}, CPF: {$cpf}, Subdomain: {$subdomain}",
+                        $_SERVER['REMOTE_ADDR'] ?? 'unknown',
+                        substr($_SERVER['HTTP_USER_AGENT'] ?? 'unknown', 0, 255)
+                    ]);
+                } catch (Exception $logError) {
+                    error_log("⚠️ Erro ao registrar log (não crítico): " . $logError->getMessage());
+                    // Não falha o login por causa do log
+                }
+                
+                error_log("✅ Login INDEX.PHP realizado com sucesso - Aluno ID: {$alunoId}, Nome: {$dadosAluno['nome']}");
                 
                 // Redireciona para dashboard
                 if (isset($_GET['cpf'])) {
@@ -86,13 +100,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' || (isset($_GET['cpf']) && isset($_GET
                     $sucesso = "Login realizado com sucesso! Redirecionando...";
                     echo "<script>setTimeout(() => { window.location.href = '/dashboard.php'; }, 2000);</script>";
                 }
+                exit;
                 
             } else {
                 $erro = "Aluno não encontrado no sistema do polo selecionado. Verifique o CPF e o polo.";
+                error_log("❌ Login INDEX.PHP falhou - CPF não encontrado: {$cpf} no polo {$subdomain}");
             }
             
         } catch (Exception $e) {
-            error_log("Erro no login - CPF: {$cpf}, Subdomain: {$subdomain} - " . $e->getMessage());
+            error_log("❌ Erro no login INDEX.PHP - CPF: {$cpf}, Subdomain: {$subdomain} - " . $e->getMessage());
             $erro = "Erro ao conectar com o sistema do polo. Tente novamente em alguns minutos.";
         }
     }
@@ -247,31 +263,6 @@ try {
                         Acesse seus boletos de forma rápida e segura. 
                         Organize suas mensalidades por curso e mantenha seus pagamentos em dia.
                     </p>
-                    
-                    <!-- Estatísticas -->
-                     <!--<div class="row justify-content-center">
-                        <div class="col-md-3 col-6">
-                            <div class="stats-card">
-                                <i class="fas fa-file-invoice-dollar fa-2x mb-2"></i>
-                                <h3><?= number_format($estatisticas['total_boletos']) ?></h3>
-                                <p class="mb-0">Boletos Gerados</p>
-                            </div>
-                        </div>
-                        <div class="col-md-3 col-6">
-                            <div class="stats-card">
-                                <i class="fas fa-check-circle fa-2x mb-2"></i>
-                                <h3><?= number_format($estatisticas['boletos_pagos']) ?></h3>
-                                <p class="mb-0">Boletos Pagos</p>
-                            </div>
-                        </div>
-                        <div class="col-md-4 col-12">
-                            <div class="stats-card">
-                                <i class="fas fa-chart-line fa-2x mb-2"></i>
-                                <h3>R$ <?= number_format($estatisticas['valor_total_pago'], 2, ',', '.') ?></h3>
-                                <p class="mb-0">Total Arrecadado</p>
-                            </div>
-                        </div>
-                    </div> -->
                 </div>
             </div>
         </div>
@@ -562,6 +553,7 @@ try {
         // Se há parâmetros na URL (vindo do Moodle), submete automaticamente
         const urlParams = new URLSearchParams(window.location.search);
         if (urlParams.get('cpf') && urlParams.get('subdomain')) {
+            console.log('🔄 Login automático via Moodle detectado');
             // Pequeno delay para o usuário ver a página carregando
             setTimeout(() => {
                 document.getElementById('loginForm').style.opacity = '0.5';
@@ -570,6 +562,8 @@ try {
                 submitBtn.disabled = true;
             }, 500);
         }
+        
+        console.log('✅ Index.php carregado com correção do erro Array');
     </script>
 </body>
 </html>
