@@ -24,6 +24,41 @@ if (!isset($_SESSION['aluno_cpf']) || !isset($_SESSION['subdomain'])) {
     exit;
 }
 
+// 🔧 ADICIONE ESTA CORREÇÃO LOGO APÓS a verificação acima:
+try {
+    // Primeiro busca os dados do aluno para obter o ID
+    require_once '../src/AlunoService.php';
+    $alunoService = new AlunoService();
+    
+    $aluno = $alunoService->buscarAlunoPorCPFESubdomain($_SESSION['aluno_cpf'], $_SESSION['subdomain']);
+    
+    if ($aluno && isset($aluno['id'])) {
+        // Atualiza último acesso na API de sincronização
+        $alunoService->atualizarUltimoAcesso($aluno['id']);
+        
+        // Registra log da sincronização
+        $db = (new Database())->getConnection();
+        $stmt = $db->prepare("
+            INSERT INTO logs (tipo, descricao, ip_address, user_agent, created_at) 
+            VALUES (?, ?, ?, ?, NOW())
+        ");
+        $stmt->execute([
+            'api_sync_access',
+            "Sincronização de dados - Aluno ID: {$aluno['id']}, CPF: {$_SESSION['aluno_cpf']}",
+            $_SERVER['REMOTE_ADDR'] ?? 'unknown',
+            substr($_SERVER['HTTP_USER_AGENT'] ?? 'unknown', 0, 255)
+        ]);
+        
+        error_log("🔄 API Sync: Último acesso atualizado para aluno ID: {$aluno['id']}");
+    } else {
+        error_log("⚠️ API Sync: Aluno não encontrado - CPF: {$_SESSION['aluno_cpf']}, Subdomain: {$_SESSION['subdomain']}");
+    }
+    
+} catch (Exception $e) {
+    error_log("⚠️ API Sync: Erro ao atualizar último acesso: " . $e->getMessage());
+    // Não falha a API por causa disso - continua normalmente
+}
+
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
     echo json_encode([

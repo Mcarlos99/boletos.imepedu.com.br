@@ -34,6 +34,32 @@ if (!$aluno) {
 
 error_log("Dashboard: Aluno encontrado - ID: {$aluno['id']}, Nome: {$aluno['nome']}");
 
+// 🔧 ADICIONE AQUI - CORREÇÃO DO ÚLTIMO ACESSO
+try {
+    // 1. Atualiza último acesso na tabela alunos
+    $alunoService->atualizarUltimoAcesso($aluno['id']);
+    
+    // 2. Registra log de acesso ao dashboard
+    $db = (new Database())->getConnection();
+    $stmt = $db->prepare("
+        INSERT INTO logs (tipo, descricao, ip_address, user_agent, created_at) 
+        VALUES (?, ?, ?, ?, NOW())
+    ");
+    $stmt->execute([
+        'dashboard_access',
+        "Acesso ao dashboard - Aluno ID: {$aluno['id']}, Nome: {$aluno['nome']}",
+        $_SERVER['REMOTE_ADDR'] ?? 'unknown',
+        substr($_SERVER['HTTP_USER_AGENT'] ?? 'unknown', 0, 255)
+    ]);
+    
+    error_log("✅ Dashboard: Último acesso atualizado para aluno ID: {$aluno['id']} - {$aluno['nome']}");
+    
+} catch (Exception $e) {
+    error_log("⚠️ Dashboard: Erro ao atualizar último acesso: " . $e->getMessage());
+    // Não falha o dashboard por causa disso
+}
+// 🔧 FIM DA CORREÇÃO
+
 $cursos = $alunoService->buscarCursosAlunoPorSubdomain($aluno['id'], $_SESSION['subdomain']);
 error_log("Dashboard: Cursos encontrados: " . count($cursos));
 

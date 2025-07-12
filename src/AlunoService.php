@@ -501,22 +501,79 @@
         /**
          * Atualiza último acesso
          */
-    public function atualizarUltimoAcesso($alunoId) {
-        try {
-            $db = (new Database())->getConnection();
-            $stmt = $db->prepare("
-                UPDATE alunos 
-                SET ultimo_acesso = NOW() 
-                WHERE id = ?
-            ");
-            $stmt->execute([$alunoId]);
-            
+public function atualizarUltimoAcesso($alunoId) {
+    try {
+        $stmt = $this->db->prepare("
+            UPDATE alunos 
+            SET ultimo_acesso = NOW(), updated_at = NOW() 
+            WHERE id = ?
+        ");
+        $resultado = $stmt->execute([$alunoId]);
+        
+        if ($resultado) {
+            error_log("✅ Último acesso atualizado - Aluno ID: {$alunoId}");
             return true;
-        } catch (Exception $e) {
-            error_log("Erro ao atualizar último acesso: " . $e->getMessage());
+        } else {
+            error_log("⚠️ Falha ao atualizar último acesso - Aluno ID: {$alunoId}");
             return false;
         }
+        
+    } catch (Exception $e) {
+        error_log("❌ Erro ao atualizar último acesso - Aluno ID: {$alunoId} - " . $e->getMessage());
+        return false;
     }
+}
+public function buscarAlunoComUltimoAcesso($alunoId) {
+    try {
+        $stmt = $this->db->prepare("
+            SELECT *, 
+                   DATE_FORMAT(ultimo_acesso, '%d/%m/%Y %H:%i:%s') as ultimo_acesso_formatado,
+                   CASE 
+                       WHEN ultimo_acesso IS NULL THEN 'Nunca acessou'
+                       WHEN ultimo_acesso > DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 'Ativo'
+                       ELSE 'Inativo'
+                   END as status_atividade,
+                   TIMESTAMPDIFF(DAY, ultimo_acesso, NOW()) as dias_desde_ultimo_acesso
+            FROM alunos 
+            WHERE id = ?
+        ");
+        $stmt->execute([$alunoId]);
+        
+        return $stmt->fetch(PDO::FETCH_ASSOC);
+        
+    } catch (Exception $e) {
+        error_log("Erro ao buscar aluno com último acesso: " . $e->getMessage());
+        return $this->buscarAlunoPorId($alunoId); // Fallback
+    }
+}
+
+/**
+ * Novo método: Registra acesso a uma página específica
+ */
+public function registrarAcessoPagina($alunoId, $pagina) {
+    try {
+        // Atualiza último acesso
+        $this->atualizarUltimoAcesso($alunoId);
+        
+        // Registra log específico da página
+        $stmt = $this->db->prepare("
+            INSERT INTO logs (tipo, descricao, ip_address, user_agent, created_at) 
+            VALUES (?, ?, ?, ?, NOW())
+        ");
+        $stmt->execute([
+            'page_access',
+            "Acesso à página: {$pagina} - Aluno ID: {$alunoId}",
+            $_SERVER['REMOTE_ADDR'] ?? 'unknown',
+            substr($_SERVER['HTTP_USER_AGENT'] ?? 'unknown', 0, 255)
+        ]);
+        
+        return true;
+        
+    } catch (Exception $e) {
+        error_log("Erro ao registrar acesso à página: " . $e->getMessage());
+        return false;
+    }
+}
         
         /**
          * Registra log de operação

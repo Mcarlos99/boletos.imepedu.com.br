@@ -924,273 +924,369 @@ $estatisticas = obterEstatisticasAlunos();
         }
         
         // Exibe detalhes do aluno
-        function exibirDetalhesAluno(data) {
-            console.log('📋 Dados recebidos da API:', data);
-            console.log('📄 Seção documentos:', data.documentos);
-            
-            const { aluno, matriculas, boletos, estatisticas, documentos } = data;
-            
-            const ultimoAcesso = aluno.ultimo_acesso ? 
-                new Date(aluno.ultimo_acesso).toLocaleDateString('pt-BR') : 'Nunca acessou';
-            
-            const ativo = aluno.ultimo_acesso && 
-                (Date.now() - new Date(aluno.ultimo_acesso).getTime()) < (30 * 24 * 60 * 60 * 1000);
-            
-            const html = `
-                <!-- Header com Informações Principais -->
-                <div class="row mb-4">
-                    <div class="col-md-8">
-                        <div class="d-flex align-items-center">
-                            <div class="user-avatar me-3" style="width: 60px; height: 60px; font-size: 1.5rem;">
-                                ${aluno.nome.charAt(0).toUpperCase()}
-                            </div>
-                            <div>
-                                <h4 class="mb-1">${aluno.nome}</h4>
-                                <p class="text-muted mb-0">CPF: ${formatarCPF(aluno.cpf)}</p>
-                                <span class="badge bg-${ativo ? 'success' : 'secondary'}">${ativo ? 'Ativo' : 'Inativo'}</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-4 text-end">
-                        <div class="h5 text-primary mb-0">${estatisticas.total_boletos} Boletos</div>
-                        <small class="text-muted">R$ ${formatarValor(estatisticas.valor_total)}</small>
-                    </div>
-                </div>
-
-                <!-- Informações Pessoais -->
-                <div class="row mb-4">
-                    <div class="col-md-6">
-                        <h6 class="text-primary mb-3">
-                            <i class="fas fa-user"></i> Informações Pessoais
-                        </h6>
-                        <table class="table table-sm">
-                            <tr>
-                                <td><strong>Nome:</strong></td>
-                                <td>${aluno.nome}</td>
-                            </tr>
-                            <tr>
-                                <td><strong>Email:</strong></td>
-                                <td>
-                                    <a href="mailto:${aluno.email}" class="text-decoration-none">
-                                        ${aluno.email}
-                                    </a>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td><strong>CPF:</strong></td>
-                                <td>${formatarCPF(aluno.cpf)}</td>
-                            </tr>
-                            ${aluno.city ? `
-                            <tr>
-                                <td><strong>Cidade:</strong></td>
-                                <td>${aluno.city}</td>
-                            </tr>
-                            ` : ''}
-                            <tr>
-                                <td><strong>Cadastro:</strong></td>
-                                <td>${new Date(aluno.created_at).toLocaleDateString('pt-BR')}</td>
-                            </tr>
-                            <tr>
-                                <td><strong>Último Acesso:</strong></td>
-                                <td>${ultimoAcesso}</td>
-                            </tr>
-                        </table>
-                    </div>
-                    
-                    <div class="col-md-6">
-                        <h6 class="text-primary mb-3">
-                            <i class="fas fa-chart-bar"></i> Estatísticas
-                        </h6>
-                        <div class="row text-center">
-                            <div class="col-6 mb-3">
-                                <div class="card bg-light">
-                                    <div class="card-body py-2">
-                                        <h6 class="card-title mb-1">${estatisticas.total_matriculas}</h6>
-                                        <small class="text-muted">Matrículas Ativas</small>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="col-6 mb-3">
-                                <div class="card bg-light">
-                                    <div class="card-body py-2">
-                                        <h6 class="card-title mb-1">${estatisticas.total_boletos}</h6>
-                                        <small class="text-muted">Total Boletos</small>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="col-6 mb-3">
-                                <div class="card bg-light">
-                                    <div class="card-body py-2">
-                                        <h6 class="card-title mb-1 text-success">${estatisticas.boletos_pagos}</h6>
-                                        <small class="text-muted">Boletos Pagos</small>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="col-6 mb-3">
-                                <div class="card bg-light">
-                                    <div class="card-body py-2">
-                                        <h6 class="card-title mb-1 text-warning">${estatisticas.boletos_pendentes}</h6>
-                                        <small class="text-muted">Pendentes</small>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div class="mt-3">
-                            <h6>Situação Financeira</h6>
-                            <div class="d-flex justify-content-between">
-                                <small>Pago: R$ ${formatarValor(estatisticas.valor_pago)}</small>
-                                <small>Pendente: R$ ${formatarValor(estatisticas.valor_pendente)}</small>
-                            </div>
-                            <div class="progress mt-1">
-                                <div class="progress-bar bg-success" style="width: ${estatisticas.percentual_pago}%"></div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Matrículas -->
-                ${matriculas && matriculas.length > 0 ? `
-                <div class="row mb-4">
-                    <div class="col-12">
-                        <h6 class="text-primary mb-3">
-                            <i class="fas fa-graduation-cap"></i> Matrículas Ativas
-                        </h6>
-                        <div class="row">
-                            ${matriculas.map(matricula => `
-                            <div class="col-md-6 mb-3">
-                                <div class="card">
-                                    <div class="card-body">
-                                        <h6 class="card-title">${matricula.curso_nome}</h6>
-                                        <p class="card-text small text-muted">
-                                            Polo: ${matricula.polo_nome}<br>
-                                            Matrícula: ${new Date(matricula.data_matricula).toLocaleDateString('pt-BR')}
-                                        </p>
-                                        <span class="badge bg-success">Ativa</span>
-                                    </div>
-                                </div>
-                            </div>
-                            `).join('')}
-                        </div>
-                    </div>
-                </div>
-                ` : ''}
-
-                <!-- 🔧 SEÇÃO DE DOCUMENTOS - SEMPRE INCLUÍDA -->
-                ${(() => {
-                    console.log('🔧 Verificando documentos:', documentos);
-                    
-                    if (documentos && documentos.html) {
-                        console.log('✅ HTML de documentos encontrado');
-                        return documentos.html;
-                    } 
-                    
-                    if (documentos && documentos.ativo === false) {
-                        console.log('⚠️ Sistema de documentos não ativo');
-                        return `
-                        <div class="row mb-4">
-                            <div class="col-12">
-                                <h6 class="text-primary mb-3">
-                                    <i class="fas fa-folder-open"></i> Documentos do Aluno
-                                </h6>
-                                <div class="alert alert-warning">
-                                    <i class="fas fa-exclamation-triangle me-2"></i>
-                                    Sistema de documentos não está configurado. Execute <code>setup-documentos.php</code> para configurar.
-                                </div>
-                            </div>
-                        </div>
-                        `;
-                    }
-                    
-                    console.log('📄 Criando seção padrão de documentos');
-                    return `
-                    <div class="row mb-4">
-                        <div class="col-12">
-                            <h6 class="text-primary mb-3">
-                                <i class="fas fa-folder-open"></i> Documentos do Aluno
-                            </h6>
-                            <div class="alert alert-info">
-                                <i class="fas fa-info-circle me-2"></i>
-                                Carregando informações de documentos...
-                            </div>
-                        </div>
-                    </div>
-                    `;
-                })()}
-
-                <!-- Boletos Recentes -->
-                ${boletos && boletos.length > 0 ? `
-                <div class="row mb-4">
-                    <div class="col-12">
-                        <h6 class="text-primary mb-3">
-                            <i class="fas fa-file-invoice-dollar"></i> Boletos Recentes
-                        </h6>
-                        <div class="table-responsive">
-                            <table class="table table-sm">
-                                <thead>
-                                    <tr>
-                                        <th>Número</th>
-                                        <th>Curso</th>
-                                        <th>Valor</th>
-                                        <th>Vencimento</th>
-                                        <th>Status</th>
-                                        <th>Ações</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${boletos.slice(0, 5).map(boleto => `
-                                    <tr>
-                                        <td><strong>#${boleto.numero_boleto}</strong></td>
-                                        <td>${boleto.curso_nome}</td>
-                                        <td>R$ ${formatarValor(boleto.valor)}</td>
-                                        <td>${new Date(boleto.vencimento).toLocaleDateString('pt-BR')}</td>
-                                        <td><span class="badge bg-${getStatusColor(boleto.status)}">${boleto.status}</span></td>
-                                        <td>
-                                            <button class="btn btn-sm btn-outline-primary" onclick="verDetalhesBoleto(${boleto.id})">
-                                                <i class="fas fa-eye"></i>
-                                            </button>
-                                        </td>
-                                    </tr>
-                                    `).join('')}
-                                </tbody>
-                            </table>
-                        </div>
-                        ${boletos.length > 5 ? `<small class="text-muted">Mostrando 5 de ${boletos.length} boletos</small>` : ''}
-                    </div>
-                </div>
-                ` : ''}
-
-                <!-- Ações Disponíveis -->
-                <div class="row">
-                    <div class="col-12">
-                        <h6 class="text-primary mb-3">
-                            <i class="fas fa-cogs"></i> Ações Disponíveis
-                        </h6>
-                        <div class="d-grid gap-2 d-md-flex">
-                            <button class="btn btn-info" onclick="sincronizarAluno(${aluno.id})">
-                                <i class="fas fa-sync-alt"></i> Sincronizar com Moodle
-                            </button>
-                            <button class="btn btn-secondary" onclick="editarAluno(${aluno.id})">
-                                <i class="fas fa-edit"></i> Editar Dados
-                            </button>
-                            <button class="btn btn-primary" onclick="verBoletosAluno(${aluno.id})">
-                                <i class="fas fa-file-invoice-dollar"></i> Ver Todos os Boletos
-                            </button>
-                            <button class="btn btn-success" onclick="criarBoletoParaAluno(${aluno.id})">
-                                <i class="fas fa-plus"></i> Criar Boleto
-                            </button>
-                            <button class="btn btn-warning" onclick="window.open('/admin/documentos.php?aluno_id=${aluno.id}', '_blank')">
-                                <i class="fas fa-folder-open"></i> Gerenciar Documentos
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            `;
-            
-            document.getElementById('detalhesAlunoConteudo').innerHTML = html;
-            console.log('✅ HTML inserido no DOM com seção de documentos');
+function exibirDetalhesAluno(data) {
+    console.log('📋 Dados recebidos da API:', data);
+    console.log('📄 Seção documentos:', data.documentos);
+    
+    const { aluno, matriculas, boletos, estatisticas, documentos } = data;
+    
+    // 🔧 CORREÇÃO: Formata último acesso com mais detalhes
+    let ultimoAcessoTexto = 'Nunca acessou';
+    let ultimoAcessoDetalhado = 'Sem registro de acesso';
+    let statusAtividade = 'Inativo';
+    let corStatus = 'secondary';
+    let diasInativo = null;
+    
+    if (aluno.ultimo_acesso) {
+        const dataUltimoAcesso = new Date(aluno.ultimo_acesso);
+        const agora = new Date();
+        const diffTime = Math.abs(agora - dataUltimoAcesso);
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        const diffHours = Math.ceil(diffTime / (1000 * 60 * 60));
+        const diffMinutes = Math.ceil(diffTime / (1000 * 60));
+        
+        // Formata data completa em português
+        ultimoAcessoTexto = dataUltimoAcesso.toLocaleDateString('pt-BR', {
+            day: '2-digit',
+            month: '2-digit', 
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+        
+        // Texto detalhado com tempo relativo
+        if (diffMinutes < 60) {
+            ultimoAcessoDetalhado = `${diffMinutes} minuto(s) atrás`;
+        } else if (diffHours < 24) {
+            ultimoAcessoDetalhado = `${diffHours} hora(s) atrás`;
+        } else if (diffDays < 30) {
+            ultimoAcessoDetalhado = `${diffDays} dia(s) atrás`;
+        } else {
+            ultimoAcessoDetalhado = `${Math.ceil(diffDays / 30)} mês(es) atrás`;
         }
         
+        // Determina status de atividade com cores
+        if (diffDays <= 1) {
+            statusAtividade = 'Muito Ativo';
+            corStatus = 'success';
+        } else if (diffDays <= 7) {
+            statusAtividade = 'Ativo';
+            corStatus = 'success';
+        } else if (diffDays <= 30) {
+            statusAtividade = 'Moderadamente Ativo';
+            corStatus = 'warning';
+        } else {
+            statusAtividade = `Inativo há ${diffDays} dias`;
+            corStatus = 'danger';
+            diasInativo = diffDays;
+        }
+    }
+    
+    // Calcula se está ativo (lógica original mantida para compatibilidade)
+    const ativo = aluno.ultimo_acesso && 
+        (Date.now() - new Date(aluno.ultimo_acesso).getTime()) < (30 * 24 * 60 * 60 * 1000);
+    
+    const html = `
+        <!-- Header com Informações Principais MELHORADO -->
+        <div class="row mb-4">
+            <div class="col-md-8">
+                <div class="d-flex align-items-center">
+                    <div class="user-avatar me-3" style="width: 60px; height: 60px; font-size: 1.5rem;">
+                        ${aluno.nome.charAt(0).toUpperCase()}
+                    </div>
+                    <div>
+                        <h4 class="mb-1">${aluno.nome}</h4>
+                        <p class="text-muted mb-1">CPF: ${formatarCPF(aluno.cpf)}</p>
+                        <div class="d-flex align-items-center gap-2 mb-1">
+                            <span class="badge bg-${corStatus}">${statusAtividade}</span>
+                            ${diasInativo && diasInativo > 60 ? '<span class="badge bg-danger"><i class="fas fa-exclamation-triangle"></i> Atenção</span>' : ''}
+                        </div>
+                        <small class="text-muted">
+                            <i class="fas fa-clock me-1"></i>
+                            ${ultimoAcessoDetalhado}
+                        </small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4 text-end">
+                <div class="h5 text-primary mb-0">${estatisticas.total_boletos} Boletos</div>
+                <small class="text-muted">R$ ${formatarValor(estatisticas.valor_total)}</small>
+                <div class="mt-2">
+                    <div class="d-flex justify-content-end align-items-center gap-2">
+                        <i class="fas fa-circle text-${corStatus}" style="font-size: 8px;"></i>
+                        <small class="text-${corStatus} fw-bold">${statusAtividade}</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Informações Pessoais MELHORADAS -->
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <h6 class="text-primary mb-3">
+                    <i class="fas fa-user"></i> Informações Pessoais
+                </h6>
+                <table class="table table-sm">
+                    <tr>
+                        <td><strong>Nome:</strong></td>
+                        <td>${aluno.nome}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Email:</strong></td>
+                        <td>
+                            <a href="mailto:${aluno.email}" class="text-decoration-none">
+                                ${aluno.email}
+                            </a>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td><strong>CPF:</strong></td>
+                        <td>${formatarCPF(aluno.cpf)}</td>
+                    </tr>
+                    ${aluno.city ? `
+                    <tr>
+                        <td><strong>Cidade:</strong></td>
+                        <td>${aluno.city}</td>
+                    </tr>
+                    ` : ''}
+                    <tr>
+                        <td><strong>Cadastro:</strong></td>
+                        <td>${new Date(aluno.created_at).toLocaleDateString('pt-BR')}</td>
+                    </tr>
+                    <tr style="background-color: rgba(${corStatus === 'success' ? '40,167,69' : corStatus === 'warning' ? '255,193,7' : '220,53,69'}, 0.1);">
+                        <td><strong>Último Acesso:</strong></td>
+                        <td>
+                            <div class="d-flex flex-column">
+                                <strong class="text-${corStatus}">${ultimoAcessoTexto}</strong>
+                                <small class="text-muted">${ultimoAcessoDetalhado}</small>
+                                <div class="mt-1">
+                                    <span class="badge bg-${corStatus} bg-gradient">
+                                        <i class="fas fa-${corStatus === 'success' ? 'check-circle' : corStatus === 'warning' ? 'clock' : 'exclamation-triangle'} me-1"></i>
+                                        ${statusAtividade}
+                                    </span>
+                                </div>
+                            </div>
+                        </td>
+                    </tr>
+                </table>
+            </div>
+            
+            <div class="col-md-6">
+                <h6 class="text-primary mb-3">
+                    <i class="fas fa-chart-bar"></i> Estatísticas
+                </h6>
+                <div class="row text-center">
+                    <div class="col-6 mb-3">
+                        <div class="card bg-light">
+                            <div class="card-body py-2">
+                                <h6 class="card-title mb-1">${estatisticas.total_matriculas}</h6>
+                                <small class="text-muted">Matrículas Ativas</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6 mb-3">
+                        <div class="card bg-light">
+                            <div class="card-body py-2">
+                                <h6 class="card-title mb-1">${estatisticas.total_boletos}</h6>
+                                <small class="text-muted">Total Boletos</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6 mb-3">
+                        <div class="card bg-light">
+                            <div class="card-body py-2">
+                                <h6 class="card-title mb-1 text-success">${estatisticas.boletos_pagos}</h6>
+                                <small class="text-muted">Boletos Pagos</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6 mb-3">
+                        <div class="card bg-light">
+                            <div class="card-body py-2">
+                                <h6 class="card-title mb-1 text-warning">${estatisticas.boletos_pendentes}</h6>
+                                <small class="text-muted">Pendentes</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Nova seção: Indicador de Atividade -->
+                <div class="mt-3">
+                    <h6>Atividade do Aluno</h6>
+                    <div class="d-flex justify-content-between mb-1">
+                        <small>Último acesso:</small>
+                        <small class="text-${corStatus}"><strong>${ultimoAcessoDetalhado}</strong></small>
+                    </div>
+                    <div class="progress" style="height: 8px;">
+                        <div class="progress-bar bg-${corStatus}" 
+                             style="width: ${corStatus === 'success' ? '100' : corStatus === 'warning' ? '60' : '20'}%">
+                        </div>
+                    </div>
+                    <div class="d-flex justify-content-between mt-1">
+                        <small class="text-muted">Inativo</small>
+                        <small class="text-muted">Muito Ativo</small>
+                    </div>
+                </div>
+                
+                <div class="mt-3">
+                    <h6>Situação Financeira</h6>
+                    <div class="d-flex justify-content-between">
+                        <small>Pago: R$ ${formatarValor(estatisticas.valor_pago)}</small>
+                        <small>Pendente: R$ ${formatarValor(estatisticas.valor_pendente)}</small>
+                    </div>
+                    <div class="progress mt-1">
+                        <div class="progress-bar bg-success" style="width: ${estatisticas.percentual_pago}%"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Matrículas -->
+        ${matriculas && matriculas.length > 0 ? `
+        <div class="row mb-4">
+            <div class="col-12">
+                <h6 class="text-primary mb-3">
+                    <i class="fas fa-graduation-cap"></i> Matrículas Ativas
+                </h6>
+                <div class="row">
+                    ${matriculas.map(matricula => `
+                    <div class="col-md-6 mb-3">
+                        <div class="card">
+                            <div class="card-body">
+                                <h6 class="card-title">${matricula.curso_nome}</h6>
+                                <p class="card-text small text-muted">
+                                    Polo: ${matricula.polo_nome}<br>
+                                    Matrícula: ${new Date(matricula.data_matricula).toLocaleDateString('pt-BR')}
+                                </p>
+                                <span class="badge bg-success">Ativa</span>
+                            </div>
+                        </div>
+                    </div>
+                    `).join('')}
+                </div>
+            </div>
+        </div>
+        ` : ''}
+
+        <!-- 🔧 SEÇÃO DE DOCUMENTOS - SEMPRE INCLUÍDA -->
+        ${(() => {
+            console.log('🔧 Verificando documentos:', documentos);
+            
+            if (documentos && documentos.html) {
+                console.log('✅ HTML de documentos encontrado');
+                return documentos.html;
+            } 
+            
+            if (documentos && documentos.ativo === false) {
+                console.log('⚠️ Sistema de documentos não ativo');
+                return `
+                <div class="row mb-4">
+                    <div class="col-12">
+                        <h6 class="text-primary mb-3">
+                            <i class="fas fa-folder-open"></i> Documentos do Aluno
+                        </h6>
+                        <div class="alert alert-warning">
+                            <i class="fas fa-exclamation-triangle me-2"></i>
+                            Sistema de documentos não está configurado. Execute <code>setup-documentos.php</code> para configurar.
+                        </div>
+                    </div>
+                </div>
+                `;
+            }
+            
+            console.log('📄 Criando seção padrão de documentos');
+            return `
+            <div class="row mb-4">
+                <div class="col-12">
+                    <h6 class="text-primary mb-3">
+                        <i class="fas fa-folder-open"></i> Documentos do Aluno
+                    </h6>
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle me-2"></i>
+                        Carregando informações de documentos...
+                    </div>
+                </div>
+            </div>
+            `;
+        })()}
+
+        <!-- Boletos Recentes -->
+        ${boletos && boletos.length > 0 ? `
+        <div class="row mb-4">
+            <div class="col-12">
+                <h6 class="text-primary mb-3">
+                    <i class="fas fa-file-invoice-dollar"></i> Boletos Recentes
+                </h6>
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Número</th>
+                                <th>Curso</th>
+                                <th>Valor</th>
+                                <th>Vencimento</th>
+                                <th>Status</th>
+                                <th>Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${boletos.slice(0, 5).map(boleto => `
+                            <tr>
+                                <td><strong>#${boleto.numero_boleto}</strong></td>
+                                <td>${boleto.curso_nome}</td>
+                                <td>R$ ${formatarValor(boleto.valor)}</td>
+                                <td>${new Date(boleto.vencimento).toLocaleDateString('pt-BR')}</td>
+                                <td><span class="badge bg-${getStatusColor(boleto.status)}">${boleto.status}</span></td>
+                                <td>
+                                    <button class="btn btn-sm btn-outline-primary" onclick="verDetalhesBoleto(${boleto.id})">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+                ${boletos.length > 5 ? `<small class="text-muted">Mostrando 5 de ${boletos.length} boletos</small>` : ''}
+            </div>
+        </div>
+        ` : ''}
+
+        <!-- Ações Disponíveis -->
+        <div class="row">
+            <div class="col-12">
+                <h6 class="text-primary mb-3">
+                    <i class="fas fa-cogs"></i> Ações Disponíveis
+                </h6>
+                <div class="d-grid gap-2 d-md-flex">
+                    <button class="btn btn-info" onclick="sincronizarAluno(${aluno.id})">
+                        <i class="fas fa-sync-alt"></i> Sincronizar com Moodle
+                    </button>
+                    <button class="btn btn-secondary" onclick="editarAluno(${aluno.id})">
+                        <i class="fas fa-edit"></i> Editar Dados
+                    </button>
+                    <button class="btn btn-primary" onclick="verBoletosAluno(${aluno.id})">
+                        <i class="fas fa-file-invoice-dollar"></i> Ver Todos os Boletos
+                    </button>
+                    <button class="btn btn-success" onclick="criarBoletoParaAluno(${aluno.id})">
+                        <i class="fas fa-plus"></i> Criar Boleto
+                    </button>
+                    <button class="btn btn-warning" onclick="window.open('/admin/documentos.php?aluno_id=${aluno.id}', '_blank')">
+                        <i class="fas fa-folder-open"></i> Gerenciar Documentos
+                    </button>
+                    ${diasInativo && diasInativo > 60 ? `
+                    <button class="btn btn-outline-danger" onclick="notificarAlunoInativo(${aluno.id})">
+                        <i class="fas fa-envelope"></i> Notificar Inatividade
+                    </button>
+                    ` : ''}
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.getElementById('detalhesAlunoConteudo').innerHTML = html;
+    console.log('✅ HTML inserido no DOM com seção de documentos e último acesso aprimorado');
+}
         // Função para mostrar erros
         function exibirErroDetalhes(mensagem) {
             const html = `
