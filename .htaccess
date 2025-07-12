@@ -493,4 +493,171 @@ RewriteRule \.(jpe?g|png|gif|pdf)$ - [F]
 #     CustomLog /var/log/apache2/sync_debug.log combined
 # </If>
 
+
+# ==== CORREÇÃO ADICIONAL PARA .htaccess ====
+# Adicione essas linhas ao seu .htaccess existente para corrigir o ERR_FAILED
+
+# 🔧 CORREÇÃO CRÍTICA: Headers anti-cache mais agressivos para login/logout
+<LocationMatch "^/(login|logout|index)\.php">
+    # Headers super agressivos contra cache
+    Header always set Cache-Control "no-store, no-cache, must-revalidate, max-age=0, s-maxage=0, proxy-revalidate"
+    Header always set Pragma "no-cache"
+    Header always set Expires "Thu, 01 Jan 1970 00:00:00 GMT"
+    Header always set Last-Modified "Thu, 01 Jan 1970 00:00:00 GMT"
+    Header always set ETag ""
+    Header unset ETag
+    Header always set X-Cache-Control "disabled"
+    Header always set X-Accel-Expires "0"
+    
+    # Headers para forçar bypass do Service Worker
+    Header always set X-SW-Bypass "true"
+    Header always set X-No-Cache "critical-auth"
+    Header always set X-Force-Fresh "always"
+    Header always set X-Cache-Disabled "auth-critical"
+    
+    # Headers para proxy/CDN bypass
+    Header always set Surrogate-Control "no-store"
+    Header always set X-Proxy-Cache "bypass"
+    
+    # Remove qualquer ETag
+    FileETag None
+    
+    # Headers de debug para identificar problema
+    Header always set X-Auth-Page "no-cache-critical"
+    Header always set X-Timestamp "%{TIME_YEAR}%{TIME_MON}%{TIME_DAY}%{TIME_HOUR}%{TIME_MIN}%{TIME_SEC}e"
+</LocationMatch>
+
+# 🔧 CORREÇÃO: Headers especiais para requests com parâmetros de limpeza
+<If "%{QUERY_STRING} =~ /(t=|logout=|clean=|emergency=|fallback=)/">
+    Header always set Cache-Control "no-store, no-cache, must-revalidate, max-age=0"
+    Header always set Pragma "no-cache"
+    Header always set Expires "0"
+    Header always set X-Emergency-Request "true"
+    Header always set X-Cache-Bypass "emergency"
+    Header always set X-SW-Bypass "required"
+    Header unset ETag
+    FileETag None
+</If>
+
+# 🔧 CORREÇÃO: Service Worker nunca deve ser cacheado
+<FilesMatch "sw\.js$">
+    Header always set Cache-Control "no-store, no-cache, must-revalidate, max-age=0"
+    Header always set Pragma "no-cache"
+    Header always set Expires "0"
+    Header always set Last-Modified "Thu, 01 Jan 1970 00:00:00 GMT"
+    Header always set ETag ""
+    Header unset ETag
+    Header always set Service-Worker-Allowed "/"
+    Header always set X-Service-Worker "no-cache-critical"
+    Header always set X-SW-Version "3.0.0"
+    FileETag None
+</FilesMatch>
+
+# 🔧 CORREÇÃO: Headers para detectar problemas de cache em tempo real
+<IfModule mod_headers.c>
+    # Headers de identificação para debug
+    Header always set X-Server-Debug "enabled"
+    Header always set X-Cache-Strategy "aggressive-no-cache"
+    Header always set X-ERR-FAILED-Fix "v3.0.0"
+    
+    # Headers específicos para mobile/PWA
+    <If "%{HTTP_USER_AGENT} =~ /Mobile|Android|iPhone|iPad/">
+        Header always set X-Mobile-Cache "disabled"
+        Header always set X-PWA-Cache "selective"
+    </If>
+    
+    # Headers para requisições AJAX
+    <If "%{HTTP:X-Requested-With} == 'XMLHttpRequest'">
+        Header always set X-Ajax-No-Cache "true"
+        Header always set Cache-Control "no-store, no-cache, must-revalidate"
+    </If>
+</IfModule>
+
+# 🔧 CORREÇÃO: Rewrite rules para forçar URLs únicas em auth
+<IfModule mod_rewrite.c>
+    # Força timestamp único em login/logout para evitar cache
+    RewriteCond %{REQUEST_URI} ^/(login|logout|index)\.php$
+    RewriteCond %{QUERY_STRING} !t=
+    RewriteRule ^(login|logout|index)\.php$ /$1.php?t=%{TIME}&anti_cache=%{REMOTE_ADDR} [L,QSA,R=302]
+    
+    # Redireciona logout com timestamp único
+    RewriteCond %{QUERY_STRING} logout=1
+    RewriteRule ^(.*)$ /logout.php?t=%{TIME}&clean=1&from=$1 [L,R=302]
+</IfModule>
+
+# 🔧 CORREÇÃO: Configurações específicas para diferentes tipos de erro
+<IfModule mod_headers.c>
+    # Para requisições que falharam (ERR_FAILED)
+    <If "%{HTTP:X-Failed-Request} != ''">
+        Header always set Cache-Control "no-store, no-cache"
+        Header always set X-Recovery-Mode "true"
+        Header always set X-Retry-After "1"
+    </If>
+    
+    # Para requests de recovery
+    <If "%{QUERY_STRING} =~ /recovery=1/">
+        Header always set Cache-Control "no-store, no-cache, must-revalidate"
+        Header always set X-Recovery-Request "true"
+        Header always set X-Cache-Bypass "recovery"
+    </If>
+</IfModule>
+
+# 🔧 CORREÇÃO: Configurações de timeout mais agressivas
+<IfModule mod_reqtimeout.c>
+    # Timeout mais curto para auth requests para evitar hang
+    RequestReadTimeout header=10-20,MinRate=500 body=10-60,MinRate=500
+</IfModule>
+
+# 🔧 CORREÇÃO: Headers de segurança que ajudam com cache
+<IfModule mod_headers.c>
+    # Headers que impedem cache intermediário
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "DENY"
+    Header always set Referrer-Policy "no-referrer-when-downgrade"
+    
+    # Headers específicos para auth
+    <LocationMatch "^/(login|logout|index)\.php">
+        Header always set X-Robots-Tag "noindex, nofollow, noarchive, nosnippet"
+        Header always set X-Auth-Protected "true"
+        Header always set Clear-Site-Data "\"cache\", \"storage\""
+    </LocationMatch>
+</IfModule>
+
+# 🔧 CORREÇÃO: Configuração para PHP específica para auth
+<IfModule mod_php.c>
+    <LocationMatch "^/(login|logout|index)\.php">
+        # Desabilita cache do PHP para auth
+        php_value session.cache_limiter "nocache"
+        php_value session.cache_expire "0"
+        php_flag output_buffering Off
+        php_flag implicit_flush On
+    </LocationMatch>
+</IfModule>
+
+# 🔧 CORREÇÃO: Error handling específico para ERR_FAILED
+<IfModule mod_rewrite.c>
+    # Se detectar padrão de ERR_FAILED, força limpeza
+    RewriteCond %{HTTP:X-Error-Type} "ERR_FAILED"
+    RewriteRule ^(.*)$ /$1?recovery=1&t=%{TIME}&clean_cache=1 [L,QSA,R=302]
+    
+    # Para requests vindos de PWA com problema
+    RewriteCond %{HTTP:X-PWA-Error} "cache"
+    RewriteRule ^(.*)$ /$1?pwa_recovery=1&t=%{TIME} [L,QSA,R=302]
+</IfModule>
+
+# 🔧 LOGS ESPECÍFICOS PARA DEBUG ERR_FAILED (descomente se necessário)
+# LogFormat "%h %l %u %t \"%r\" %>s %O \"%{Referer}i\" \"%{User-Agent}i\" \"%{X-SW-Bypass}i\" \"%{X-Cache-Control}i\"" err_failed_debug
+# CustomLog /var/log/apache2/err_failed_debug.log err_failed_debug env=debug_err_failed
+# SetEnvIf Request_URI "\.(login|logout|index)\.php" debug_err_failed
+
+# 🔧 CORREÇÃO FINAL: Força reload de Service Worker
+<LocationMatch "^/dashboard\.php">
+    Header always set X-SW-Update-Required "true"
+    Header always set X-SW-Version "3.0.0"
+    Header always set X-Cache-Manager "enabled"
+</LocationMatch>
+
+
+
 # ==== FIM DA CONFIGURAÇÃO ====
+

@@ -73,13 +73,13 @@ class DocumentosService {
             'titulo_eleitor' => [
                 'nome' => 'Título de Eleitor',
                 'descricao' => 'Título de eleitor (para maiores de 18 anos)',
-                'obrigatorio' => false,
+                'obrigatorio' => true,
                 'icone' => 'fas fa-vote-yea'
             ],
             'reservista' => [
                 'nome' => 'Certificado de Reservista',
                 'descricao' => 'Certificado de reservista (para homens maiores de 18 anos)',
-                'obrigatorio' => false,
+                'obrigatorio' => true,
                 'icone' => 'fas fa-shield-alt'
             ],
             'foto_3x4' => [

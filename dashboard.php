@@ -2670,6 +2670,494 @@ error_log("Dashboard: Resumo final - Polo: {$_SESSION['subdomain']}, Total: " . 
                 carregarDocumentos();
             }, 1000);
         });
+
+        // Detector de problemas de cache e ERR_FAILED
+class CacheManager {
+    constructor() {
+        this.errorCount = 0;
+        this.maxErrors = 3;
+        this.lastCleanup = localStorage.getItem('lastCacheCleanup') || 0;
+        this.cleanupInterval = 24 * 60 * 60 * 1000; // 24 horas
+        
+        this.init();
+    }
+    
+    init() {
+        console.log('🛡️ CacheManager iniciado');
+        
+        // Monitora erros
+        this.setupErrorMonitoring();
+        
+        // Verifica se precisa limpar cache
+        this.checkAutoCleanup();
+        
+        // Monitora visibilidade da página
+        this.setupVisibilityChange();
+        
+        // Monitora mudanças de conectividade
+        this.setupConnectivityMonitoring();
+    }
+    
+    setupErrorMonitoring() {
+        // Intercepta erros de rede
+        const originalFetch = window.fetch;
+        window.fetch = async (...args) => {
+            try {
+                const response = await originalFetch(...args);
+                
+                // Se conseguiu fazer a requisição, reseta contador
+                if (response.ok) {
+                    this.errorCount = 0;
+                }
+                
+                return response;
+            } catch (error) {
+                console.warn('🔥 Fetch error detectado:', error);
+                this.handleNetworkError(error);
+                throw error;
+            }
+        };
+        
+        // Monitora erros globais
+        window.addEventListener('error', (event) => {
+            if (event.message && event.message.includes('ERR_FAILED')) {
+                console.error('🚨 ERR_FAILED detectado!');
+                this.handleCriticalError();
+            }
+        });
+        
+        // Monitora promises rejeitadas
+        window.addEventListener('unhandledrejection', (event) => {
+            if (event.reason && 
+                (event.reason.includes('ERR_FAILED') || 
+                 event.reason.includes('Failed to fetch'))) {
+                console.error('🚨 Network promise rejection:', event.reason);
+                this.handleNetworkError(event.reason);
+            }
+        });
+    }
+    
+    setupVisibilityChange() {
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+                console.log('👁️ Página visível novamente');
+                
+                // Se ficou muito tempo em background, limpa cache
+                const hiddenTime = Date.now() - (this.lastHiddenTime || Date.now());
+                if (hiddenTime > 30 * 60 * 1000) { // 30 minutos
+                    console.log('⏰ App ficou muito tempo em background, limpando cache...');
+                    this.performEmergencyCleanup();
+                }
+            } else {
+                this.lastHiddenTime = Date.now();
+                console.log('👁️ Página oculta');
+            }
+        });
+    }
+    
+    setupConnectivityMonitoring() {
+        window.addEventListener('online', () => {
+            console.log('🌐 Conexão restaurada');
+            // Quando volta online, limpa cache potencialmente corrompido
+            setTimeout(() => {
+                this.cleanCorruptedCache();
+            }, 2000);
+        });
+        
+        window.addEventListener('offline', () => {
+            console.log('📵 Conexão perdida');
+        });
+    }
+    
+    handleNetworkError(error) {
+        this.errorCount++;
+        console.warn(`🔥 Erro de rede ${this.errorCount}/${this.maxErrors}:`, error);
+        
+        if (this.errorCount >= this.maxErrors) {
+            console.error('🚨 Muitos erros de rede - executando limpeza de emergência');
+            this.performEmergencyCleanup();
+        }
+    }
+    
+    handleCriticalError() {
+        console.error('🚨 Erro crítico detectado - limpeza imediata');
+        this.performEmergencyCleanup();
+    }
+    
+    async performEmergencyCleanup() {
+        try {
+            console.log('🧨 LIMPEZA DE EMERGÊNCIA INICIADA');
+            
+            // 1. Notifica Service Worker
+            if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+                navigator.serviceWorker.controller.postMessage({
+                    type: 'CLEAR_ALL_CACHE',
+                    emergency: true,
+                    timestamp: Date.now()
+                });
+            }
+            
+            // 2. Limpa localStorage
+            this.clearLocalStorage();
+            
+            // 3. Limpa sessionStorage
+            this.clearSessionStorage();
+            
+            // 4. Limpa cache do browser
+            await this.clearBrowserCache();
+            
+            // 5. Marca timestamp da limpeza
+            localStorage.setItem('lastCacheCleanup', Date.now().toString());
+            localStorage.setItem('emergencyCleanupCount', 
+                (parseInt(localStorage.getItem('emergencyCleanupCount') || '0') + 1).toString()
+            );
+            
+            // 6. Reset contador de erros
+            this.errorCount = 0;
+            
+            console.log('✅ Limpeza de emergência concluída');
+            
+            // 7. Mostra notificação para o usuário
+            if (typeof showToast === 'function') {
+                showToast('Cache limpo por problemas de conectividade', 'info');
+            }
+            
+        } catch (error) {
+            console.error('❌ Erro na limpeza de emergência:', error);
+        }
+    }
+    
+    checkAutoCleanup() {
+        const now = Date.now();
+        const lastCleanup = parseInt(this.lastCleanup);
+        
+        if (now - lastCleanup > this.cleanupInterval) {
+            console.log('🕐 Limpeza automática programada');
+            setTimeout(() => {
+                this.performScheduledCleanup();
+            }, 5000); // Aguarda 5s após carregamento
+        }
+    }
+    
+    async performScheduledCleanup() {
+        try {
+            console.log('🧹 Limpeza programada iniciada');
+            
+            await this.cleanCorruptedCache();
+            
+            localStorage.setItem('lastCacheCleanup', Date.now().toString());
+            
+            console.log('✅ Limpeza programada concluída');
+            
+        } catch (error) {
+            console.error('❌ Erro na limpeza programada:', error);
+        }
+    }
+    
+    clearLocalStorage() {
+        try {
+            const keysToKeep = [
+                'lastCacheCleanup',
+                'emergencyCleanupCount',
+                'userPreferences'
+            ];
+            
+            const keysToRemove = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key && !keysToKeep.includes(key)) {
+                    keysToRemove.push(key);
+                }
+            }
+            
+            keysToRemove.forEach(key => {
+                localStorage.removeItem(key);
+            });
+            
+            console.log('🧹 localStorage limpo:', keysToRemove.length, 'itens removidos');
+            
+        } catch (error) {
+            console.error('❌ Erro ao limpar localStorage:', error);
+        }
+    }
+    
+    clearSessionStorage() {
+        try {
+            sessionStorage.clear();
+            console.log('🧹 sessionStorage limpo');
+        } catch (error) {
+            console.error('❌ Erro ao limpar sessionStorage:', error);
+        }
+    }
+    
+    async clearBrowserCache() {
+        try {
+            if ('caches' in window) {
+                const cacheNames = await caches.keys();
+                
+                const deletePromises = cacheNames.map(async (cacheName) => {
+                    try {
+                        await caches.delete(cacheName);
+                        console.log('🗑️ Cache removido:', cacheName);
+                    } catch (error) {
+                        console.warn('⚠️ Erro ao remover cache:', cacheName, error);
+                    }
+                });
+                
+                await Promise.all(deletePromises);
+                console.log('✅ Cache do browser limpo');
+            }
+        } catch (error) {
+            console.error('❌ Erro ao limpar cache do browser:', error);
+        }
+    }
+    
+    async cleanCorruptedCache() {
+        try {
+            if (!('caches' in window)) return;
+            
+            console.log('🔍 Verificando cache corrompido...');
+            
+            const cacheNames = await caches.keys();
+            let corruptedCount = 0;
+            
+            for (const cacheName of cacheNames) {
+                try {
+                    const cache = await caches.open(cacheName);
+                    const requests = await cache.keys();
+                    
+                    for (const request of requests) {
+                        try {
+                            const response = await cache.match(request);
+                            
+                            // Verifica se resposta é válida
+                            if (!response || !response.ok) {
+                                await cache.delete(request);
+                                corruptedCount++;
+                                console.log('🗑️ Cache corrompido removido:', request.url);
+                            }
+                        } catch (error) {
+                            await cache.delete(request);
+                            corruptedCount++;
+                            console.log('🗑️ Cache inválido removido:', request.url);
+                        }
+                    }
+                } catch (error) {
+                    // Cache corrompido - remove completamente
+                    await caches.delete(cacheName);
+                    corruptedCount++;
+                    console.log('🗑️ Cache corrompido removido:', cacheName);
+                }
+            }
+            
+            if (corruptedCount > 0) {
+                console.log(`✅ Limpeza de cache corrompido: ${corruptedCount} itens removidos`);
+            } else {
+                console.log('✅ Cache verificado - nenhum item corrompido');
+            }
+            
+        } catch (error) {
+            console.error('❌ Erro ao verificar cache corrompido:', error);
+        }
+    }
+    
+    // Método para forçar logout limpo
+    async forceCleanLogout() {
+        console.log('🚪 Forçando logout limpo...');
+        
+        try {
+            // 1. Notifica Service Worker
+            if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+                navigator.serviceWorker.controller.postMessage({
+                    type: 'FORCE_LOGOUT',
+                    timestamp: Date.now()
+                });
+            }
+            
+            // 2. Limpeza completa
+            await this.performEmergencyCleanup();
+            
+            // 3. Aguarda um pouco
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            // 4. Redireciona com cache busting
+            const logoutUrl = `/logout.php?t=${Date.now()}&clean=1&emergency=1`;
+            window.location.replace(logoutUrl);
+            
+        } catch (error) {
+            console.error('❌ Erro no logout limpo:', error);
+            // Fallback
+            window.location.replace(`/logout.php?t=${Date.now()}&fallback=1`);
+        }
+    }
+    
+    // Método para diagnosticar problemas
+    async diagnoseIssues() {
+        const diagnosis = {
+            timestamp: new Date().toISOString(),
+            errorCount: this.errorCount,
+            lastCleanup: this.lastCleanup,
+            emergencyCleanups: localStorage.getItem('emergencyCleanupCount') || '0',
+            online: navigator.onLine,
+            serviceWorker: {
+                supported: 'serviceWorker' in navigator,
+                registered: !!navigator.serviceWorker.controller,
+                registrations: 0
+            },
+            cache: {
+                supported: 'caches' in window,
+                names: []
+            },
+            storage: {
+                localStorage: this.getStorageInfo('localStorage'),
+                sessionStorage: this.getStorageInfo('sessionStorage')
+            }
+        };
+        
+        // Verifica Service Worker
+        if ('serviceWorker' in navigator) {
+            try {
+                const registrations = await navigator.serviceWorker.getRegistrations();
+                diagnosis.serviceWorker.registrations = registrations.length;
+            } catch (error) {
+                diagnosis.serviceWorker.error = error.message;
+            }
+        }
+        
+        // Verifica Cache
+        if ('caches' in window) {
+            try {
+                diagnosis.cache.names = await caches.keys();
+            } catch (error) {
+                diagnosis.cache.error = error.message;
+            }
+        }
+        
+        console.log('🔍 Diagnóstico do sistema:', diagnosis);
+        return diagnosis;
+    }
+    
+    getStorageInfo(storageType) {
+        try {
+            const storage = window[storageType];
+            return {
+                available: true,
+                length: storage.length,
+                keys: Object.keys(storage)
+            };
+        } catch (error) {
+            return {
+                available: false,
+                error: error.message
+            };
+        }
+    }
+    
+    // Método para teste de conectividade
+    async testConnectivity() {
+        const tests = [
+            { name: 'Dashboard', url: '/dashboard.php' },
+            { name: 'API Status', url: '/api/status.php' },
+            { name: 'Login Page', url: '/login.php' }
+        ];
+        
+        const results = {};
+        
+        for (const test of tests) {
+            try {
+                const startTime = Date.now();
+                const response = await fetch(test.url + `?test=1&t=${Date.now()}`, {
+                    method: 'HEAD',
+                    cache: 'no-cache'
+                });
+                const endTime = Date.now();
+                
+                results[test.name] = {
+                    success: response.ok,
+                    status: response.status,
+                    time: endTime - startTime,
+                    url: test.url
+                };
+                
+            } catch (error) {
+                results[test.name] = {
+                    success: false,
+                    error: error.message,
+                    url: test.url
+                };
+            }
+        }
+        
+        console.log('🌐 Teste de conectividade:', results);
+        return results;
+    }
+}
+
+// Função para integrar com o sistema existente
+function initCacheManager() {
+    // Cria instância global
+    window.cacheManager = new CacheManager();
+    
+    // Adiciona ao logout existente
+    const originalLogout = window.logoutLimpo;
+    if (originalLogout) {
+        window.logoutLimpo = function() {
+            console.log('🔄 Logout com limpeza de cache...');
+            window.cacheManager.forceCleanLogout();
+        };
+    }
+    
+    // Adiciona comando para limpeza manual
+    window.clearCacheEmergency = function() {
+        console.log('🧨 Limpeza manual solicitada');
+        window.cacheManager.performEmergencyCleanup();
+    };
+    
+    // Adiciona comando para diagnóstico
+    window.diagnoseCacheIssues = function() {
+        return window.cacheManager.diagnoseIssues();
+    };
+    
+    // Adiciona teste de conectividade
+    window.testConnectivity = function() {
+        return window.cacheManager.testConnectivity();
+    };
+    
+    console.log('🛡️ CacheManager integrado ao sistema');
+    console.log('💡 Comandos disponíveis:');
+    console.log('   - clearCacheEmergency() : Limpeza manual');
+    console.log('   - diagnoseCacheIssues() : Diagnóstico');
+    console.log('   - testConnectivity() : Teste de rede');
+}
+
+// Auto-inicialização
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initCacheManager);
+} else {
+    initCacheManager();
+}
+
+// Listener para Service Worker messages
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', event => {
+        const data = event.data;
+        
+        if (data && data.type === 'LOGOUT_CLEANUP_COMPLETE') {
+            console.log('✅ Service Worker confirmou limpeza de logout');
+        }
+        
+        if (data && data.type === 'SW_UPDATED') {
+            console.log('🔄 Service Worker atualizado:', data.message);
+            
+            // Se houve atualização, pode ser boa ideia limpar cache antigo
+            setTimeout(() => {
+                window.cacheManager?.cleanCorruptedCache();
+            }, 2000);
+        }
+    });
+}
+
+console.log('🛡️ Sistema de proteção contra ERR_FAILED carregado');
     </script>
 </body>
 </html>
