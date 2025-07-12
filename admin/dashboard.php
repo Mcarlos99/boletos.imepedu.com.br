@@ -519,10 +519,15 @@ foreach ($polosDisponiveis as $polo) {
                                             </td>
                                             <td>
                                                 <div class="btn-group btn-group-sm">
-                                                    <a href="/admin/boleto-detalhes.php?id=<?= $boleto['id'] ?>" 
+                                                    <button class="btn btn-outline-primary btn-sm" 
+                                                        onclick="verDetalhes(<?= $boleto['id'] ?>)" 
+                                                        title="Ver detalhes">
+                                                        <i class="fas fa-eye"></i>
+                                                    </button>
+                                                    <!-- <a href="/admin/boleto-detalhes.php?id=<?= $boleto['id'] ?>" 
                                                        class="btn btn-outline-primary btn-sm" title="Ver detalhes">
                                                         <i class="fas fa-eye"></i>
-                                                    </a>
+                                                    </a> -->
                                                     <?php if ($boleto['status'] == 'pendente'): ?>
                                                         <button class="btn btn-outline-success btn-sm" 
                                                                 onclick="marcarComoPago(<?= $boleto['id'] ?>)" 
@@ -700,6 +705,16 @@ foreach ($polosDisponiveis as $polo) {
         setTimeout(() => {
             location.reload();
         }, 300000);
+
+        // Função para ver detalhes do boleto
+function verDetalhes(boletoId) {
+    // Opção 1: Redirecionar para a página de detalhes
+    window.location.href = `/admin/boleto-detalhes.php?id=${boletoId}`;
+    
+    // Opção 2: Abrir em nova aba
+    // window.open(`/admin/boleto-detalhes.php?id=${boletoId}`, '_blank');
+}
+
     </script>
 </body>
 </html>
