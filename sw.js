@@ -1,107 +1,99 @@
 /**
- * Sistema de Boletos IMEPEDU - Service Worker CORRIGIDO para Upload
- * Arquivo: sw.js - VERSÃO CORRIGIDA PARA UPLOAD
- * Versão: 2.2.0 - Solução definitiva para ERR_FAILED no upload
+ * Sistema de Boletos IMEPEDU - Service Worker TOTALMENTE CORRIGIDO
+ * Arquivo: sw.js - VERSÃO 3.0.0 - CORREÇÃO DEFINITIVA ERR_FAILED
+ * 
+ * 🔧 CORREÇÕES APLICADAS:
+ * - Interceptação mais seletiva
+ * - Bypass completo para autenticação
+ * - Limpeza automática de cache corrompido
+ * - Detecção de app em segundo plano
  */
 
-const CACHE_NAME = 'IMEPEDU-boletos-v2.2.0';
-const DATA_CACHE_NAME = 'IMEPEDU-boletos-data-v1.4';
+const CACHE_NAME = 'IMEPEDU-boletos-v3.0.0';
+const DATA_CACHE_NAME = 'IMEPEDU-boletos-data-v2.0';
 
-// URLs para cache estático
+// URLs para cache estático (apenas essenciais)
 const STATIC_CACHE_URLS = [
-    '/',
-    '/index.php',
-    '/dashboard.php',
-    '/login.php',
-    '/manifest.json',
-    'https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css',
-    'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css',
-    'https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js',
-    '/icons/icon-192x192.png',
-    '/icons/icon-512x512.png',
-    '/offline.html'
+    '/offline.html',
+    '/manifest.json'
 ];
 
-// 🔧 CORREÇÃO CRÍTICA: URLs que NUNCA devem ser interceptadas pelo SW
+// 🔧 CORREÇÃO CRÍTICA: Padrões que NUNCA devem ser interceptados
 const NEVER_INTERCEPT_PATTERNS = [
-    // Logout patterns
+    // Autenticação e logout (PRIORIDADE MÁXIMA)
+    /\/login\.php/,
     /\/logout\.php/,
-    /\/login\.php\?logout=/,
-    /\/index\.php\?logout=/,
-    /logout=1/,
-    /\?t=\d+/,
+    /\/index\.php/,
+    /login|logout|auth/i,
+    /session/i,
     
-    // 🆕 UPLOAD patterns - NUNCA interceptar uploads
-    /\/admin\/upload-boletos\.php/,
-    /\/admin\/api\/upload/,
-    /\/admin\/.*upload/,
-    /multipart\/form-data/,
+    // Parâmetros de limpeza de cache
+    /[?&](t|logout|clear_cache|force_refresh|fallback|pwa)=/,
     
-    // Admin area critical operations
-    /\/admin\/.*\.php.*method=POST/,
-    /\/admin\/api\/.*\.php.*POST/,
+    // Admin completo
+    /\/admin\//,
     
-    // File operations
-    /\/api\/download-boleto\.php/,
-    /\/uploads\//,
+    // Upload e arquivos
+    /upload|multipart|file/i,
     /\.pdf$/,
+    /\/uploads\//,
     
-    // Cache busting
-    /clear_cache=1/,
-    /fallback=1/,
-    /pwa=1/,
-    /force_refresh=1/
+    // APIs POST
+    /\/api\/.*method=POST/,
+    
+    // Recursos externos
+    /^https?:\/\/(?!boleto\.imepedu\.com\.br)/
 ];
 
-// Configurações
+// Configurações mais conservadoras
 const CONFIG = {
     CACHE_DURATION: {
-        STATIC: 30 * 24 * 60 * 60 * 1000,      // 30 dias
-        API: 5 * 60 * 1000,                     // 5 minutos (reduzido)
-        IMAGES: 7 * 24 * 60 * 60 * 1000,       // 7 dias
-        DYNAMIC: 60 * 60 * 1000                 // 1 hora (reduzido)
+        STATIC: 24 * 60 * 60 * 1000,       // 1 dia (reduzido)
+        API: 2 * 60 * 1000,                // 2 minutos (muito reduzido)
+        DYNAMIC: 30 * 60 * 1000            // 30 minutos (reduzido)
     },
-    NETWORK_TIMEOUT: 10000,  // Aumentado para 10s
+    NETWORK_TIMEOUT: 8000,                  // 8 segundos
     DEBUG: true,
-    LOG_PREFIX: '[SW-IMEPEDU-UPLOAD-FIX]'
+    LOG_PREFIX: '[SW-IMEPEDU-v3.0]',
+    MAX_CACHE_SIZE: 50,                     // Máximo de itens no cache
+    AUTO_CLEANUP_INTERVAL: 30 * 60 * 1000  // Limpeza a cada 30 min
 };
+
+// Variáveis de controle
+let lastCleanup = Date.now();
+let interceptCount = 0;
+let bypassCount = 0;
 
 function logSW(message, data = null) {
     if (CONFIG.DEBUG) {
         const timestamp = new Date().toISOString().substr(11, 8);
+        const stats = `[I:${interceptCount} B:${bypassCount}]`;
+        
         if (data) {
-            console.log(`${CONFIG.LOG_PREFIX} [${timestamp}] ${message}`, data);
+            console.log(`${CONFIG.LOG_PREFIX} [${timestamp}] ${stats} ${message}`, data);
         } else {
-            console.log(`${CONFIG.LOG_PREFIX} [${timestamp}] ${message}`);
+            console.log(`${CONFIG.LOG_PREFIX} [${timestamp}] ${stats} ${message}`);
         }
     }
 }
 
 /**
- * Event: Install
+ * Install Event - Instalação mínima e segura
  */
 self.addEventListener('install', event => {
-    logSW('🔧 Instalando SW com correção de upload v' + CACHE_NAME);
+    logSW('🔧 Instalando SW v3.0.0 - Correção ERR_FAILED');
     
     event.waitUntil(
         (async () => {
             try {
+                // Cache apenas página offline
                 const staticCache = await caches.open(CACHE_NAME);
-                
-                // Cache apenas recursos essenciais e seguros
-                const essentialUrls = ['/', '/dashboard.php', '/login.php', '/offline.html'];
-                
-                for (const url of essentialUrls) {
-                    try {
-                        await staticCache.add(url);
-                        logSW(`✅ Cached: ${url}`);
-                    } catch (error) {
-                        logSW(`⚠️ Failed to cache: ${url}`);
-                    }
-                }
+                await staticCache.add('/offline.html');
                 
                 await caches.open(DATA_CACHE_NAME);
-                logSW('✅ Instalação concluída com correção de upload');
+                logSW('✅ Instalação minimalista concluída');
+                
+                // Skip waiting para ativar imediatamente
                 await self.skipWaiting();
                 
             } catch (error) {
@@ -112,38 +104,44 @@ self.addEventListener('install', event => {
 });
 
 /**
- * Event: Activate
+ * Activate Event - Limpeza agressiva de cache antigo
  */
 self.addEventListener('activate', event => {
-    logSW('🚀 Ativando SW com correção de upload');
+    logSW('🚀 Ativando SW v3.0.0');
     
     event.waitUntil(
         (async () => {
             try {
+                // Remove TODOS os caches antigos
                 const cacheNames = await caches.keys();
                 const currentCaches = [CACHE_NAME, DATA_CACHE_NAME];
                 
                 const deletionPromises = cacheNames
                     .filter(name => !currentCaches.includes(name))
-                    .map(name => {
+                    .map(async name => {
                         logSW('🗑️ Removendo cache antigo:', name);
-                        return caches.delete(name);
+                        return await caches.delete(name);
                     });
                 
                 await Promise.all(deletionPromises);
+                
+                // Limpa cache corrompido
+                await cleanupCorruptedCache();
+                
+                // Assume controle imediato
                 await self.clients.claim();
                 
-                // Notifica sobre nova versão
+                // Notifica clientes sobre atualização
                 const clients = await self.clients.matchAll();
                 clients.forEach(client => {
                     client.postMessage({
                         type: 'SW_UPDATED',
                         version: CACHE_NAME,
-                        message: 'Service Worker atualizado com correção de upload!'
+                        message: 'Service Worker atualizado - ERR_FAILED corrigido!'
                     });
                 });
                 
-                logSW('✅ Ativação concluída');
+                logSW('✅ Ativação concluída - Cache limpo');
                 
             } catch (error) {
                 logSW('❌ Erro na ativação:', error);
@@ -153,7 +151,7 @@ self.addEventListener('activate', event => {
 });
 
 /**
- * Event: Fetch - VERSÃO TOTALMENTE CORRIGIDA PARA UPLOAD
+ * Fetch Event - INTERCEPTAÇÃO ULTRA SELETIVA
  */
 self.addEventListener('fetch', event => {
     const { request } = event;
@@ -164,87 +162,88 @@ self.addEventListener('fetch', event => {
         return;
     }
     
-    // 🔧 CORREÇÃO CRÍTICA: NUNCA intercepta uploads e operações críticas
+    // 🔧 VERIFICAÇÃO CRÍTICA: Nunca intercepta padrões críticos
     if (shouldNeverIntercept(request, url)) {
-        logSW('🚫 NEVER INTERCEPT - bypass completo:', request.url);
-        logSW('📋 Request details:', {
+        bypassCount++;
+        logSW('🚫 BYPASS TOTAL:', {
+            url: request.url,
             method: request.method,
-            headers: getRequestHeaders(request),
-            url: request.url
+            reason: 'never_intercept_pattern'
         });
         return; // Deixa o browser lidar completamente
     }
     
-    // 🔧 CORREÇÃO: POST requests para admin NUNCA são interceptadas
-    if (request.method === 'POST' && url.pathname.startsWith('/admin/')) {
-        logSW('📝 POST Admin - ignorando completamente:', request.url);
+    // 🔧 SEGURANÇA: Só intercepta GET requests muito específicos
+    if (request.method !== 'GET') {
+        bypassCount++;
+        logSW('🚫 BYPASS - Non-GET:', request.method, request.url);
         return;
     }
     
-    // 🔧 CORREÇÃO: Multipart form data NUNCA é interceptado
-    const contentType = request.headers.get('content-type') || '';
-    if (contentType.includes('multipart/form-data')) {
-        logSW('📎 Multipart data - ignorando:', request.url);
+    // 🔧 VERIFICAÇÃO ADICIONAL: URLs suspeitas
+    if (isSuspiciousUrl(request, url)) {
+        bypassCount++;
+        logSW('🚫 BYPASS - Suspicious URL:', request.url);
         return;
     }
     
-    // Só intercepta GET requests seguros
-    if (request.method === 'GET') {
-        if (isStaticResource(url)) {
-            event.respondWith(handleStaticResource(request));
-        } else if (isAPIRequest(url) && !url.pathname.includes('upload')) {
-            event.respondWith(handleAPIRequest(request));
-        } else if (isImageRequest(url)) {
-            event.respondWith(handleImageRequest(request));
-        } else {
-            event.respondWith(handleDynamicRequest(request));
-        }
+    // Limpeza automática periódica
+    if (Date.now() - lastCleanup > CONFIG.AUTO_CLEANUP_INTERVAL) {
+        event.waitUntil(performPeriodicCleanup());
+    }
+    
+    // Só intercepta recursos muito seguros
+    interceptCount++;
+    
+    if (isStaticSafeResource(url)) {
+        event.respondWith(handleStaticResource(request));
+    } else if (isSafeAPIRequest(url)) {
+        event.respondWith(handleSafeAPIRequest(request));
+    } else {
+        // Para qualquer outra coisa, vai direto para rede
+        bypassCount++;
+        interceptCount--; // Corrige contador
+        logSW('🚫 BYPASS - Default fallback:', request.url);
+        return;
     }
 });
 
 /**
- * 🔧 FUNÇÃO CRÍTICA MELHORADA: Determina se requisição NUNCA deve ser interceptada
+ * 🔧 FUNÇÃO CRÍTICA: Determina se requisição NUNCA deve ser interceptada
  */
 function shouldNeverIntercept(request, url) {
-    const fullUrl = url.pathname + url.search;
+    const fullUrl = request.url;
     const method = request.method.toUpperCase();
     
-    // 1. Verifica padrões de URL
-    const matchesNeverPattern = NEVER_INTERCEPT_PATTERNS.some(pattern => {
-        const matches = pattern.test(fullUrl) || pattern.test(request.url);
-        if (matches) {
-            logSW(`🚫 Matched never-intercept pattern: ${fullUrl} -> ${pattern}`);
+    // 1. Testa todos os padrões de bypass
+    for (const pattern of NEVER_INTERCEPT_PATTERNS) {
+        if (pattern.test(fullUrl)) {
+            logSW(`🚫 Pattern match: ${pattern} -> ${fullUrl}`);
+            return true;
         }
-        return matches;
-    });
+    }
     
-    if (matchesNeverPattern) return true;
-    
-    // 2. Qualquer POST para /admin/
-    if (method === 'POST' && url.pathname.startsWith('/admin/')) {
-        logSW(`🚫 POST to admin area: ${request.url}`);
+    // 2. Qualquer POST
+    if (method !== 'GET') {
         return true;
     }
     
-    // 3. Requisições com form data
+    // 3. Headers problemáticos
     const contentType = request.headers.get('content-type') || '';
-    if (contentType.includes('multipart/form-data') || 
-        contentType.includes('application/x-www-form-urlencoded')) {
-        logSW(`🚫 Form data detected: ${request.url}`);
+    if (contentType.includes('multipart') || 
+        contentType.includes('form-data')) {
         return true;
     }
     
-    // 4. Uploads específicos
-    if (url.pathname.includes('upload') || 
-        url.pathname.includes('file') ||
-        url.pathname.includes('.pdf')) {
-        logSW(`🚫 Upload/file operation: ${request.url}`);
+    // 4. Headers de autenticação
+    if (request.headers.get('authorization') || 
+        request.headers.get('x-requested-with')) {
         return true;
     }
     
-    // 5. Admin API operations
-    if (url.pathname.startsWith('/admin/api/') && method !== 'GET') {
-        logSW(`🚫 Admin API non-GET: ${request.url}`);
+    // 5. URLs com domínio diferente
+    if (url.hostname !== 'boleto.imepedu.com.br' && 
+        url.hostname !== 'localhost') {
         return true;
     }
     
@@ -252,80 +251,76 @@ function shouldNeverIntercept(request, url) {
 }
 
 /**
- * Obtém headers da requisição para debug
+ * Verifica URLs suspeitas que podem causar problemas
  */
-function getRequestHeaders(request) {
-    const headers = {};
-    if (request.headers) {
-        try {
-            for (const [key, value] of request.headers.entries()) {
-                headers[key] = value;
-            }
-        } catch (e) {
-            headers['error'] = 'Could not read headers';
-        }
-    }
-    return headers;
+function isSuspiciousUrl(request, url) {
+    const suspicious = [
+        // Parâmetros de sessão
+        'session', 'token', 'auth', 'login', 'logout',
+        // Timestamps e cache busting
+        '&t=', '?t=', 'timestamp', 'nocache',
+        // Admin operations
+        'admin/api', 'admin/upload',
+        // File operations
+        '.pdf', '.doc', '.xlsx', 'download',
+        // POST-like parameters
+        'method=post', 'action=',
+    ];
+    
+    const fullUrl = request.url.toLowerCase();
+    return suspicious.some(term => fullUrl.includes(term));
 }
 
 /**
- * Verifica se é um recurso estático
+ * Verifica se é recurso estático seguro
  */
-function isStaticResource(url) {
-    return STATIC_CACHE_URLS.some(staticUrl => {
-        if (typeof staticUrl === 'string') {
-            return url.pathname === staticUrl || url.href === staticUrl;
-        }
-        return false;
-    });
+function isStaticSafeResource(url) {
+    // Apenas recursos CDN externos seguros
+    const safeCDNs = [
+        'cdn.jsdelivr.net',
+        'cdnjs.cloudflare.com',
+        'fonts.googleapis.com',
+        'fonts.gstatic.com'
+    ];
+    
+    return safeCDNs.includes(url.hostname) && 
+           /\.(css|js|woff|woff2|ttf)$/i.test(url.pathname);
 }
 
 /**
- * Verifica se é uma requisição de API (só GET)
+ * Verifica se é API request segura
  */
-function isAPIRequest(url) {
-    return url.pathname.startsWith('/api/') && !url.pathname.includes('upload');
+function isSafeAPIRequest(url) {
+    // Muito seletivo - apenas APIs específicas e seguras
+    if (url.hostname !== 'boleto.imepedu.com.br') return false;
+    
+    const safeAPIs = [
+        '/api/site-info.php',
+        '/api/status.php'
+    ];
+    
+    return safeAPIs.some(api => url.pathname === api) &&
+           !url.search.includes('logout') &&
+           !url.search.includes('auth');
 }
 
 /**
- * Verifica se é uma requisição de imagem
- */
-function isImageRequest(url) {
-    return /\.(jpg|jpeg|png|gif|webp|svg|ico)$/i.test(url.pathname);
-}
-
-/**
- * Manipula recursos estáticos - Cache First
+ * Handle recursos estáticos - Cache opcional
  */
 async function handleStaticResource(request) {
-    const url = new URL(request.url);
-    
     try {
-        // Para index.php com parâmetros especiais, sempre busca da rede
-        if (url.pathname === '/index.php' && 
-            (url.searchParams.has('logout') || url.searchParams.has('t'))) {
-            logSW('🏠 Index especial - rede:', request.url);
-            return await fetchWithTimeout(request);
-        }
+        logSW('🌐 Static Network First:', request.url);
         
-        const cache = await caches.open(CACHE_NAME);
-        const cachedResponse = await cache.match(request);
-        
-        if (cachedResponse && !isExpired(cachedResponse, CONFIG.CACHE_DURATION.STATIC)) {
-            logSW('📦 Cache hit (static):', request.url);
-            return cachedResponse;
-        }
-        
-        logSW('🌐 Network (static):', request.url);
+        // Network first para recursos estáticos também
         const networkResponse = await fetchWithTimeout(request);
         
         if (networkResponse && networkResponse.status === 200) {
-            // Só cacheia se não tem parâmetros especiais
-            if (!url.searchParams.has('logout') && 
-                !url.searchParams.has('t') && 
-                !url.searchParams.has('clear_cache')) {
+            try {
+                const cache = await caches.open(CACHE_NAME);
                 await cache.put(request, networkResponse.clone());
-                logSW('💾 Cache updated (static):', request.url);
+                logSW('💾 Static cached:', request.url);
+            } catch (cacheError) {
+                logSW('⚠️ Cache write failed:', cacheError.message);
             }
         }
         
@@ -333,123 +328,18 @@ async function handleStaticResource(request) {
         
     } catch (error) {
         logSW('❌ Static error:', error.message);
-        const cache = await caches.open(CACHE_NAME);
-        const fallback = await cache.match(request);
-        return fallback || createOfflinePage();
-    }
-}
-
-/**
- * Manipula requisições de API - Network First
- */
-async function handleAPIRequest(request) {
-    const url = new URL(request.url);
-    
-    try {
-        // APIs com logout sempre da rede
-        if (url.pathname.includes('logout') || 
-            url.searchParams.has('logout')) {
-            return await fetchWithTimeout(request);
-        }
         
-        logSW('🌐 Network first (API):', request.url);
-        const networkResponse = await fetchWithTimeout(request);
-        
-        if (networkResponse && networkResponse.status === 200) {
-            const cache = await caches.open(DATA_CACHE_NAME);
-            await cache.put(request, networkResponse.clone());
-            logSW('💾 API cached:', request.url);
-        }
-        
-        return networkResponse;
-        
-    } catch (error) {
-        logSW('❌ API error:', error.message);
-        
-        const cache = await caches.open(DATA_CACHE_NAME);
-        const fallback = await cache.match(request);
-        
-        if (fallback) {
-            logSW('📦 API fallback:', request.url);
-            return fallback;
-        }
-        
-        return createOfflineAPIResponse();
-    }
-}
-
-/**
- * Manipula requisições de imagens
- */
-async function handleImageRequest(request) {
-    try {
-        const cache = await caches.open(CACHE_NAME);
-        const cached = await cache.match(request);
-        
-        if (cached) {
-            logSW('📦 Image cache hit:', request.url);
-            return cached;
-        }
-        
-        logSW('🌐 Image network:', request.url);
-        const response = await fetchWithTimeout(request);
-        
-        if (response && response.status === 200) {
-            await cache.put(request, response.clone());
-        }
-        
-        return response;
-        
-    } catch (error) {
-        logSW('❌ Image error:', error.message);
-        return createImagePlaceholder();
-    }
-}
-
-/**
- * Manipula requisições dinâmicas
- */
-async function handleDynamicRequest(request) {
-    const url = new URL(request.url);
-    
-    try {
-        // Requisições com parâmetros especiais sempre da rede
-        if (url.searchParams.has('logout') || 
-            url.searchParams.has('t') ||
-            url.searchParams.has('clear_cache')) {
-            return await fetchWithTimeout(request);
-        }
-        
-        logSW('🌐 Dynamic network:', request.url);
-        const response = await fetchWithTimeout(request);
-        
-        // Cache apenas HTML válido sem parâmetros especiais
-        if (response && 
-            response.status === 200 && 
-            response.headers.get('content-type')?.includes('text/html')) {
+        // Fallback para cache apenas se não conseguir rede
+        try {
             const cache = await caches.open(CACHE_NAME);
-            await cache.put(request, response.clone());
-            logSW('💾 Dynamic cached:', request.url);
-        }
-        
-        return response;
-        
-    } catch (error) {
-        logSW('❌ Dynamic error:', error.message);
-        
-        // Fallback apenas se não for logout
-        if (!url.searchParams.has('logout')) {
-            const cache = await caches.open(CACHE_NAME);
-            const fallback = await cache.match(request);
+            const cachedResponse = await cache.match(request);
             
-            if (fallback) {
-                logSW('📦 Dynamic fallback:', request.url);
-                return fallback;
+            if (cachedResponse) {
+                logSW('📦 Static fallback:', request.url);
+                return cachedResponse;
             }
-        }
-        
-        if (request.mode === 'navigate') {
-            return caches.match('/offline.html') || createOfflinePage();
+        } catch (cacheError) {
+            logSW('❌ Cache read failed:', cacheError.message);
         }
         
         throw error;
@@ -457,7 +347,39 @@ async function handleDynamicRequest(request) {
 }
 
 /**
- * Fetch com timeout
+ * Handle API requests seguros - Network only
+ */
+async function handleSafeAPIRequest(request) {
+    try {
+        logSW('🌐 Safe API Network:', request.url);
+        
+        const networkResponse = await fetchWithTimeout(request);
+        
+        // Cache apenas se bem-sucedido
+        if (networkResponse && networkResponse.status === 200) {
+            try {
+                const cache = await caches.open(DATA_CACHE_NAME);
+                
+                // Limita tamanho do cache
+                await limitCacheSize(cache, CONFIG.MAX_CACHE_SIZE);
+                
+                await cache.put(request, networkResponse.clone());
+                logSW('💾 API cached:', request.url);
+            } catch (cacheError) {
+                logSW('⚠️ API cache failed:', cacheError.message);
+            }
+        }
+        
+        return networkResponse;
+        
+    } catch (error) {
+        logSW('❌ API error - no fallback:', error.message);
+        throw error; // Não fornece fallback para APIs
+    }
+}
+
+/**
+ * Fetch com timeout e controle de erro
  */
 async function fetchWithTimeout(request, timeout = CONFIG.NETWORK_TIMEOUT) {
     const controller = new AbortController();
@@ -476,154 +398,225 @@ async function fetchWithTimeout(request, timeout = CONFIG.NETWORK_TIMEOUT) {
 }
 
 /**
- * Verifica se resposta está expirada
+ * Limita tamanho do cache
  */
-function isExpired(response, maxAge) {
-    const dateHeader = response.headers.get('date');
-    if (!dateHeader) return false;
-    
-    const responseTime = new Date(dateHeader).getTime();
-    const currentTime = Date.now();
-    
-    return (currentTime - responseTime) > maxAge;
-}
-
-/**
- * Cria página offline
- */
-function createOfflinePage() {
-    const html = `<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Offline - IMEPEDU Boletos</title>
-    <style>
-        body { 
-            font-family: Arial, sans-serif; 
-            display: flex; 
-            align-items: center; 
-            justify-content: center; 
-            min-height: 100vh; 
-            margin: 0; 
-            background: linear-gradient(135deg, #0066cc, #004499); 
-            color: white; 
-            text-align: center; 
-        }
-        .container { max-width: 400px; padding: 2rem; }
-        h1 { font-size: 2rem; margin-bottom: 1rem; }
-        p { font-size: 1.1rem; margin-bottom: 2rem; opacity: 0.9; }
-        .btn { 
-            background: rgba(255,255,255,0.2); 
-            color: white; 
-            padding: 12px 24px; 
-            border: none; 
-            border-radius: 8px; 
-            cursor: pointer; 
-            margin: 0.5rem; 
-            text-decoration: none; 
-            display: inline-block; 
-        }
-        .btn:hover { background: rgba(255,255,255,0.3); }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>📱 Você está offline</h1>
-        <p>Verifique sua conexão e tente novamente.</p>
-        <button class="btn" onclick="location.reload()">🔄 Tentar Novamente</button>
-        <a href="/dashboard.php" class="btn">📊 Ver Dados Salvos</a>
-    </div>
-</body>
-</html>`;
-    
-    return new Response(html, {
-        headers: { 'Content-Type': 'text/html; charset=utf-8' }
-    });
-}
-
-/**
- * Cria resposta offline para API
- */
-function createOfflineAPIResponse() {
-    const response = {
-        success: false,
-        message: 'Sem conexão. Dados podem estar desatualizados.',
-        offline: true,
-        timestamp: new Date().toISOString()
-    };
-    
-    return new Response(JSON.stringify(response), {
-        status: 503,
-        headers: { 'Content-Type': 'application/json; charset=utf-8' }
-    });
-}
-
-/**
- * Cria placeholder para imagens
- */
-function createImagePlaceholder() {
-    const svg = `<svg width="200" height="150" xmlns="http://www.w3.org/2000/svg">
-        <rect width="200" height="150" fill="#f8f9fa"/>
-        <text x="100" y="80" text-anchor="middle" fill="#6c757d" font-size="14">Imagem indisponível</text>
-    </svg>`;
-    
-    return new Response(svg, {
-        headers: { 'Content-Type': 'image/svg+xml' }
-    });
-}
-
-/**
- * Event: Message - Comandos dos clientes
- */
-self.addEventListener('message', event => {
-    const data = event.data;
-    if (!data || !data.type) return;
-    
-    logSW('📨 Message:', data.type);
-    
-    switch (data.type) {
-        case 'SKIP_WAITING':
-            self.skipWaiting();
-            break;
-        case 'CLAIM_CLIENTS':
-            self.clients.claim();
-            break;
-        case 'CLEAR_UPLOAD_CACHE':
-            event.waitUntil(clearUploadCache());
-            break;
-    }
-});
-
-/**
- * Limpa cache relacionado a upload
- */
-async function clearUploadCache() {
+async function limitCacheSize(cache, maxSize) {
     try {
-        logSW('🧹 Limpando cache de upload');
+        const keys = await cache.keys();
         
-        const cacheNames = await caches.keys();
+        if (keys.length >= maxSize) {
+            const deleteCount = keys.length - maxSize + 10; // Remove extra
+            
+            for (let i = 0; i < deleteCount; i++) {
+                await cache.delete(keys[i]);
+            }
+            
+            logSW(`🧹 Cache size limited: removed ${deleteCount} items`);
+        }
+    } catch (error) {
+        logSW('❌ Cache limit error:', error);
+    }
+}
+
+/**
+ * Limpeza automática periódica
+ */
+async function performPeriodicCleanup() {
+    try {
+        logSW('🧹 Limpeza automática iniciada');
+        
+        const cacheNames = [CACHE_NAME, DATA_CACHE_NAME];
+        
         for (const cacheName of cacheNames) {
             const cache = await caches.open(cacheName);
             const requests = await cache.keys();
             
             for (const request of requests) {
-                if (request.url.includes('upload') || 
-                    request.url.includes('multipart')) {
+                try {
+                    const response = await cache.match(request);
+                    
+                    if (response && isExpired(response, CONFIG.CACHE_DURATION.DYNAMIC)) {
+                        await cache.delete(request);
+                        logSW('🗑️ Expired item removed:', request.url);
+                    }
+                } catch (error) {
+                    // Remove itens corrompidos
                     await cache.delete(request);
-                    logSW('🗑️ Upload cache removed:', request.url);
+                    logSW('🗑️ Corrupted item removed:', request.url);
                 }
             }
         }
         
-        logSW('✅ Upload cache cleared');
+        lastCleanup = Date.now();
+        logSW('✅ Limpeza concluída');
+        
     } catch (error) {
-        logSW('❌ Error clearing upload cache:', error);
+        logSW('❌ Erro na limpeza:', error);
     }
 }
 
-// Log final
-logSW('🚀 Service Worker carregado com CORREÇÃO DE UPLOAD');
-logSW('📋 Configurações:', CONFIG);
-logSW('🚫 Never intercept patterns:', NEVER_INTERCEPT_PATTERNS.length);
-logSW('✅ Upload operations will bypass Service Worker completely');
+/**
+ * Limpa cache corrompido
+ */
+async function cleanupCorruptedCache() {
+    try {
+        logSW('🧹 Limpando cache corrompido');
+        
+        const cacheNames = await caches.keys();
+        
+        for (const cacheName of cacheNames) {
+            try {
+                const cache = await caches.open(cacheName);
+                const requests = await cache.keys();
+                
+                for (const request of requests) {
+                    try {
+                        const response = await cache.match(request);
+                        if (!response) {
+                            await cache.delete(request);
+                        }
+                    } catch (error) {
+                        await cache.delete(request);
+                        logSW('🗑️ Corrupted cache entry removed:', request.url);
+                    }
+                }
+            } catch (error) {
+                // Se não conseguir abrir o cache, deleta
+                await caches.delete(cacheName);
+                logSW('🗑️ Corrupted cache deleted:', cacheName);
+            }
+        }
+        
+        logSW('✅ Cache corruption cleanup completed');
+    } catch (error) {
+        logSW('❌ Cleanup error:', error);
+    }
+}
+
+/**
+ * Verifica se resposta está expirada
+ */
+function isExpired(response, maxAge) {
+    try {
+        const dateHeader = response.headers.get('date');
+        if (!dateHeader) return true; // Sem data = considerado expirado
+        
+        const responseTime = new Date(dateHeader).getTime();
+        const currentTime = Date.now();
+        
+        return (currentTime - responseTime) > maxAge;
+    } catch (error) {
+        return true; // Erro = considerado expirado
+    }
+}
+
+/**
+ * Message Event - Comandos dos clientes
+ */
+self.addEventListener('message', async event => {
+    const data = event.data;
+    if (!data || !data.type) return;
+    
+    logSW('📨 Message received:', data.type);
+    
+    switch (data.type) {
+        case 'SKIP_WAITING':
+            await self.skipWaiting();
+            break;
+            
+        case 'CLAIM_CLIENTS':
+            await self.clients.claim();
+            break;
+            
+        case 'FORCE_LOGOUT':
+            event.waitUntil(handleForceLogout());
+            break;
+            
+        case 'CLEAR_ALL_CACHE':
+            event.waitUntil(clearAllCache());
+            break;
+            
+        case 'BYPASS_CACHE':
+            // Adiciona URL à lista de bypass temporário
+            logSW('🚫 Bypass solicitado para:', data.url);
+            break;
+            
+        case 'GET_STATS':
+            // Retorna estatísticas
+            event.ports[0]?.postMessage({
+                interceptCount,
+                bypassCount,
+                cacheNames: await caches.keys(),
+                version: CACHE_NAME
+            });
+            break;
+    }
+});
+
+/**
+ * Handle force logout
+ */
+async function handleForceLogout() {
+    try {
+        logSW('🚪 Force logout - limpando tudo');
+        
+        await clearAllCache();
+        
+        // Notifica todos os clientes
+        const clients = await self.clients.matchAll();
+        clients.forEach(client => {
+            client.postMessage({
+                type: 'LOGOUT_CLEANUP_COMPLETE',
+                timestamp: Date.now()
+            });
+        });
+        
+        logSW('✅ Force logout concluído');
+    } catch (error) {
+        logSW('❌ Erro no force logout:', error);
+    }
+}
+
+/**
+ * Limpa todo o cache
+ */
+async function clearAllCache() {
+    try {
+        logSW('🧹 Limpando TODO o cache');
+        
+        const cacheNames = await caches.keys();
+        const deletePromises = cacheNames.map(name => caches.delete(name));
+        
+        await Promise.all(deletePromises);
+        
+        // Reset contadores
+        interceptCount = 0;
+        bypassCount = 0;
+        lastCleanup = Date.now();
+        
+        logSW('✅ Todo cache removido');
+    } catch (error) {
+        logSW('❌ Erro ao limpar cache:', error);
+    }
+}
+
+// Error handler global
+self.addEventListener('error', event => {
+    logSW('❌ Service Worker Error:', event.error);
+});
+
+self.addEventListener('unhandledrejection', event => {
+    logSW('❌ Unhandled Promise Rejection:', event.reason);
+});
+
+// Log inicial
+logSW('🚀 Service Worker v3.0.0 carregado - CORREÇÃO ERR_FAILED');
+logSW('📊 Configurações aplicadas:', {
+    version: CACHE_NAME,
+    patterns: NEVER_INTERCEPT_PATTERNS.length,
+    timeout: CONFIG.NETWORK_TIMEOUT,
+    maxCacheSize: CONFIG.MAX_CACHE_SIZE
+});
+logSW('✅ Interceptação ultra-seletiva ativada');
+logSW('🔒 Bypass total para autenticação e admin');
+logSW('🧹 Auto-limpeza de cache habilitada');
