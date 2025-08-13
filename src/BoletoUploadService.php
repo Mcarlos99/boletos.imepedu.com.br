@@ -1872,5 +1872,490 @@ public function getEstatisticasParcelasPix() {
     }
 }
 
+/**
+ * 🆕 Processa inserção de link PagSeguro
+ */
+public function processarLinkPagSeguro($post) {
+    try {
+        $this->db->beginTransaction();
+        
+        // Validar dados básicos
+        $dadosValidados = $this->validarDadosLinkPagSeguro($post);
+        
+        // Verificar se aluno existe
+        $aluno = $this->verificarAlunoFlexivel(
+            $dadosValidados['cpf'], 
+            $dadosValidados['curso_id'], 
+            $dadosValidados['polo']
+        );
+        
+        // Extrair informações do link PagSeguro
+        $infoLink = $this->extrairInformacoesPagSeguro($dadosValidados['link_pagseguro']);
+        
+        // Gerar número único do boleto
+        $numeroBoleto = $this->gerarNumeroSequencialSeguro();
+        $this->verificarNumeroBoletoUnico($numeroBoleto);
+        
+        // Preparar dados para salvar
+        $dadosBoleto = [
+            'aluno_id' => $aluno['id'],
+            'curso_id' => $dadosValidados['curso_id'],
+            'numero_boleto' => $numeroBoleto,
+            'valor' => $dadosValidados['valor'] ?: $infoLink['valor'],
+            'vencimento' => $dadosValidados['vencimento'] ?: $infoLink['vencimento'],
+            'descricao' => $dadosValidados['descricao'] ?: $infoLink['descricao'],
+            'arquivo_pdf' => null, // Links PagSeguro não têm PDF
+            'status' => 'pendente',
+            'admin_id' => $_SESSION['admin_id'] ?? null,
+            'tipo_boleto' => 'pagseguro_link',
+            'link_pagseguro' => $dadosValidados['link_pagseguro'],
+            'referencia_externa' => $dadosValidados['referencia'],
+            'tipo_cobranca' => $dadosValidados['tipo_cobranca'],
+            'observacoes' => $dadosValidados['observacoes'],
+            'pagseguro_id' => $infoLink['pagseguro_id']
+        ];
+        
+        $boletoId = $this->salvarBoletoComCamposExtras($dadosBoleto);
+        
+        $this->db->commit();
+        
+        // Log da operação
+        $this->registrarLog('link_pagseguro_inserido', $boletoId, 
+            "Link PagSeguro associado ao aluno {$aluno['nome']} - Valor: R$ " . 
+            number_format($dadosBoleto['valor'], 2, ',', '.'));
+        
+        return [
+            'success' => true,
+            'message' => 'Link PagSeguro salvo com sucesso!',
+            'boleto_id' => $boletoId,
+            'numero_boleto' => $numeroBoleto,
+            'aluno_nome' => $aluno['nome'],
+            'valor' => $dadosBoleto['valor'],
+            'vencimento' => $dadosBoleto['vencimento'],
+            'link_info' => $infoLink
+        ];
+        
+    } catch (Exception $e) {
+        $this->db->rollback();
+        error_log("Erro ao processar link PagSeguro: " . $e->getMessage());
+        throw new Exception($e->getMessage());
+    }
+}
+
+/**
+ * 🆕 Valida dados do link PagSeguro
+ */
+private function validarDadosLinkPagSeguro($post) {
+    $erros = [];
+    
+    // Validações obrigatórias
+    if (empty($post['polo'])) $erros[] = "Polo é obrigatório";
+    if (empty($post['curso_id'])) $erros[] = "Curso é obrigatório";
+    if (empty($post['aluno_cpf'])) $erros[] = "CPF do aluno é obrigatório";
+    if (empty($post['link_pagseguro'])) $erros[] = "Link PagSeguro é obrigatório";
+    
+    if (!empty($erros)) {
+        throw new Exception(implode(', ', $erros));
+    }
+    
+    // Validação do CPF
+    $cpf = preg_replace('/[^0-9]/', '', $post['aluno_cpf']);
+    if (strlen($cpf) !== 11) {
+        throw new Exception("CPF deve conter 11 dígitos");
+    }
+    
+    if (!$this->validarCPF($cpf)) {
+        throw new Exception("CPF inválido");
+    }
+    
+    // Validação do link PagSeguro
+    $link = trim($post['link_pagseguro']);
+    if (!filter_var($link, FILTER_VALIDATE_URL)) {
+        throw new Exception("Link PagSeguro inválido");
+    }
+    
+    if (!$this->validarLinkPagSeguro($link)) {
+        throw new Exception("Link não é um link válido do PagBank/PagSeguro");
+    }
+    
+    // Verificar se o link já existe no sistema
+    $this->verificarLinkPagSeguroUnico($link);
+    
+    // Validações opcionais
+    $valor = null;
+    if (!empty($post['valor'])) {
+        $valor = floatval($post['valor']);
+        if ($valor <= 0) {
+            throw new Exception("Valor deve ser maior que zero");
+        }
+    }
+    
+    $vencimento = null;
+    if (!empty($post['vencimento'])) {
+        if (strtotime($post['vencimento']) < strtotime(date('Y-m-d'))) {
+            throw new Exception("Data de vencimento não pode ser anterior a hoje");
+        }
+        $vencimento = $post['vencimento'];
+    }
+    
+    return [
+        'polo' => $post['polo'],
+        'curso_id' => intval($post['curso_id']),
+        'cpf' => $cpf,
+        'link_pagseguro' => $link,
+        'valor' => $valor,
+        'vencimento' => $vencimento,
+        'descricao' => trim($post['descricao'] ?? ''),
+        'referencia' => trim($post['referencia'] ?? ''),
+        'tipo_cobranca' => $post['tipo_cobranca'] ?? 'unica',
+        'observacoes' => trim($post['observacoes'] ?? '')
+    ];
+}
+
+/**
+ * 🆕 Valida se é um link válido do PagSeguro/PagBank
+ */
+private function validarLinkPagSeguro($link) {
+    $dominiosValidos = [
+        'cobranca.pagbank.com',
+        'cobranca.pagseguro.uol.com.br',
+        'pag.ae', // Links encurtados do PagSeguro
+        'pagbank.com.br'
+    ];
+    
+    $parsedUrl = parse_url($link);
+    $host = $parsedUrl['host'] ?? '';
+    
+    foreach ($dominiosValidos as $dominio) {
+        if (strpos($host, $dominio) !== false) {
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+/**
+ * 🆕 Verifica se link PagSeguro já existe no sistema
+ */
+private function verificarLinkPagSeguroUnico($link) {
+    $stmt = $this->db->prepare("
+        SELECT COUNT(*) as count, numero_boleto, status 
+        FROM boletos 
+        WHERE link_pagseguro = ? 
+        LIMIT 1
+    ");
+    $stmt->execute([$link]);
+    $resultado = $stmt->fetch();
+    
+    if ($resultado['count'] > 0) {
+        throw new Exception("Este link PagSeguro já está cadastrado no sistema (Boleto: {$resultado['numero_boleto']}, Status: {$resultado['status']})");
+    }
+}
+
+/**
+ * 🆕 Extrai informações do link PagSeguro
+ */
+private function extrairInformacoesPagSeguro($link) {
+    $info = [
+        'pagseguro_id' => null,
+        'valor' => null,
+        'vencimento' => null,
+        'descricao' => 'Cobrança PagSeguro'
+    ];
+    
+    // Extrair ID da cobrança do link
+    if (preg_match('/\/([a-f0-9-]{36})\/?$/i', $link, $matches)) {
+        $info['pagseguro_id'] = $matches[1];
+    } elseif (preg_match('/\/([a-zA-Z0-9_-]+)\/?$/i', $link, $matches)) {
+        $info['pagseguro_id'] = $matches[1];
+    }
+    
+    // Tentar extrair parâmetros da URL
+    $parsedUrl = parse_url($link);
+    if (isset($parsedUrl['query'])) {
+        parse_str($parsedUrl['query'], $params);
+        
+        if (isset($params['amount']) || isset($params['value']) || isset($params['valor'])) {
+            $valor = $params['amount'] ?? $params['value'] ?? $params['valor'];
+            $info['valor'] = floatval(str_replace(',', '.', $valor));
+        }
+        
+        if (isset($params['due_date']) || isset($params['vencimento'])) {
+            $dataVenc = $params['due_date'] ?? $params['vencimento'];
+            if (strtotime($dataVenc)) {
+                $info['vencimento'] = date('Y-m-d', strtotime($dataVenc));
+            }
+        }
+        
+        if (isset($params['description']) || isset($params['descricao'])) {
+            $info['descricao'] = $params['description'] ?? $params['descricao'];
+        }
+    }
+    
+    // Valores padrão se não encontrados
+    if (!$info['valor']) {
+        $info['valor'] = 0.00; // Será necessário informar manualmente
+    }
+    
+    if (!$info['vencimento']) {
+        // Define vencimento para 30 dias se não especificado
+        $info['vencimento'] = date('Y-m-d', strtotime('+30 days'));
+    }
+    
+    return $info;
+}
+
+/**
+ * 🆕 Salva boleto com campos extras para PagSeguro
+ */
+private function salvarBoletoComCamposExtras($dados) {
+    $colunas = $this->obterColunasTabelaBoletos();
+    
+    $camposObrigatorios = [
+        'aluno_id', 'curso_id', 'numero_boleto', 'valor', 
+        'vencimento', 'status', 'created_at'
+    ];
+    
+    $camposOpcionais = [
+        'descricao', 'arquivo_pdf', 'admin_id', 'updated_at',
+        'data_pagamento', 'valor_pago', 'observacoes',
+        'pix_desconto_disponivel', 'pix_desconto_usado',
+        'pix_valor_desconto', 'pix_valor_minimo',
+        'tipo_boleto', 'link_pagseguro', 'referencia_externa',
+        'tipo_cobranca', 'pagseguro_id'
+    ];
+    
+    $campos = [];
+    $valores = [];
+    $params = [];
+    
+    // Adicionar campos obrigatórios
+    foreach ($camposObrigatorios as $campo) {
+        if (in_array($campo, $colunas)) {
+            $campos[] = $campo;
+            
+            if ($campo === 'created_at') {
+                $valores[] = 'NOW()';
+            } else {
+                $valores[] = '?';
+                $params[] = $dados[$campo] ?? null;
+            }
+        }
+    }
+    
+    // Adicionar campos opcionais
+    foreach ($camposOpcionais as $campo) {
+        if (in_array($campo, $colunas) && isset($dados[$campo])) {
+            $campos[] = $campo;
+            
+            if ($campo === 'updated_at') {
+                $valores[] = 'NOW()';
+            } else {
+                $valores[] = '?';
+                $params[] = $dados[$campo];
+            }
+        }
+    }
+    
+    $sql = "INSERT INTO boletos (" . implode(', ', $campos) . ") VALUES (" . implode(', ', $valores) . ")";
+    
+    $stmt = $this->db->prepare($sql);
+    $stmt->execute($params);
+    
+    return $this->db->lastInsertId();
+}
+
+/**
+ * 🆕 Lista boletos PagSeguro
+ */
+public function listarBoletosPagSeguro($filtros = [], $pagina = 1, $itensPorPagina = 20) {
+    $filtros['tipo_boleto'] = 'pagseguro_link';
+    return $this->listarBoletos($filtros, $pagina, $itensPorPagina);
+}
+
+/**
+ * 🆕 Busca histórico de links PagSeguro para um aluno
+ */
+public function buscarHistoricoLinksPagSeguro($cpf, $polo, $limite = 5) {
+    try {
+        // Buscar aluno
+        $alunoService = new AlunoService();
+        $aluno = $alunoService->buscarAlunoPorCPFESubdomain($cpf, $polo);
+        
+        if (!$aluno) {
+            return [];
+        }
+        
+        $stmt = $this->db->prepare("
+            SELECT b.*, c.nome as curso_nome, c.subdomain
+            FROM boletos b
+            INNER JOIN cursos c ON b.curso_id = c.id
+            WHERE b.aluno_id = ? 
+            AND b.tipo_boleto = 'pagseguro_link'
+            AND c.subdomain = ?
+            ORDER BY b.created_at DESC
+            LIMIT ?
+        ");
+        $stmt->execute([$aluno['id'], $polo, $limite]);
+        
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+    } catch (Exception $e) {
+        error_log("Erro ao buscar histórico PagSeguro: " . $e->getMessage());
+        return [];
+    }
+}
+
+/**
+ * 🆕 Valida link PagSeguro via API (se necessário)
+ */
+public function validarLinkPagSeguroAPI($link) {
+    try {
+        // Esta função pode ser expandida para verificar o link via API do PagSeguro
+        // Por enquanto, apenas verifica se o link está acessível
+        
+        $headers = @get_headers($link, 1);
+        if (!$headers) {
+            return [
+                'valido' => false,
+                'motivo' => 'Link inacessível'
+            ];
+        }
+        
+        $httpCode = substr($headers[0], 9, 3);
+        
+        if (in_array($httpCode, ['200', '301', '302'])) {
+            return [
+                'valido' => true,
+                'status_http' => $httpCode,
+                'info' => 'Link acessível'
+            ];
+        } else {
+            return [
+                'valido' => false,
+                'motivo' => "HTTP {$httpCode}",
+                'status_http' => $httpCode
+            ];
+        }
+        
+    } catch (Exception $e) {
+        return [
+            'valido' => false,
+            'motivo' => 'Erro na validação: ' . $e->getMessage()
+        ];
+    }
+}
+
+/**
+ * 🆕 Atualiza status de link PagSeguro
+ */
+public function atualizarStatusLinkPagSeguro($boletoId, $novoStatus, $observacoes = '') {
+    try {
+        $this->db->beginTransaction();
+        
+        $stmt = $this->db->prepare("
+            UPDATE boletos 
+            SET status = ?, observacoes = CONCAT(IFNULL(observacoes, ''), ?, ';'), updated_at = NOW()
+            WHERE id = ? AND tipo_boleto = 'pagseguro_link'
+        ");
+        
+        $observacao = "\n[" . date('d/m/Y H:i') . "] Status alterado para: {$novoStatus}";
+        if ($observacoes) {
+            $observacao .= " - {$observacoes}";
+        }
+        
+        $stmt->execute([$novoStatus, $observacao, $boletoId]);
+        
+        if ($stmt->rowCount() > 0) {
+            $this->db->commit();
+            
+            $this->registrarLog('status_pagseguro_atualizado', $boletoId, 
+                "Status do link PagSeguro alterado para: {$novoStatus}");
+            
+            return true;
+        } else {
+            $this->db->rollback();
+            return false;
+        }
+        
+    } catch (Exception $e) {
+        $this->db->rollback();
+        error_log("Erro ao atualizar status PagSeguro: " . $e->getMessage());
+        return false;
+    }
+}
+
+/**
+ * 🆕 Estatísticas de links PagSeguro
+ */
+public function getEstatisticasLinksPagSeguro() {
+    try {
+        // Total de links cadastrados
+        $stmt = $this->db->query("
+            SELECT COUNT(*) as total_links,
+                   SUM(valor) as valor_total,
+                   AVG(valor) as valor_medio
+            FROM boletos 
+            WHERE tipo_boleto = 'pagseguro_link'
+        ");
+        $totais = $stmt->fetch();
+        
+        // Links por status
+        $stmt = $this->db->query("
+            SELECT status, COUNT(*) as quantidade
+            FROM boletos 
+            WHERE tipo_boleto = 'pagseguro_link'
+            GROUP BY status
+        ");
+        $porStatus = [];
+        while ($row = $stmt->fetch()) {
+            $porStatus[$row['status']] = $row['quantidade'];
+        }
+        
+        // Links criados nos últimos 30 dias
+        $stmt = $this->db->query("
+            SELECT COUNT(*) as recentes
+            FROM boletos 
+            WHERE tipo_boleto = 'pagseguro_link'
+            AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+        ");
+        $recentes = $stmt->fetch()['recentes'];
+        
+        // Links vencendo nos próximos 7 dias
+        $stmt = $this->db->query("
+            SELECT COUNT(*) as vencendo_7_dias
+            FROM boletos 
+            WHERE tipo_boleto = 'pagseguro_link'
+            AND status = 'pendente'
+            AND vencimento BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 7 DAY)
+        ");
+        $vencendo = $stmt->fetch()['vencendo_7_dias'];
+        
+        return [
+            'total_links' => $totais['total_links'] ?? 0,
+            'valor_total' => $totais['valor_total'] ?? 0,
+            'valor_medio' => $totais['valor_medio'] ?? 0,
+            'por_status' => $porStatus,
+            'links_recentes' => $recentes,
+            'vencendo_7_dias' => $vencendo,
+            'taxa_utilizacao' => $totais['total_links'] > 0 ? 
+                round((($porStatus['pago'] ?? 0) / $totais['total_links']) * 100, 1) : 0
+        ];
+        
+    } catch (Exception $e) {
+        error_log("Erro nas estatísticas PagSeguro: " . $e->getMessage());
+        return [
+            'total_links' => 0,
+            'valor_total' => 0,
+            'valor_medio' => 0,
+            'por_status' => [],
+            'links_recentes' => 0,
+            'vencendo_7_dias' => 0,
+            'taxa_utilizacao' => 0
+        ];
+    }
+}
+
 }
 ?>
