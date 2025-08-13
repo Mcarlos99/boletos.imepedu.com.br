@@ -14,8 +14,10 @@ class MoodleConfig {
     private static $tokens = [
         'tucurui.imepedu.com.br' => 'x',
         'breubranco.imepedu.com.br' => '0441051a5b5bc8968f3e65ff7d45c3de',
-        'ava.imepedu.com.br' => '9eeee9d48903c760bc224b61e0547e4e',
+        'ava.imepedu.com.br' => '0c8ef233994c5ccfe22d6ed7d4e86a05',
         'igarape.imepedu.com.br' => '051a62d5f60167246607b195a9630d3b',
+        'repartimento.imepedu.com.br' => '25c578c6ec5d4c1b75547ea52a6fcf7c',
+      	'bioquality.imepedu.com.br/ava' => 'a4f1bd19f54bff53ad028085c34cad48'
     ];
     
     /**
@@ -69,6 +71,31 @@ class MoodleConfig {
             'active' => true,
             'timezone' => 'America/Belem',
             'max_students' => 900
+        ],        
+      	'repartimento.imepedu.com.br' => [
+            'name' => 'Polo Repartimento',
+            'city' => 'Novo Repartimento',
+            'state' => 'PA',
+            'contact_email' => 'repartimento@imepedu.com.br',
+            'phone' => '(xx) xxxx-xxxx',
+            'address' => 'Centro, Novo Repartimento - PA',
+            'cep' => '68473-000',
+            'active' => true,
+            'timezone' => 'America/Belem',
+            'max_students' => 900
+        ],  
+      	
+      	'bioquality.imepedu.com.br/ava' => [
+            'name' => 'BioQuality',
+            'city' => 'Parauapebas',
+            'state' => 'PA',
+            'contact_email' => 'breubranco@imepedu.com.br',
+            'phone' => '(94) 3745-5678',
+            'address' => 'Av. Principal, 456 - São José',
+            'cep' => '68470-000',
+            'active' => true,
+            'timezone' => 'America/Belem',
+            'max_students' => 800
         ]
     ];
     

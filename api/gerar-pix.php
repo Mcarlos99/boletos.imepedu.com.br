@@ -256,7 +256,7 @@ function obterConfiguracaoPIX($subdomain) {
             'currency' => '986'
         ],
         'ava.imepedu.com.br' => [
-            'chave_pix' => '51071986000121',
+            'chave_pix' => '06788a12-84cc-48a0-a437-96d5db8d0999',
             'beneficiario' => 'MAGALHAES EDUCACAO LTDA',
             'cidade' => 'AVA',
             'cep' => '68488000',

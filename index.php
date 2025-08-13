@@ -314,22 +314,39 @@ try {
                             </label>
                             <select class="form-control" id="subdomain" name="subdomain" required>
                                 <option value="">Selecione seu polo de estudo</option>
-                                <option value="tucurui.imepedu.com.br" 
+                                
+                              <option value="tucurui.imepedu.com.br" 
                                         <?= ($_POST['subdomain'] ?? $_GET['subdomain'] ?? '') == 'tucurui.imepedu.com.br' ? 'selected' : '' ?>>
                                     <i class="fas fa-building"></i> Tucuruí
                                 </option>
+                               
+                              
                                 <option value="breubranco.imepedu.com.br"
                                         <?= ($_POST['subdomain'] ?? $_GET['subdomain'] ?? '') == 'breubranco.imepedu.com.br' ? 'selected' : '' ?>>
                                     <i class="fas fa-building"></i> Breu Branco
                                 </option>
+                             
+                              
                                 <option value="ava.imepedu.com.br"
                                         <?= ($_POST['subdomain'] ?? $_GET['subdomain'] ?? '') == 'ava.imepedu.com.br' ? 'selected' : '' ?>>
                                     <i class="fas fa-building"></i> AVA
                                 </option>
-                                <option value="igarape.imepedu.com.br"
+
+                              <option value="igarape.imepedu.com.br"
                                         <?= ($_POST['subdomain'] ?? $_GET['subdomain'] ?? '') == 'igarape.imepedu.com.br' ? 'selected' : '' ?>>
                                     <i class="fas fa-building"></i> Igarapé-Miri
-                                    </option>
+                              </option>
+                              
+                              <option value="repartimento.imepedu.com.br"
+                                        <?= ($_POST['subdomain'] ?? $_GET['subdomain'] ?? '') == 'repartimento.imepedu.com.br' ? 'selected' : '' ?>>
+                                    <i class="fas fa-building"></i> Novo Repartimento
+                              </option>
+
+                              <option value="bioquality.imepedu.com.br/ava"
+                                      <?= ($_POST['subdomain'] ?? $_GET['subdomain'] ?? '') == 'bioquality.imepedu.com.br/ava' ? 'selected' : '' ?>>
+                                      <i class="fas fa-building"></i> BioQuality
+                              </option>
+                              
                                 <!-- Adicione outros polos aqui -->
                             </select>
                         </div>
@@ -445,6 +462,9 @@ try {
                     <p class="mb-0">
                         <i class="fas fa-map-marker-alt"></i> Tucuruí - PA<br>
                         <i class="fas fa-map-marker-alt"></i> Breu Branco - PA<br>
+                        <i class="fas fa-map-marker-alt"></i> Igarapé-Miri - PA<br>
+                        <i class="fas fa-map-marker-alt"></i> Novo Repartimento - PA<br>
+                        <i class="fas fa-map-marker-alt"></i> BioQuality, Parauapebas - PA<br>
                         <i class="fas fa-map-marker-alt"></i> AVA - Ambiente Virtual de Aprendizagem
                     </p>
                 </div>
